@@ -26,7 +26,8 @@ expression: "serde_json::to_string_pretty(&parsed).unwrap()"
     "--",
     "/connector-mount/flow-connector-init",
     "--image-inspect-json-path=/connector-mount/image-inspect.json",
-    "--vsock-port=49092"
+    "--vsock-port=49092",
+    "--resolver-vsock-port=49093"
   ],
   "Env": [
     "CONNECTOR_MOUNT=/connector-mount",

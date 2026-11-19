@@ -84,6 +84,7 @@ fn a_listener_bind_failure_exits_nonzero() {
             image_inspect_json_path: "unused.json".to_string(),
             port: Some(port.parse().unwrap()),
             vsock_port: None,
+            resolver_vsock_port: None,
         });
         return;
     }

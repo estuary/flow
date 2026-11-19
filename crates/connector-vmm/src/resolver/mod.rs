@@ -37,6 +37,10 @@
 //!    so they take no room in the set. An unnamed question's targets are not
 //!    remembered, so that its answer names nothing a later public answer
 //!    could be authorized by.
+//!
+//! A refused name is reported once, as a [`Refusal`], to the guest's
+//! connector-init. It dials `serve_refusals` over vsock, and writes each
+//! refusal to the connector's logs.
 
 mod dns;
 mod nftset;
@@ -47,6 +51,7 @@ use models::egress::AllowedName;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// A UDP answer is bounded by the datagram, and `recv` truncates silently, so
@@ -130,9 +135,10 @@ impl Config {
 }
 
 /// Bind the resolver's sockets and hand the guest's DNS to a thread that is
-/// never joined. Returns once it is listening, so every startup failure is the
-/// caller's to report before the VM starts.
-pub fn start(config: Config) -> anyhow::Result<()> {
+/// never joined, and its refusals to another, served at the Unix socket
+/// `refusals`. Returns once both are listening, so every startup failure is
+/// the caller's to report before the VM starts.
+pub fn start(config: Config, refusals: &str) -> anyhow::Result<()> {
     // The ruleset admits DNS only to the tap address. Binding the wildcard
     // would also answer on the uplink, where nothing should reach us.
     if config.listen.ip().is_unspecified() {
@@ -143,9 +149,21 @@ pub fn start(config: Config) -> anyhow::Result<()> {
     }
     let listener = std::net::UdpSocket::bind(config.listen)
         .with_context(|| format!("binding {}", config.listen))?;
+    let refusals_listener = std::os::unix::net::UnixListener::bind(refusals)
+        .with_context(|| format!("binding {refusals}"))?;
 
     let writer = nftset::Netlink::open()?;
-    let mut resolver = Resolver::new(config, Box::new(writer));
+    let (reported_tx, reported_rx) = mpsc::channel();
+    let mut resolver = Resolver::new(config, Box::new(writer), reported_tx);
+
+    // Reporting is feedback, and not enforcement, so its failure isn't fatal.
+    std::thread::Builder::new()
+        .name("refusals".to_string())
+        .spawn(move || {
+            let error = serve_refusals(&refusals_listener, reported_rx);
+            eprint!("{}", crate::framed(&format!("{error:#}")));
+        })
+        .context("spawning the refusals thread")?;
 
     std::thread::Builder::new()
         .name("resolver".to_string())
@@ -182,6 +200,62 @@ pub struct Resolver {
     targets: HashMap<String, Instant>,
     scratch: Vec<u8>,
     refusals: Refusals,
+    /// Each refusal `refusals` reports, for `serve_refusals`.
+    reported: mpsc::Sender<Refusal>,
+}
+
+/// A DNS refusal, as connector-init reads it: one JSON object per line.
+/// Its `refusals` module states the same shape.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "refusal", rename_all = "camelCase")]
+pub enum Refusal {
+    /// A name which the connector's egress does not permit.
+    Name { name: String },
+    /// A name which resolved to an address that is not public. The address is
+    /// withheld: the upstream may be the host's own resolver, and the guest is
+    /// told no more than that it was refused.
+    Address { name: String },
+    /// No refusal after the first `reported` is reported.
+    Stopped { reported: usize },
+}
+
+/// Serve the refusals which arrive on `reported` to one client of `listener`
+/// at a time, as JSON lines: each client is sent every refusal so far, and
+/// then each later one. The guest's connector-init is the only client, for
+/// the VM's life. Returns only once accepting fails.
+fn serve_refusals(
+    listener: &std::os::unix::net::UnixListener,
+    reported: mpsc::Receiver<Refusal>,
+) -> anyhow::Error {
+    let mut history = Vec::new();
+    loop {
+        let mut client = match listener.accept() {
+            Ok((client, _)) => client,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return anyhow::Error::new(error).context("accepting a refusals client"),
+        };
+        history.extend(reported.try_iter());
+        if write_refusals(&mut client, &history).is_err() {
+            continue;
+        }
+        // `recv` fails only once the resolver is gone, which ends the process.
+        while let Ok(refusal) = reported.recv() {
+            let written = write_refusals(&mut client, std::slice::from_ref(&refusal));
+            history.push(refusal);
+            if written.is_err() {
+                break;
+            }
+        }
+    }
+}
+
+fn write_refusals(client: &mut impl std::io::Write, refusals: &[Refusal]) -> std::io::Result<()> {
+    let mut lines = Vec::new();
+    for refusal in refusals {
+        serde_json::to_writer(&mut lines, refusal).expect("a refusal serializes");
+        lines.push(b'\n');
+    }
+    client.write_all(&lines)
 }
 
 #[derive(Default)]
@@ -191,55 +265,30 @@ pub struct Refusals {
 }
 
 impl Refusals {
-    /// The log line which reports `decision`, if it is a refusal of a name
-    /// not yet reported. An answer refused for its address is reported
-    /// without the address: the upstream may be the host's own resolver, and
-    /// the guest is told no more than that it was refused.
-    pub fn report(&mut self, decision: &Decision) -> Option<String> {
-        let message = match &decision.outcome {
-            Outcome::RefusedName => {
-                let mut message = format!(
-                    "refused DNS name {}, which this connector's egress does not permit; \
-                     a task may permit it in egress.hosts",
-                    decision.name
-                );
-                // first_question normalizes case and escapes dots within a label.
-                if matches!(
-                    decision.name.as_str(),
-                    "pypi.org" | "files.pythonhosted.org"
-                ) {
-                    message.push_str(
-                        "; installing packages from PyPI typically requires both pypi.org \
-                         and files.pythonhosted.org in egress.hosts",
-                    );
-                }
-                message
-            }
-            Outcome::RefusedPrivate(_) => format!(
-                "refused DNS name {}, which resolved to an address that is not public",
-                decision.name
-            ),
+    /// The refusal which reports `decision`, if it refuses a name not yet
+    /// reported. Its name is as `first_question` normalized it: lowercase,
+    /// with dots within a label escaped.
+    pub fn report(&mut self, decision: &Decision) -> Option<Refusal> {
+        let refusal = match &decision.outcome {
+            Outcome::RefusedName => Refusal::Name {
+                name: decision.name.clone(),
+            },
+            Outcome::RefusedPrivate(_) => Refusal::Address {
+                name: decision.name.clone(),
+            },
             _ => return None,
         };
         if self.stopped || self.reported.contains(&decision.name) {
             return None;
         }
-        let line = if self.reported.len() == REPORTED_REFUSALS {
+        if self.reported.len() == REPORTED_REFUSALS {
             self.stopped = true;
-            serde_json::json!({
-                "level": "warn",
-                "message": "further refused DNS names are not reported",
-                "fields": {"reported": REPORTED_REFUSALS},
-            })
-        } else {
-            self.reported.insert(decision.name.clone());
-            serde_json::json!({
-                "level": "warn",
-                "message": message,
-                "fields": {"name": decision.name},
-            })
-        };
-        Some(format!("{line}\n"))
+            return Some(Refusal::Stopped {
+                reported: REPORTED_REFUSALS,
+            });
+        }
+        self.reported.insert(decision.name.clone());
+        Some(refusal)
     }
 }
 
@@ -326,7 +375,11 @@ fn separator(accumulated: &str) -> &'static str {
 }
 
 impl Resolver {
-    fn new(config: Config, writer: Box<dyn nftset::SetWriter>) -> Self {
+    fn new(
+        config: Config,
+        writer: Box<dyn nftset::SetWriter>,
+        reported: mpsc::Sender<Refusal>,
+    ) -> Self {
         Resolver {
             config,
             writer,
@@ -334,6 +387,7 @@ impl Resolver {
             targets: HashMap::new(),
             scratch: Vec::new(),
             refusals: Refusals::default(),
+            reported,
         }
     }
 
@@ -357,10 +411,9 @@ impl Resolver {
             if self.config.debug {
                 eprintln!("flow-connector-vmm: {}", handled.decision);
             }
-            if let Some(line) = self.refusals.report(&handled.decision) {
-                // One write, so the guest's console output, which shares
-                // stderr, cannot land inside the line.
-                _ = std::io::Write::write_all(&mut std::io::stderr().lock(), line.as_bytes());
+            if let Some(refusal) = self.refusals.report(&handled.decision) {
+                // Its receiver lives as long as the process.
+                _ = self.reported.send(refusal);
             }
             let Some(answer) = handled.answer else {
                 continue;
@@ -701,7 +754,9 @@ fn dropped(name: String, qtype: u16, error: &anyhow::Error) -> Handled {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, Decision, Handled, Outcome, Refusals, Resolver, dns, nftset};
+    use super::{
+        Config, Decision, Handled, Outcome, Refusal, Refusals, Resolver, dns, mpsc, nftset,
+    };
     use std::fmt::Write as _;
     use std::net::{Ipv4Addr, SocketAddr};
     use std::sync::{Arc, Mutex};
@@ -1054,7 +1109,7 @@ mod tests {
             upstream,
             false,
         );
-        Resolver::new(config, Box::new(writer))
+        Resolver::new(config, Box::new(writer), mpsc::channel().0)
     }
 
     /// Let `elapsed` pass for everything the resolver holds. The resolver
@@ -1157,9 +1212,9 @@ mod tests {
     #[test]
     fn refusals_are_reported_once_each_and_bounded() {
         let mut refusals = Refusals::default();
-        let mut lines = Vec::new();
+        let mut reported = Vec::new();
         let mut report = |name: &str, outcome: Outcome| {
-            lines.extend(refusals.report(&super::decision(name.to_string(), 1, outcome)));
+            reported.extend(refusals.report(&super::decision(name.to_string(), 1, outcome)));
         };
 
         report("other.acmeco.example", Outcome::RefusedName);
@@ -1176,27 +1231,72 @@ mod tests {
         }
         report("late.acmeco.example", Outcome::RefusedName);
 
-        for line in &lines {
-            let (body, rest) = line.split_once('\n').expect("a line ends in a newline");
-            assert_eq!(rest, "", "one line per report: {line:?}");
-            assert!(!body.starts_with(' '), "only readiness begins with a space");
-            let parsed: serde_json::Value = serde_json::from_str(body).expect("a JSON line");
-            assert_eq!(parsed["level"], "warn");
-        }
-        assert_eq!(lines.len(), super::REPORTED_REFUSALS + 1);
-        insta::assert_snapshot!(lines[..3].concat(), @r#"
-        {"fields":{"name":"other.acmeco.example"},"level":"warn","message":"refused DNS name other.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
-        {"fields":{"name":"leak.acmeco.example"},"level":"warn","message":"refused DNS name leak.acmeco.example, which resolved to an address that is not public"}
-        {"fields":{"name":"odd\"name\n .acmeco.example"},"level":"warn","message":"refused DNS name odd\"name\n .acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
-        "#);
-        insta::assert_snapshot!(lines[lines.len() - 2..].concat(), @r#"
-        {"fields":{"name":"n28.acmeco.example"},"level":"warn","message":"refused DNS name n28.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts"}
-        {"fields":{"reported":32},"level":"warn","message":"further refused DNS names are not reported"}
+        assert_eq!(reported.len(), super::REPORTED_REFUSALS + 1);
+        let mut lines = Vec::new();
+        super::write_refusals(&mut lines, &reported[..3]).unwrap();
+        super::write_refusals(&mut lines, &reported[reported.len() - 2..]).unwrap();
+        insta::assert_snapshot!(String::from_utf8(lines).unwrap(), @r#"
+        {"refusal":"name","name":"other.acmeco.example"}
+        {"refusal":"address","name":"leak.acmeco.example"}
+        {"refusal":"name","name":"odd\"name\n .acmeco.example"}
+        {"refusal":"name","name":"n28.acmeco.example"}
+        {"refusal":"stopped","reported":32}
         "#);
     }
 
     #[test]
-    fn pypi_refusals_name_both_hosts() {
+    fn refusals_are_replayed_to_each_client() {
+        use std::io::BufRead;
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("refusals.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let (reported_tx, reported_rx) = mpsc::channel();
+        let name = |name: &str| Refusal::Name {
+            name: name.to_string(),
+        };
+        reported_tx.send(name("one.acmeco.example")).unwrap();
+        std::thread::spawn(move || super::serve_refusals(&listener, reported_rx));
+
+        let connect = || {
+            let client = UnixStream::connect(&path).unwrap();
+            client
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            std::io::BufReader::new(client)
+        };
+        let read = |client: &mut std::io::BufReader<UnixStream>| {
+            let mut line = String::new();
+            client.read_line(&mut line).unwrap();
+            line
+        };
+
+        // A refusal which preceded the client, and one which follows it.
+        let mut first = connect();
+        let mut lines = vec![read(&mut first)];
+        reported_tx.send(name("two.acmeco.example")).unwrap();
+        lines.push(read(&mut first));
+        std::mem::drop(first);
+
+        // A refusal which only a later client receives, after the others.
+        let mut second = connect();
+        reported_tx.send(name("three.acmeco.example")).unwrap();
+        lines.extend((0..3).map(|_| read(&mut second)));
+
+        insta::assert_snapshot!(lines.concat(), @r#"
+        {"refusal":"name","name":"one.acmeco.example"}
+        {"refusal":"name","name":"two.acmeco.example"}
+        {"refusal":"name","name":"one.acmeco.example"}
+        {"refusal":"name","name":"two.acmeco.example"}
+        {"refusal":"name","name":"three.acmeco.example"}
+        "#);
+    }
+
+    /// connector-init names both PyPI hosts in its message for either, by the
+    /// name reported here.
+    #[test]
+    fn pypi_refusals_report_normalized_names() {
         let upstream = upstream(vec![(
             ("pypi.org", dns::TYPE_A),
             vec![Rr::A("pypi.org", Ipv4Addr::new(10, 1, 2, 3), 300)],
@@ -1244,10 +1344,7 @@ mod tests {
             let handled = resolver.handle(&query, Instant::now()).unwrap();
             let reported = Refusals::default()
                 .report(&handled.decision)
-                .map(|line| {
-                    let line: serde_json::Value = serde_json::from_str(&line).expect("a JSON line");
-                    line["message"].as_str().expect("a message").to_string()
-                })
+                .map(|refusal| serde_json::to_string(&refusal).unwrap())
                 .unwrap_or_else(|| "not reported".to_string());
             writeln!(table, "{asked} with {hosts:?} => {reported}").unwrap();
         }
@@ -1283,15 +1380,15 @@ mod tests {
             .unwrap();
         }
         insta::assert_snapshot!(table, @r#"
-        PyPI.ORG with [] => refused DNS name pypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts
-        files.pythonhosted.org with [] => refused DNS name files.pythonhosted.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts
-        Files.PythonHosted.org with ["pypi.org"] => refused DNS name files.pythonhosted.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts
-        test.pypi.org with [] => refused DNS name test.pypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts
-        pypi.org.acmeco.example with [] => refused DNS name pypi.org.acmeco.example, which this connector's egress does not permit; a task may permit it in egress.hosts
-        notpypi.org with [] => refused DNS name notpypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts
-        pythonhosted.org with [] => refused DNS name pythonhosted.org, which this connector's egress does not permit; a task may permit it in egress.hosts
-        pypi.org as one label with [] => refused DNS name pypi\046org, which this connector's egress does not permit; a task may permit it in egress.hosts
-        pypi.org at a private address with ["pypi.org"] => refused DNS name pypi.org, which resolved to an address that is not public
+        PyPI.ORG with [] => {"refusal":"name","name":"pypi.org"}
+        files.pythonhosted.org with [] => {"refusal":"name","name":"files.pythonhosted.org"}
+        Files.PythonHosted.org with ["pypi.org"] => {"refusal":"name","name":"files.pythonhosted.org"}
+        test.pypi.org with [] => {"refusal":"name","name":"test.pypi.org"}
+        pypi.org.acmeco.example with [] => {"refusal":"name","name":"pypi.org.acmeco.example"}
+        notpypi.org with [] => {"refusal":"name","name":"notpypi.org"}
+        pythonhosted.org with [] => {"refusal":"name","name":"pythonhosted.org"}
+        pypi.org as one label with [] => {"refusal":"name","name":"pypi\\046org"}
+        pypi.org at a private address with ["pypi.org"] => {"refusal":"address","name":"pypi.org"}
         pypi.org with ["pypi.org", "files.pythonhosted.org"] => name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/300] targets=[] refreshed=[] rcode=0 writes=1
         files.pythonhosted.org with ["pypi.org", "files.pythonhosted.org"] => name=files.pythonhosted.org qtype=1 outcome=resolved addresses=[93.184.216.11/300] targets=[] refreshed=[] rcode=0 writes=2
         "#);
@@ -1936,7 +2033,7 @@ mod tests {
             upstream,
             false,
         );
-        let mut resolver = Resolver::new(config, Box::new(recorder.clone()));
+        let mut resolver = Resolver::new(config, Box::new(recorder.clone()), mpsc::channel().0);
 
         let steps: Vec<(&str, u64, Vec<u8>)> = vec![
             (
@@ -2796,7 +2893,8 @@ mod tests {
             SocketAddr::from((Ipv4Addr::LOCALHOST, 53)),
             false,
         );
-        let error = super::start(config).expect_err("the wildcard is refused");
+        let error = super::start(config, "/nonexistent/refusals.sock")
+            .expect_err("the wildcard is refused");
 
         assert!(
             error

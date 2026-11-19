@@ -41,12 +41,14 @@ const ROOTFS: &str = "/rootfs";
 const SCRATCH_BACKING: &str = "/scratch-backing";
 const PERSISTENT_DISK_SOURCE: &str = "/persistent-disk";
 const INIT_SOCK: &str = "/sock/init.sock";
+const RESOLVER_SOCK: &str = "/sock/resolver.sock";
 
 const CONNECTOR_MOUNT_TAG: &str = "connector-mount";
 const PERSISTENT_DISK_TAG: &str = "persistent-disk";
 const SCRATCH_ID: &str = "scratch";
 
 const VSOCK_PORT: u32 = 49092;
+const RESOLVER_VSOCK_PORT: u32 = 49093;
 
 const KVM: &str = "/dev/kvm";
 /// `KVM_GET_API_VERSION`, `_IO(KVMIO, 0x00)`, and the one version KVM has.
@@ -184,6 +186,7 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
         gid: image.gid,
         groups: &image.groups,
         vsock_port: VSOCK_PORT,
+        resolver_vsock_port: RESOLVER_VSOCK_PORT,
     });
     let krun_config = image::krun_config(
         &image,
@@ -221,13 +224,16 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
     };
     // Returns once the resolver is listening, so a failure here is still a
     // pre-VM failure. After it, the resolver ends the process itself.
-    crate::resolver::start(crate::resolver::Config::new(
-        &policy,
-        &vmm_subnets,
-        SocketAddr::new(net::VMM_IP.into(), 53),
-        upstream,
-        args.debug,
-    ))?;
+    crate::resolver::start(
+        crate::resolver::Config::new(
+            &policy,
+            &vmm_subnets,
+            SocketAddr::new(net::VMM_IP.into(), 53),
+            upstream,
+            args.debug,
+        ),
+        RESOLVER_SOCK,
+    )?;
     stage(args.debug, "resolver-listening");
 
     // The socket libkrun binds inherits this, so `init.sock` is mode 0777 and
@@ -288,6 +294,8 @@ pub fn enter(krun: &dyn Krun, machine: &Machine) -> anyhow::Result<Infallible> {
     // libkrun listens, the guest connects, and neither side half-closes: a
     // shutdown of one direction would be read as end of stream by connector-init.
     krun.add_vsock_port2(ctx, VSOCK_PORT, INIT_SOCK, true)?;
+    // The guest connects, and libkrun dials the resolver's refusals socket.
+    krun.add_vsock_port2(ctx, RESOLVER_VSOCK_PORT, RESOLVER_SOCK, false)?;
 
     krun.disable_implicit_console(ctx)?;
     krun.add_console(

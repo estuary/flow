@@ -330,7 +330,8 @@ pub fn before_connector_init(script: &str) -> Vec<String> {
         "-c".to_string(),
         format!(
             "{script}; exec {mount}/flow-connector-init \
-             --image-inspect-json-path={mount}/image-inspect.json --vsock-port=49092"
+             --image-inspect-json-path={mount}/image-inspect.json --vsock-port=49092 \
+             --resolver-vsock-port=49093"
         ),
     ]
 }

@@ -44,7 +44,8 @@ integration suite.
 - `src/ingress.rs`: launch-owned host input and output chains authorizing declared TCP
   ports with a reserved packet mark.
 - `src/resolver/mod.rs`: the thread, the gate, the CNAME memory and the
-  lifetime of an authorization.
+  lifetime of an authorization, and the refusals it reports to the guest's
+  connector-init.
 - `src/resolver/dns.rs`: reads a message with `domain`, rewrites TTLs in
   place, synthesizes the replies the resolver invents. Never re-encodes a
   message.
@@ -62,7 +63,7 @@ integration suite.
 | `/` | ro | the VMM image. `--read-only`, checked at startup. |
 | connector mount | ro | shared into the guest at `/connector-mount`, checked at startup. `crates/connector` is the authority for its contents and the environment contract; `image::krun_config` gives those variables precedence over the image's. The share adds read-only virtual directories, `scratch` and, with `--persistent-disk`, `persist`, as the guest's mount points within it. |
 | `/rootfs` | ro | a private image-backed volume, mounted `readonly`, checked at startup and served read-only as the guest's root. |
-| `/sock` | rw | libkrun binds `init.sock` here. |
+| `/sock` | rw | libkrun binds `init.sock` here, and the resolver binds `resolver.sock`, which libkrun dials for the guest's vsock port 49093. |
 | `/scratch-backing` | rw | holds the `O_TMPFILE` scratch, sized by `--disk-mib` and formatted ext4. `src/disk.rs` has the descriptor and format details. Guest discard releases deleted data blocks; the file is reclaimed when the VM exits. |
 | `/persistent-disk` | rw | only with `--persistent-disk`. `connector-guest-init` mounts it at `$CONNECTOR_MOUNT/persist`, `nodev,nosuid,noexec`, and does not chown it. |
 

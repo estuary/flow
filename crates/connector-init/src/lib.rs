@@ -8,6 +8,7 @@ mod connector;
 mod derive;
 pub mod inspect;
 mod materialize;
+pub mod refusals;
 pub mod rpc;
 pub mod serve;
 
@@ -35,6 +36,11 @@ pub struct Args {
     /// micro-VM and the runtime reaches it through the hypervisor.
     #[clap(long)]
     pub vsock_port: Option<u32>,
+
+    /// Host AF_VSOCK port at which a VMM's resolver reports DNS refusals,
+    /// which are written to the connector's logs.
+    #[clap(long)]
+    pub resolver_vsock_port: Option<u32>,
 }
 
 // The listener is bound before anything else can fail, so that the readiness
@@ -49,6 +55,7 @@ pub async fn run(
         image_inspect_json_path,
         port,
         vsock_port,
+        resolver_vsock_port,
     }: Args,
     log_level: String,
 ) -> anyhow::Result<()> {
@@ -118,6 +125,7 @@ pub async fn run(
             entrypoint,
             codec,
             spec_alone: image.is_frozen_derive(),
+            resolver_vsock_port,
             taken: Default::default(),
             done: done.clone(),
         })
@@ -237,6 +245,7 @@ mod test {
                 image_inspect_json_path: inspect.display().to_string(),
                 port: Some(port),
                 vsock_port: None,
+                resolver_vsock_port: None,
             },
             "info".to_string(),
         ));

@@ -33,6 +33,9 @@ Anything this crate sends is treated like connector output.
   separate pipes.
 - `serve` writes its own task-relevant events as `Log`s, filtered by
   `start.log_level`. They're ordered relative to the responses it forwards.
+- In a VMM, `serve` also writes each DNS refusal of the VMM's resolver as a
+  `Log` while the connector runs (`refusals.rs`). The resolver reports facts,
+  such as the refused name, and `refusals::render` words them.
 - Every log precedes the stream's EOF or terminal status. A failed exit's
   terminal status carries the connector's last log.
 
@@ -76,6 +79,11 @@ name rather than letting clap print its indented argument lists.
 
 The VMM launcher waits for the same byte before dialing the Unix socket that
 libkrun forwards to the guest's vsock listener.
+
+A VMM also passes `--resolver-vsock-port`. A served stream dials it at the
+host, where libkrun forwards it to the resolver's refusals socket. A failed
+dial leaves refusals unreported: they're feedback, and the resolver enforces
+egress regardless.
 
 ## Logging
 

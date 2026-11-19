@@ -22,17 +22,22 @@ use tokio::sync::mpsc;
 ///
 /// When `spec_alone`, the connector serves one request per process. Its Spec
 /// then runs in a process of its own, and a second process serves the stream.
+///
+/// Each of a VMM's `refusals` is written as a `Log` until the connector is done.
 pub async fn serve<C, R>(
     command: C,
     codec: Codec,
     spec_alone: bool,
+    refusals: Option<crate::refusals::Reader>,
     requests: R,
     response_tx: &mpsc::Sender<tonic::Result<connector::Response>>,
 ) where
     C: Fn() -> async_process::Command,
     R: futures::Stream<Item = tonic::Result<connector::Request>> + Send + Unpin + 'static,
 {
-    if let Err(status) = serve_inner(command, codec, spec_alone, requests, response_tx).await {
+    if let Err(status) =
+        serve_inner(command, codec, spec_alone, refusals, requests, response_tx).await
+    {
         _ = response_tx.send(Err(status)).await;
     }
 }
@@ -41,6 +46,7 @@ async fn serve_inner<C, R>(
     command: C,
     codec: Codec,
     spec_alone: bool,
+    refusals: Option<crate::refusals::Reader>,
     mut requests: R,
     response_tx: &mpsc::Sender<tonic::Result<connector::Response>>,
 ) -> tonic::Result<()>
@@ -76,16 +82,62 @@ where
         response_tx: response_tx.clone(),
     };
 
-    match kind {
-        connector::request::Kind::Capture(first) => {
-            run_processes::<Capture, _, _>(command, codec, spec_alone, first, requests, logs).await
+    // Refusals are read only while the connector runs, and so precede the
+    // stream's EOF or terminal status.
+    let refusals = {
+        let logs = logs.clone();
+        async move {
+            if let Some(reader) = refusals {
+                pump_refusals(reader, logs).await;
+            }
+            std::future::pending::<()>().await
         }
-        connector::request::Kind::Derive(first) => {
-            run_processes::<Derive, _, _>(command, codec, spec_alone, first, requests, logs).await
-        }
-        connector::request::Kind::Materialize(first) => {
-            run_processes::<Materialize, _, _>(command, codec, spec_alone, first, requests, logs)
+    };
+    let run = async move {
+        match kind {
+            connector::request::Kind::Capture(first) => {
+                run_processes::<Capture, _, _>(command, codec, spec_alone, first, requests, logs)
+                    .await
+            }
+            connector::request::Kind::Derive(first) => {
+                run_processes::<Derive, _, _>(command, codec, spec_alone, first, requests, logs)
+                    .await
+            }
+            connector::request::Kind::Materialize(first) => {
+                run_processes::<Materialize, _, _>(
+                    command, codec, spec_alone, first, requests, logs,
+                )
                 .await
+            }
+        }
+    };
+    tokio::select! {
+        result = run => result,
+        () = refusals => unreachable!("the refusals pump never completes"),
+    }
+}
+
+/// Write each of a VMM's `refusals` to `logs`, until its reader ends.
+async fn pump_refusals(mut refusals: crate::refusals::Reader, logs: Logs) {
+    use tokio::io::AsyncBufReadExt;
+
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match refusals.read_line(&mut line).await {
+            Ok(0) => return,
+            Ok(_) => (),
+            Err(error) => {
+                tracing::warn!(%error, "failed to read the resolver's refusals");
+                return;
+            }
+        }
+        match crate::refusals::render(&line) {
+            Ok((message, field)) => {
+                logs.write_fields(ops::LogLevel::Warn, &message, [field])
+                    .await
+            }
+            Err(error) => tracing::warn!(%error, line, "invalid refusal from the resolver"),
         }
     }
 }
@@ -386,6 +438,16 @@ pub(crate) mod test {
     /// Serve `requests` over a `/bin/sh` connector running `script` with the
     /// JSON codec, and render its responses one per line.
     async fn drive(script: &str, spec_alone: bool, requests: Vec<connector::Request>) -> String {
+        drive_with(script, spec_alone, None, requests).await
+    }
+
+    /// [`drive`], with a VMM's `refusals`.
+    async fn drive_with(
+        script: &str,
+        spec_alone: bool,
+        refusals: Option<crate::refusals::Reader>,
+        requests: Vec<connector::Request>,
+    ) -> String {
         let requests: Vec<tonic::Result<connector::Request>> =
             requests.into_iter().map(Ok).collect();
         let (response_tx, mut response_rx) = tokio::sync::mpsc::channel(64);
@@ -394,6 +456,7 @@ pub(crate) mod test {
             || crate::rpc::new_command(&["/bin/sh", "-c", script]),
             Codec::Json,
             spec_alone,
+            refusals,
             futures::stream::iter(requests),
             &response_tx,
         )
@@ -573,6 +636,31 @@ pub(crate) mod test {
         Log(warn): a later walrus {}
         Log(error): connector failed {"status": String("exit status: 4")}
         Status(Unknown): a later walrus
+        "#);
+    }
+
+    #[tokio::test]
+    async fn writes_a_vmms_refusals_while_its_connector_runs() {
+        let script = format!(r#"read spec; echo '{SPEC}'; read v; echo '{{"validated":{{}}}}'"#);
+        let refusals: &'static [u8] = b"{\"refusal\":\"name\",\"name\":\"pypi.org\"}\n\
+            not a refusal\n\
+            {\"refusal\":\"stopped\",\"reported\":32}\n";
+        let output = drive_with(
+            &script,
+            false,
+            Some(Box::pin(tokio::io::BufReader::new(refusals))),
+            vec![first("info"), validate()],
+        )
+        .await;
+
+        // The pump runs beside the connector, so its logs may land anywhere
+        // ahead of the stream's end. An invalid line is only traced.
+        let (logs, responses): (Vec<&str>, Vec<&str>) =
+            output.lines().partition(|line| line.starts_with("Log("));
+        assert_eq!(responses.len(), 2, "{output}");
+        insta::assert_snapshot!(logs.join("\n"), @r#"
+        Log(warn): refused DNS name pypi.org, which this connector's egress does not permit; a task may permit it in egress.hosts; installing packages from PyPI typically requires both pypi.org and files.pythonhosted.org in egress.hosts {"name": String("pypi.org")}
+        Log(warn): further refused DNS names are not reported {"reported": String("32")}
         "#);
     }
 }

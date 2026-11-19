@@ -749,7 +749,8 @@ fn connect_local(
             connector.envs(&runtime_env);
             connector
         };
-        connector_init::serve::serve(command, codec, false, requests.map(Ok), &response_tx).await
+        connector_init::serve::serve(command, codec, false, None, requests.map(Ok), &response_tx)
+            .await
     });
 
     Ok(crate::Transport {

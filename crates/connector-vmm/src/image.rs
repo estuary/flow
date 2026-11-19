@@ -30,6 +30,8 @@ pub struct Guest<'a> {
     pub gid: u32,
     pub groups: &'a [u32],
     pub vsock_port: u32,
+    /// The port at which connector-init dials the resolver's refusals.
+    pub resolver_vsock_port: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -169,6 +171,7 @@ pub fn guest_argv(guest: &Guest) -> Vec<String> {
             format!("{mount}/flow-connector-init"),
             format!("--image-inspect-json-path={mount}/image-inspect.json"),
             format!("--vsock-port={}", guest.vsock_port),
+            format!("--resolver-vsock-port={}", guest.resolver_vsock_port),
         ]
     });
 
@@ -858,6 +861,7 @@ mod tests {
             gid: 1001,
             groups: &[1001, 1002, 1004],
             vsock_port: 49092,
+            resolver_vsock_port: 49093,
         }
     }
 }

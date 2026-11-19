@@ -7,6 +7,8 @@ pub struct Proxy {
     pub entrypoint: Vec<String>,
     pub codec: Codec,
     pub spec_alone: bool,
+    /// Host vsock port of a VMM resolver's refusals, if any.
+    pub resolver_vsock_port: Option<u32>,
     pub taken: std::sync::atomic::AtomicBool,
     pub done: std::sync::Arc<tokio::sync::Notify>,
 }
@@ -30,12 +32,18 @@ impl proto_grpc::connector::connector_server::Connector for Proxy {
         let (response_tx, response_rx) = tokio::sync::mpsc::channel(proto_grpc::CHANNEL_BUFFER);
         let entrypoint = self.entrypoint.clone();
         let (codec, spec_alone, done) = (self.codec, self.spec_alone, self.done.clone());
+        let resolver_vsock_port = self.resolver_vsock_port;
 
         tokio::spawn(async move {
+            let refusals = match resolver_vsock_port {
+                Some(port) => crate::refusals::dial(port).await,
+                None => None,
+            };
             serve::serve(
                 || rpc::new_command(&entrypoint),
                 codec,
                 spec_alone,
+                refusals,
                 proto_grpc::chunk::join(request.into_inner()),
                 &response_tx,
             )
