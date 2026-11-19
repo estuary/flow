@@ -16,8 +16,7 @@ impl<'de> serde::Deserialize<'de> for Extra {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-        ];
+        const FIELDS: &[&str] = &[];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -33,7 +32,10 @@ impl<'de> serde::Deserialize<'de> for Extra {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -42,7 +44,7 @@ impl<'de> serde::Deserialize<'de> for Extra {
                     where
                         E: serde::de::Error,
                     {
-                            Ok(GeneratedField::__SkipField__)
+                        Ok(GeneratedField::__SkipField__)
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -57,14 +59,13 @@ impl<'de> serde::Deserialize<'de> for Extra {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Extra, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 while map_.next_key::<GeneratedField>()?.is_some() {
                     let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                 }
-                Ok(Extra {
-                })
+                Ok(Extra {})
             }
         }
         deserializer.deserialize_struct("materialize.Extra", FIELDS, GeneratedVisitor)
@@ -84,7 +85,8 @@ impl serde::Serialize for extra::ValidateBindingAgainstConstraints {
         if !self.constraints.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Extra.ValidateBindingAgainstConstraints", len)?;
+        let mut struct_ser = serializer
+            .serialize_struct("materialize.Extra.ValidateBindingAgainstConstraints", len)?;
         if let Some(v) = self.binding.as_ref() {
             struct_ser.serialize_field("binding", v)?;
         }
@@ -100,10 +102,7 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateBindingAgainstConstraints {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "binding",
-            "constraints",
-        ];
+        const FIELDS: &[&str] = &["binding", "constraints"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -121,7 +120,10 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateBindingAgainstConstraints {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -148,9 +150,12 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateBindingAgainstConstraints {
                 formatter.write_str("struct materialize.Extra.ValidateBindingAgainstConstraints")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<extra::ValidateBindingAgainstConstraints, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<extra::ValidateBindingAgainstConstraints, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
                 let mut constraints__ = None;
@@ -166,9 +171,8 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateBindingAgainstConstraints {
                             if constraints__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("constraints"));
                             }
-                            constraints__ = Some(
-                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
-                            );
+                            constraints__ =
+                                Some(map_.next_value::<std::collections::BTreeMap<_, _>>()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -181,7 +185,11 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateBindingAgainstConstraints {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Extra.ValidateBindingAgainstConstraints", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Extra.ValidateBindingAgainstConstraints",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for extra::ValidateExistingProjectionRequest {
@@ -198,7 +206,8 @@ impl serde::Serialize for extra::ValidateExistingProjectionRequest {
         if self.proposed_binding.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Extra.ValidateExistingProjectionRequest", len)?;
+        let mut struct_ser = serializer
+            .serialize_struct("materialize.Extra.ValidateExistingProjectionRequest", len)?;
         if let Some(v) = self.existing_binding.as_ref() {
             struct_ser.serialize_field("existingBinding", v)?;
         }
@@ -237,7 +246,10 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateExistingProjectionRequest {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -247,8 +259,12 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateExistingProjectionRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "existingBinding" | "existing_binding" => Ok(GeneratedField::ExistingBinding),
-                            "proposedBinding" | "proposed_binding" => Ok(GeneratedField::ProposedBinding),
+                            "existingBinding" | "existing_binding" => {
+                                Ok(GeneratedField::ExistingBinding)
+                            }
+                            "proposedBinding" | "proposed_binding" => {
+                                Ok(GeneratedField::ProposedBinding)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -264,9 +280,12 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateExistingProjectionRequest {
                 formatter.write_str("struct materialize.Extra.ValidateExistingProjectionRequest")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<extra::ValidateExistingProjectionRequest, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<extra::ValidateExistingProjectionRequest, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut existing_binding__ = None;
                 let mut proposed_binding__ = None;
@@ -295,7 +314,11 @@ impl<'de> serde::Deserialize<'de> for extra::ValidateExistingProjectionRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Extra.ValidateExistingProjectionRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Extra.ValidateExistingProjectionRequest",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for Request {
@@ -316,7 +339,10 @@ impl serde::Serialize for Request {
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
+            struct_ser.serialize_field(
+                "$internal",
+                pbjson::private::base64::encode(&self.internal).as_str(),
+            )?;
         }
         if let Some(v) = self.kind.as_ref() {
             match v {
@@ -397,7 +423,10 @@ impl<'de> serde::Deserialize<'de> for Request {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -433,8 +462,8 @@ impl<'de> serde::Deserialize<'de> for Request {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Request, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut internal__ = None;
                 let mut kind__ = None;
@@ -444,9 +473,10 @@ impl<'de> serde::Deserialize<'de> for Request {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
                             }
-                            internal__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            internal__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Spec => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
@@ -549,7 +579,10 @@ impl serde::Serialize for request::Acknowledge {
         if !self.state_patches_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("statePatches", &crate::as_raw_json(&self.state_patches_json)?)?;
+            struct_ser.serialize_field(
+                "statePatches",
+                &crate::as_raw_json(&self.state_patches_json)?,
+            )?;
         }
         struct_ser.end()
     }
@@ -560,10 +593,7 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "state_patches_json",
-            "statePatches",
-        ];
+        const FIELDS: &[&str] = &["state_patches_json", "statePatches"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -580,7 +610,10 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -590,7 +623,9 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
                         E: serde::de::Error,
                     {
                         match value {
-                            "statePatches" | "state_patches_json" => Ok(GeneratedField::StatePatchesJson),
+                            "statePatches" | "state_patches_json" => {
+                                Ok(GeneratedField::StatePatchesJson)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -606,9 +641,12 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
                 formatter.write_str("struct materialize.Request.Acknowledge")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Acknowledge, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<request::Acknowledge, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut state_patches_json__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -617,9 +655,8 @@ impl<'de> serde::Deserialize<'de> for request::Acknowledge {
                             if state_patches_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("statePatches"));
                             }
-                            state_patches_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            state_patches_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -714,7 +751,10 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -726,7 +766,9 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                         match value {
                             "materialization" => Ok(GeneratedField::Materialization),
                             "version" => Ok(GeneratedField::Version),
-                            "lastMaterialization" | "last_materialization" => Ok(GeneratedField::LastMaterialization),
+                            "lastMaterialization" | "last_materialization" => {
+                                Ok(GeneratedField::LastMaterialization)
+                            }
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             "state" | "state_json" => Ok(GeneratedField::StateJson),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -745,8 +787,8 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Apply, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut materialization__ = None;
                 let mut version__ = None;
@@ -769,7 +811,9 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                         }
                         GeneratedField::LastMaterialization => {
                             if last_materialization__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("lastMaterialization"));
+                                return Err(serde::de::Error::duplicate_field(
+                                    "lastMaterialization",
+                                ));
                             }
                             last_materialization__ = map_.next_value()?;
                         }
@@ -783,9 +827,7 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             if state_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            state_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            state_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -825,7 +867,10 @@ impl serde::Serialize for request::Flush {
         if !self.state_patches_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("statePatches", &crate::as_raw_json(&self.state_patches_json)?)?;
+            struct_ser.serialize_field(
+                "statePatches",
+                &crate::as_raw_json(&self.state_patches_json)?,
+            )?;
         }
         if !self.backfill_begins.is_empty() {
             struct_ser.serialize_field("backfillBegins", &self.backfill_begins)?;
@@ -868,7 +913,10 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -878,9 +926,15 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                         E: serde::de::Error,
                     {
                         match value {
-                            "statePatches" | "state_patches_json" => Ok(GeneratedField::StatePatchesJson),
-                            "backfillBegins" | "backfill_begins" => Ok(GeneratedField::BackfillBegins),
-                            "backfillCompletes" | "backfill_completes" => Ok(GeneratedField::BackfillCompletes),
+                            "statePatches" | "state_patches_json" => {
+                                Ok(GeneratedField::StatePatchesJson)
+                            }
+                            "backfillBegins" | "backfill_begins" => {
+                                Ok(GeneratedField::BackfillBegins)
+                            }
+                            "backfillCompletes" | "backfill_completes" => {
+                                Ok(GeneratedField::BackfillCompletes)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -897,8 +951,8 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Flush, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut state_patches_json__ = None;
                 let mut backfill_begins__ = None;
@@ -909,9 +963,8 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                             if state_patches_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("statePatches"));
                             }
-                            state_patches_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            state_patches_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::BackfillBegins => {
                             if backfill_begins__.is_some() {
@@ -954,7 +1007,8 @@ impl serde::Serialize for request::flush::BackfillBegin {
         if self.timestamp.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Request.Flush.BackfillBegin", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Request.Flush.BackfillBegin", len)?;
         if self.binding != 0 {
             struct_ser.serialize_field("binding", &self.binding)?;
         }
@@ -970,10 +1024,7 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillBegin {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "binding",
-            "timestamp",
-        ];
+        const FIELDS: &[&str] = &["binding", "timestamp"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -991,7 +1042,10 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillBegin {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1018,9 +1072,12 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillBegin {
                 formatter.write_str("struct materialize.Request.Flush.BackfillBegin")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::flush::BackfillBegin, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<request::flush::BackfillBegin, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
                 let mut timestamp__ = None;
@@ -1030,9 +1087,10 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillBegin {
                             if binding__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("binding"));
                             }
-                            binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            binding__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Timestamp => {
                             if timestamp__.is_some() {
@@ -1051,7 +1109,11 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillBegin {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Request.Flush.BackfillBegin", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Request.Flush.BackfillBegin",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for request::flush::BackfillComplete {
@@ -1068,7 +1130,8 @@ impl serde::Serialize for request::flush::BackfillComplete {
         if self.timestamp.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Request.Flush.BackfillComplete", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Request.Flush.BackfillComplete", len)?;
         if self.binding != 0 {
             struct_ser.serialize_field("binding", &self.binding)?;
         }
@@ -1084,10 +1147,7 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillComplete {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "binding",
-            "timestamp",
-        ];
+        const FIELDS: &[&str] = &["binding", "timestamp"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -1105,7 +1165,10 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillComplete {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1132,9 +1195,12 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillComplete {
                 formatter.write_str("struct materialize.Request.Flush.BackfillComplete")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::flush::BackfillComplete, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<request::flush::BackfillComplete, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
                 let mut timestamp__ = None;
@@ -1144,9 +1210,10 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillComplete {
                             if binding__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("binding"));
                             }
-                            binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            binding__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Timestamp => {
                             if timestamp__.is_some() {
@@ -1165,7 +1232,11 @@ impl<'de> serde::Deserialize<'de> for request::flush::BackfillComplete {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Request.Flush.BackfillComplete", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Request.Flush.BackfillComplete",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for request::Load {
@@ -1197,7 +1268,10 @@ impl serde::Serialize for request::Load {
         if !self.key_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("keyPacked", pbjson::private::base64::encode(&self.key_packed).as_str())?;
+            struct_ser.serialize_field(
+                "keyPacked",
+                pbjson::private::base64::encode(&self.key_packed).as_str(),
+            )?;
         }
         struct_ser.end()
     }
@@ -1208,13 +1282,7 @@ impl<'de> serde::Deserialize<'de> for request::Load {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "binding",
-            "key_json",
-            "key",
-            "key_packed",
-            "keyPacked",
-        ];
+        const FIELDS: &[&str] = &["binding", "key_json", "key", "key_packed", "keyPacked"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -1233,7 +1301,10 @@ impl<'de> serde::Deserialize<'de> for request::Load {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1262,8 +1333,8 @@ impl<'de> serde::Deserialize<'de> for request::Load {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Load, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
                 let mut key_json__ = None;
@@ -1274,25 +1345,25 @@ impl<'de> serde::Deserialize<'de> for request::Load {
                             if binding__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("binding"));
                             }
-                            binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            binding__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::KeyJson => {
                             if key_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("key"));
                             }
-                            key_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            key_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::KeyPacked => {
                             if key_packed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("keyPacked"));
                             }
-                            key_packed__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            key_packed__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -1350,7 +1421,10 @@ impl serde::Serialize for request::Open {
         if !self.sealed_config_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sealedConfig", &crate::as_raw_json(&self.sealed_config_json)?)?;
+            struct_ser.serialize_field(
+                "sealedConfig",
+                &crate::as_raw_json(&self.sealed_config_json)?,
+            )?;
         }
         struct_ser.end()
     }
@@ -1390,7 +1464,10 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1404,7 +1481,9 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                             "version" => Ok(GeneratedField::Version),
                             "range" => Ok(GeneratedField::Range),
                             "state" | "state_json" => Ok(GeneratedField::StateJson),
-                            "sealedConfig" | "sealed_config_json" => Ok(GeneratedField::SealedConfigJson),
+                            "sealedConfig" | "sealed_config_json" => {
+                                Ok(GeneratedField::SealedConfigJson)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1421,8 +1500,8 @@ impl<'de> serde::Deserialize<'de> for request::Open {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Open, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut materialization__ = None;
                 let mut version__ = None;
@@ -1453,17 +1532,14 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                             if state_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            state_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            state_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::SealedConfigJson => {
                             if sealed_config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sealedConfig"));
                             }
-                            sealed_config_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            sealed_config_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -1499,7 +1575,9 @@ impl serde::Serialize for request::Spec {
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Spec", len)?;
         if self.connector_type != 0 {
             let v = super::flow::materialization_spec::ConnectorType::try_from(self.connector_type)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
+                .map_err(|_| {
+                    serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type))
+                })?;
             struct_ser.serialize_field("connectorType", &v)?;
         }
         if !self.config_json.is_empty() {
@@ -1516,12 +1594,7 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "connector_type",
-            "connectorType",
-            "config_json",
-            "config",
-        ];
+        const FIELDS: &[&str] = &["connector_type", "connectorType", "config_json", "config"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -1539,7 +1612,10 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1567,8 +1643,8 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Spec, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut connector_type__ = None;
                 let mut config_json__ = None;
@@ -1578,15 +1654,16 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
                             if connector_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("connectorType"));
                             }
-                            connector_type__ = Some(map_.next_value::<super::flow::materialization_spec::ConnectorType>()? as i32);
+                            connector_type__ = Some(
+                                map_.next_value::<super::flow::materialization_spec::ConnectorType>(
+                                )? as i32,
+                            );
                         }
                         GeneratedField::ConfigJson => {
                             if config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("config"));
                             }
-                            config_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            config_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -1623,7 +1700,10 @@ impl serde::Serialize for request::StartCommit {
         if !self.state_patches_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("statePatches", &crate::as_raw_json(&self.state_patches_json)?)?;
+            struct_ser.serialize_field(
+                "statePatches",
+                &crate::as_raw_json(&self.state_patches_json)?,
+            )?;
         }
         struct_ser.end()
     }
@@ -1657,7 +1737,10 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1667,8 +1750,12 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                         E: serde::de::Error,
                     {
                         match value {
-                            "runtimeCheckpoint" | "runtime_checkpoint" => Ok(GeneratedField::RuntimeCheckpoint),
-                            "statePatches" | "state_patches_json" => Ok(GeneratedField::StatePatchesJson),
+                            "runtimeCheckpoint" | "runtime_checkpoint" => {
+                                Ok(GeneratedField::RuntimeCheckpoint)
+                            }
+                            "statePatches" | "state_patches_json" => {
+                                Ok(GeneratedField::StatePatchesJson)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1684,9 +1771,12 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                 formatter.write_str("struct materialize.Request.StartCommit")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::StartCommit, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<request::StartCommit, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut runtime_checkpoint__ = None;
                 let mut state_patches_json__ = None;
@@ -1702,9 +1792,8 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                             if state_patches_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("statePatches"));
                             }
-                            state_patches_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            state_patches_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -1764,7 +1853,10 @@ impl serde::Serialize for request::Store {
         if !self.key_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("keyPacked", pbjson::private::base64::encode(&self.key_packed).as_str())?;
+            struct_ser.serialize_field(
+                "keyPacked",
+                pbjson::private::base64::encode(&self.key_packed).as_str(),
+            )?;
         }
         if !self.values_json.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1774,7 +1866,10 @@ impl serde::Serialize for request::Store {
         if !self.values_packed.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("valuesPacked", pbjson::private::base64::encode(&self.values_packed).as_str())?;
+            struct_ser.serialize_field(
+                "valuesPacked",
+                pbjson::private::base64::encode(&self.values_packed).as_str(),
+            )?;
         }
         if !self.doc_json.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1834,7 +1929,10 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1868,8 +1966,8 @@ impl<'de> serde::Deserialize<'de> for request::Store {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Store, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
                 let mut key_json__ = None;
@@ -1885,49 +1983,46 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                             if binding__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("binding"));
                             }
-                            binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            binding__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::KeyJson => {
                             if key_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("key"));
                             }
-                            key_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            key_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::KeyPacked => {
                             if key_packed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("keyPacked"));
                             }
-                            key_packed__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            key_packed__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::ValuesJson => {
                             if values_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("values"));
                             }
-                            values_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            values_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::ValuesPacked => {
                             if values_packed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("valuesPacked"));
                             }
-                            values_packed__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            values_packed__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::DocJson => {
                             if doc_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("doc"));
                             }
-                            doc_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            doc_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::Exists => {
                             if exists__.is_some() {
@@ -2002,7 +2097,9 @@ impl serde::Serialize for request::Validate {
         }
         if self.connector_type != 0 {
             let v = super::flow::materialization_spec::ConnectorType::try_from(self.connector_type)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
+                .map_err(|_| {
+                    serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type))
+                })?;
             struct_ser.serialize_field("connectorType", &v)?;
         }
         if !self.config_json.is_empty() {
@@ -2078,7 +2175,10 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -2092,9 +2192,13 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "connectorType" | "connector_type" => Ok(GeneratedField::ConnectorType),
                             "config" | "config_json" => Ok(GeneratedField::ConfigJson),
                             "bindings" => Ok(GeneratedField::Bindings),
-                            "lastMaterialization" | "last_materialization" => Ok(GeneratedField::LastMaterialization),
+                            "lastMaterialization" | "last_materialization" => {
+                                Ok(GeneratedField::LastMaterialization)
+                            }
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
-                            "linkedCollections" | "linked_collections" => Ok(GeneratedField::LinkedCollections),
+                            "linkedCollections" | "linked_collections" => {
+                                Ok(GeneratedField::LinkedCollections)
+                            }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "projectRoot" | "project_root" => Ok(GeneratedField::ProjectRoot),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -2113,8 +2217,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Validate, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut name__ = None;
                 let mut connector_type__ = None;
@@ -2137,15 +2241,16 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             if connector_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("connectorType"));
                             }
-                            connector_type__ = Some(map_.next_value::<super::flow::materialization_spec::ConnectorType>()? as i32);
+                            connector_type__ = Some(
+                                map_.next_value::<super::flow::materialization_spec::ConnectorType>(
+                                )? as i32,
+                            );
                         }
                         GeneratedField::ConfigJson => {
                             if config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("config"));
                             }
-                            config_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            config_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::Bindings => {
                             if bindings__.is_some() {
@@ -2155,7 +2260,9 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                         }
                         GeneratedField::LastMaterialization => {
                             if last_materialization__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("lastMaterialization"));
+                                return Err(serde::de::Error::duplicate_field(
+                                    "lastMaterialization",
+                                ));
                             }
                             last_materialization__ = map_.next_value()?;
                         }
@@ -2175,9 +2282,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             if secrets__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("secrets"));
                             }
-                            secrets__ = Some(
-                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
-                            );
+                            secrets__ =
+                                Some(map_.next_value::<std::collections::BTreeMap<_, _>>()?);
                         }
                         GeneratedField::ProjectRoot => {
                             if project_root__.is_some() {
@@ -2232,17 +2338,24 @@ impl serde::Serialize for request::validate::Binding {
         if self.collection_index != 0 {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Request.Validate.Binding", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Request.Validate.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("resourceConfig", &crate::as_raw_json(&self.resource_config_json)?)?;
+            struct_ser.serialize_field(
+                "resourceConfig",
+                &crate::as_raw_json(&self.resource_config_json)?,
+            )?;
         }
         if let Some(v) = self.collection.as_ref() {
             struct_ser.serialize_field("collection", v)?;
         }
         if !self.field_config_json_map.is_empty() {
-            struct_ser.serialize_field("fieldConfig", &crate::as_raw_json_map(&self.field_config_json_map)?)?;
+            struct_ser.serialize_field(
+                "fieldConfig",
+                &crate::as_raw_json_map(&self.field_config_json_map)?,
+            )?;
         }
         if self.backfill != 0 {
             struct_ser.serialize_field("backfill", &self.backfill)?;
@@ -2295,7 +2408,10 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -2305,12 +2421,18 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                         E: serde::de::Error,
                     {
                         match value {
-                            "resourceConfig" | "resource_config_json" => Ok(GeneratedField::ResourceConfigJson),
+                            "resourceConfig" | "resource_config_json" => {
+                                Ok(GeneratedField::ResourceConfigJson)
+                            }
                             "collection" => Ok(GeneratedField::Collection),
-                            "fieldConfig" | "field_config_json_map" => Ok(GeneratedField::FieldConfigJsonMap),
+                            "fieldConfig" | "field_config_json_map" => {
+                                Ok(GeneratedField::FieldConfigJsonMap)
+                            }
                             "backfill" => Ok(GeneratedField::Backfill),
                             "groupBy" | "group_by" => Ok(GeneratedField::GroupBy),
-                            "collectionIndex" | "collection_index" => Ok(GeneratedField::CollectionIndex),
+                            "collectionIndex" | "collection_index" => {
+                                Ok(GeneratedField::CollectionIndex)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2326,9 +2448,12 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                 formatter.write_str("struct materialize.Request.Validate.Binding")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::validate::Binding, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<request::validate::Binding, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut resource_config_json__ = None;
                 let mut collection__ = None;
@@ -2342,9 +2467,8 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             if resource_config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("resourceConfig"));
                             }
-                            resource_config_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            resource_config_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::Collection => {
                             if collection__.is_some() {
@@ -2365,9 +2489,10 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             if backfill__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("backfill"));
                             }
-                            backfill__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            backfill__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::GroupBy => {
                             if group_by__.is_some() {
@@ -2379,9 +2504,10 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             if collection_index__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("collectionIndex"));
                             }
-                            collection_index__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            collection_index__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -2398,7 +2524,11 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Request.Validate.Binding", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Request.Validate.Binding",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for Response {
@@ -2419,7 +2549,10 @@ impl serde::Serialize for Response {
         if !self.internal.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
+            struct_ser.serialize_field(
+                "$internal",
+                pbjson::private::base64::encode(&self.internal).as_str(),
+            )?;
         }
         if let Some(v) = self.kind.as_ref() {
             match v {
@@ -2495,7 +2628,10 @@ impl<'de> serde::Deserialize<'de> for Response {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -2530,8 +2666,8 @@ impl<'de> serde::Deserialize<'de> for Response {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Response, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut internal__ = None;
                 let mut kind__ = None;
@@ -2541,9 +2677,10 @@ impl<'de> serde::Deserialize<'de> for Response {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
                             }
-                            internal__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            internal__ = Some(
+                                map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Spec => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
@@ -2634,7 +2771,8 @@ impl serde::Serialize for response::Acknowledged {
         if self.state.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Response.Acknowledged", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Response.Acknowledged", len)?;
         if let Some(v) = self.state.as_ref() {
             struct_ser.serialize_field("state", v)?;
         }
@@ -2647,9 +2785,7 @@ impl<'de> serde::Deserialize<'de> for response::Acknowledged {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "state",
-        ];
+        const FIELDS: &[&str] = &["state"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -2666,7 +2802,10 @@ impl<'de> serde::Deserialize<'de> for response::Acknowledged {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -2692,9 +2831,12 @@ impl<'de> serde::Deserialize<'de> for response::Acknowledged {
                 formatter.write_str("struct materialize.Response.Acknowledged")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Acknowledged, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<response::Acknowledged, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -2710,12 +2852,14 @@ impl<'de> serde::Deserialize<'de> for response::Acknowledged {
                         }
                     }
                 }
-                Ok(response::Acknowledged {
-                    state: state__,
-                })
+                Ok(response::Acknowledged { state: state__ })
             }
         }
-        deserializer.deserialize_struct("materialize.Response.Acknowledged", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Response.Acknowledged",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for response::Applied {
@@ -2748,11 +2892,7 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "action_description",
-            "actionDescription",
-            "state",
-        ];
+        const FIELDS: &[&str] = &["action_description", "actionDescription", "state"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -2770,7 +2910,10 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -2780,7 +2923,9 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
                         E: serde::de::Error,
                     {
                         match value {
-                            "actionDescription" | "action_description" => Ok(GeneratedField::ActionDescription),
+                            "actionDescription" | "action_description" => {
+                                Ok(GeneratedField::ActionDescription)
+                            }
                             "state" => Ok(GeneratedField::State),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -2798,8 +2943,8 @@ impl<'de> serde::Deserialize<'de> for response::Applied {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Applied, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut action_description__ = None;
                 let mut state__ = None;
@@ -2855,9 +3000,7 @@ impl<'de> serde::Deserialize<'de> for response::Flushed {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "state",
-        ];
+        const FIELDS: &[&str] = &["state"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -2874,7 +3017,10 @@ impl<'de> serde::Deserialize<'de> for response::Flushed {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -2901,8 +3047,8 @@ impl<'de> serde::Deserialize<'de> for response::Flushed {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Flushed, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -2918,9 +3064,7 @@ impl<'de> serde::Deserialize<'de> for response::Flushed {
                         }
                     }
                 }
-                Ok(response::Flushed {
-                    state: state__,
-                })
+                Ok(response::Flushed { state: state__ })
             }
         }
         deserializer.deserialize_struct("materialize.Response.Flushed", FIELDS, GeneratedVisitor)
@@ -2958,11 +3102,7 @@ impl<'de> serde::Deserialize<'de> for response::Loaded {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "binding",
-            "doc_json",
-            "doc",
-        ];
+        const FIELDS: &[&str] = &["binding", "doc_json", "doc"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -2980,7 +3120,10 @@ impl<'de> serde::Deserialize<'de> for response::Loaded {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3008,8 +3151,8 @@ impl<'de> serde::Deserialize<'de> for response::Loaded {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Loaded, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut binding__ = None;
                 let mut doc_json__ = None;
@@ -3019,17 +3162,16 @@ impl<'de> serde::Deserialize<'de> for response::Loaded {
                             if binding__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("binding"));
                             }
-                            binding__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            binding__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::DocJson => {
                             if doc_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("doc"));
                             }
-                            doc_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            doc_json__ = Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -3064,7 +3206,8 @@ impl serde::Serialize for response::Opened {
             struct_ser.serialize_field("runtimeCheckpoint", v)?;
         }
         if self.disable_load_optimization {
-            struct_ser.serialize_field("disableLoadOptimization", &self.disable_load_optimization)?;
+            struct_ser
+                .serialize_field("disableLoadOptimization", &self.disable_load_optimization)?;
         }
         struct_ser.end()
     }
@@ -3098,7 +3241,10 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3108,8 +3254,12 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                         E: serde::de::Error,
                     {
                         match value {
-                            "runtimeCheckpoint" | "runtime_checkpoint" => Ok(GeneratedField::RuntimeCheckpoint),
-                            "disableLoadOptimization" | "disable_load_optimization" => Ok(GeneratedField::DisableLoadOptimization),
+                            "runtimeCheckpoint" | "runtime_checkpoint" => {
+                                Ok(GeneratedField::RuntimeCheckpoint)
+                            }
+                            "disableLoadOptimization" | "disable_load_optimization" => {
+                                Ok(GeneratedField::DisableLoadOptimization)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3126,8 +3276,8 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Opened, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut runtime_checkpoint__ = None;
                 let mut disable_load_optimization__ = None;
@@ -3141,7 +3291,9 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                         }
                         GeneratedField::DisableLoadOptimization => {
                             if disable_load_optimization__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("disableLoadOptimization"));
+                                return Err(serde::de::Error::duplicate_field(
+                                    "disableLoadOptimization",
+                                ));
                             }
                             disable_load_optimization__ = Some(map_.next_value()?);
                         }
@@ -3189,12 +3341,18 @@ impl serde::Serialize for response::Spec {
         if !self.config_schema_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("configSchema", &crate::as_raw_json(&self.config_schema_json)?)?;
+            struct_ser.serialize_field(
+                "configSchema",
+                &crate::as_raw_json(&self.config_schema_json)?,
+            )?;
         }
         if !self.resource_config_schema_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("resourceConfigSchema", &crate::as_raw_json(&self.resource_config_schema_json)?)?;
+            struct_ser.serialize_field(
+                "resourceConfigSchema",
+                &crate::as_raw_json(&self.resource_config_schema_json)?,
+            )?;
         }
         if !self.documentation_url.is_empty() {
             struct_ser.serialize_field("documentationUrl", &self.documentation_url)?;
@@ -3241,7 +3399,10 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3252,9 +3413,15 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                     {
                         match value {
                             "protocol" => Ok(GeneratedField::Protocol),
-                            "configSchema" | "config_schema_json" => Ok(GeneratedField::ConfigSchemaJson),
-                            "resourceConfigSchema" | "resource_config_schema_json" => Ok(GeneratedField::ResourceConfigSchemaJson),
-                            "documentationUrl" | "documentation_url" => Ok(GeneratedField::DocumentationUrl),
+                            "configSchema" | "config_schema_json" => {
+                                Ok(GeneratedField::ConfigSchemaJson)
+                            }
+                            "resourceConfigSchema" | "resource_config_schema_json" => {
+                                Ok(GeneratedField::ResourceConfigSchemaJson)
+                            }
+                            "documentationUrl" | "documentation_url" => {
+                                Ok(GeneratedField::DocumentationUrl)
+                            }
                             "oauth2" => Ok(GeneratedField::Oauth2),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -3272,8 +3439,8 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Spec, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut protocol__ = None;
                 let mut config_schema_json__ = None;
@@ -3286,25 +3453,26 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                             if protocol__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("protocol"));
                             }
-                            protocol__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            protocol__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::ConfigSchemaJson => {
                             if config_schema_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("configSchema"));
                             }
-                            config_schema_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            config_schema_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::ResourceConfigSchemaJson => {
                             if resource_config_schema_json__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("resourceConfigSchema"));
+                                return Err(serde::de::Error::duplicate_field(
+                                    "resourceConfigSchema",
+                                ));
                             }
-                            resource_config_schema_json__ = 
-                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0)
-                            ;
+                            resource_config_schema_json__ =
+                                Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
                         GeneratedField::DocumentationUrl => {
                             if documentation_url__.is_some() {
@@ -3346,7 +3514,8 @@ impl serde::Serialize for response::StartedCommit {
         if self.state.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Response.StartedCommit", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Response.StartedCommit", len)?;
         if let Some(v) = self.state.as_ref() {
             struct_ser.serialize_field("state", v)?;
         }
@@ -3359,9 +3528,7 @@ impl<'de> serde::Deserialize<'de> for response::StartedCommit {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "state",
-        ];
+        const FIELDS: &[&str] = &["state"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -3378,7 +3545,10 @@ impl<'de> serde::Deserialize<'de> for response::StartedCommit {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3404,9 +3574,12 @@ impl<'de> serde::Deserialize<'de> for response::StartedCommit {
                 formatter.write_str("struct materialize.Response.StartedCommit")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::StartedCommit, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<response::StartedCommit, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -3422,12 +3595,14 @@ impl<'de> serde::Deserialize<'de> for response::StartedCommit {
                         }
                     }
                 }
-                Ok(response::StartedCommit {
-                    state: state__,
-                })
+                Ok(response::StartedCommit { state: state__ })
             }
         }
-        deserializer.deserialize_struct("materialize.Response.StartedCommit", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Response.StartedCommit",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for response::Validated {
@@ -3460,11 +3635,7 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "bindings",
-            "generated_files",
-            "generatedFiles",
-        ];
+        const FIELDS: &[&str] = &["bindings", "generated_files", "generatedFiles"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -3482,7 +3653,10 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3493,7 +3667,9 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                     {
                         match value {
                             "bindings" => Ok(GeneratedField::Bindings),
-                            "generatedFiles" | "generated_files" => Ok(GeneratedField::GeneratedFiles),
+                            "generatedFiles" | "generated_files" => {
+                                Ok(GeneratedField::GeneratedFiles)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3510,8 +3686,8 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Validated, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut bindings__ = None;
                 let mut generated_files__ = None;
@@ -3527,9 +3703,8 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                             if generated_files__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("generatedFiles"));
                             }
-                            generated_files__ = Some(
-                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
-                            );
+                            generated_files__ =
+                                Some(map_.next_value::<std::collections::BTreeMap<_, _>>()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -3568,7 +3743,8 @@ impl serde::Serialize for response::validated::Binding {
         if !self.projection_constraints.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Binding", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Response.Validated.Binding", len)?;
         if self.case_insensitive_fields {
             struct_ser.serialize_field("caseInsensitiveFields", &self.case_insensitive_fields)?;
         }
@@ -3625,7 +3801,10 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3635,11 +3814,15 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                         E: serde::de::Error,
                     {
                         match value {
-                            "caseInsensitiveFields" | "case_insensitive_fields" => Ok(GeneratedField::CaseInsensitiveFields),
+                            "caseInsensitiveFields" | "case_insensitive_fields" => {
+                                Ok(GeneratedField::CaseInsensitiveFields)
+                            }
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             "deltaUpdates" | "delta_updates" => Ok(GeneratedField::DeltaUpdates),
                             "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
-                            "projectionConstraints" | "projection_constraints" => Ok(GeneratedField::ProjectionConstraints),
+                            "projectionConstraints" | "projection_constraints" => {
+                                Ok(GeneratedField::ProjectionConstraints)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3655,9 +3838,12 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                 formatter.write_str("struct materialize.Response.Validated.Binding")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::validated::Binding, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<response::validated::Binding, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut case_insensitive_fields__ = None;
                 let mut resource_path__ = None;
@@ -3668,7 +3854,9 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                     match k {
                         GeneratedField::CaseInsensitiveFields => {
                             if case_insensitive_fields__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("caseInsensitiveFields"));
+                                return Err(serde::de::Error::duplicate_field(
+                                    "caseInsensitiveFields",
+                                ));
                             }
                             case_insensitive_fields__ = Some(map_.next_value()?);
                         }
@@ -3692,7 +3880,9 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                         }
                         GeneratedField::ProjectionConstraints => {
                             if projection_constraints__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("projectionConstraints"));
+                                return Err(serde::de::Error::duplicate_field(
+                                    "projectionConstraints",
+                                ));
                             }
                             projection_constraints__ = Some(map_.next_value()?);
                         }
@@ -3710,7 +3900,11 @@ impl<'de> serde::Deserialize<'de> for response::validated::Binding {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Response.Validated.Binding", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Response.Validated.Binding",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for response::validated::Constraint {
@@ -3730,10 +3924,12 @@ impl serde::Serialize for response::validated::Constraint {
         if !self.folded_field.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.Constraint", len)?;
+        let mut struct_ser =
+            serializer.serialize_struct("materialize.Response.Validated.Constraint", len)?;
         if self.r#type != 0 {
-            let v = response::validated::constraint::Type::try_from(self.r#type)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.r#type)))?;
+            let v = response::validated::constraint::Type::try_from(self.r#type).map_err(|_| {
+                serde::ser::Error::custom(format!("Invalid variant {}", self.r#type))
+            })?;
             struct_ser.serialize_field("type", &v)?;
         }
         if !self.reason.is_empty() {
@@ -3751,12 +3947,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "type",
-            "reason",
-            "folded_field",
-            "foldedField",
-        ];
+        const FIELDS: &[&str] = &["type", "reason", "folded_field", "foldedField"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -3775,7 +3966,10 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -3803,9 +3997,12 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                 formatter.write_str("struct materialize.Response.Validated.Constraint")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::validated::Constraint, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<response::validated::Constraint, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut r#type__ = None;
                 let mut reason__ = None;
@@ -3816,7 +4013,9 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                             if r#type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("type"));
                             }
-                            r#type__ = Some(map_.next_value::<response::validated::constraint::Type>()? as i32);
+                            r#type__ =
+                                Some(map_.next_value::<response::validated::constraint::Type>()?
+                                    as i32);
                         }
                         GeneratedField::Reason => {
                             if reason__.is_some() {
@@ -3842,7 +4041,11 @@ impl<'de> serde::Deserialize<'de> for response::validated::Constraint {
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Response.Validated.Constraint", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Response.Validated.Constraint",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 impl serde::Serialize for response::validated::constraint::Type {
@@ -3921,8 +4124,12 @@ impl<'de> serde::Deserialize<'de> for response::validated::constraint::Type {
                 match value {
                     "INVALID" => Ok(response::validated::constraint::Type::Invalid),
                     "FIELD_REQUIRED" => Ok(response::validated::constraint::Type::FieldRequired),
-                    "LOCATION_REQUIRED" => Ok(response::validated::constraint::Type::LocationRequired),
-                    "LOCATION_RECOMMENDED" => Ok(response::validated::constraint::Type::LocationRecommended),
+                    "LOCATION_REQUIRED" => {
+                        Ok(response::validated::constraint::Type::LocationRequired)
+                    }
+                    "LOCATION_RECOMMENDED" => {
+                        Ok(response::validated::constraint::Type::LocationRecommended)
+                    }
                     "FIELD_OPTIONAL" => Ok(response::validated::constraint::Type::FieldOptional),
                     "FIELD_FORBIDDEN" => Ok(response::validated::constraint::Type::FieldForbidden),
                     "INCOMPATIBLE" => Ok(response::validated::constraint::Type::Incompatible),
@@ -3948,7 +4155,8 @@ impl serde::Serialize for response::validated::ProjectionConstraint {
         if self.constraint.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("materialize.Response.Validated.ProjectionConstraint", len)?;
+        let mut struct_ser = serializer
+            .serialize_struct("materialize.Response.Validated.ProjectionConstraint", len)?;
         if !self.field.is_empty() {
             struct_ser.serialize_field("field", &self.field)?;
         }
@@ -3964,10 +4172,7 @@ impl<'de> serde::Deserialize<'de> for response::validated::ProjectionConstraint 
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "field",
-            "constraint",
-        ];
+        const FIELDS: &[&str] = &["field", "constraint"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -3985,7 +4190,10 @@ impl<'de> serde::Deserialize<'de> for response::validated::ProjectionConstraint 
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -4012,9 +4220,12 @@ impl<'de> serde::Deserialize<'de> for response::validated::ProjectionConstraint 
                 formatter.write_str("struct materialize.Response.Validated.ProjectionConstraint")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::validated::ProjectionConstraint, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<response::validated::ProjectionConstraint, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut field__ = None;
                 let mut constraint__ = None;
@@ -4043,7 +4254,11 @@ impl<'de> serde::Deserialize<'de> for response::validated::ProjectionConstraint 
                 })
             }
         }
-        deserializer.deserialize_struct("materialize.Response.Validated.ProjectionConstraint", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct(
+            "materialize.Response.Validated.ProjectionConstraint",
+            FIELDS,
+            GeneratedVisitor,
+        )
     }
 }
 

@@ -48,7 +48,6 @@ go build -tags libsqlite3 ./go/bindings
 # Regenerate checked-in protobuf (required after .proto changes)
 mise run build:go-protobufs
 mise run build:rust-protobufs
-cargo fmt --all  # remove format-only churn from codegen
 
 # pgTAP tests, which pass only against a freshly reset database.
 supabase db reset && mise run ci:sql-tap

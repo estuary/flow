@@ -34,12 +34,7 @@ impl<'de> serde::Deserialize<'de> for FsmHints {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "log",
-            "live_nodes",
-            "liveNodes",
-            "properties",
-        ];
+        const FIELDS: &[&str] = &["log", "live_nodes", "liveNodes", "properties"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -58,7 +53,10 @@ impl<'de> serde::Deserialize<'de> for FsmHints {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -87,8 +85,8 @@ impl<'de> serde::Deserialize<'de> for FsmHints {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<FsmHints, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut log__ = None;
                 let mut live_nodes__ = None;
@@ -160,10 +158,7 @@ impl<'de> serde::Deserialize<'de> for FnodeSegments {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "fnode",
-            "segments",
-        ];
+        const FIELDS: &[&str] = &["fnode", "segments"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -181,7 +176,10 @@ impl<'de> serde::Deserialize<'de> for FnodeSegments {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -209,8 +207,8 @@ impl<'de> serde::Deserialize<'de> for FnodeSegments {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<FnodeSegments, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut fnode__ = None;
                 let mut segments__ = None;
@@ -220,9 +218,10 @@ impl<'de> serde::Deserialize<'de> for FnodeSegments {
                             if fnode__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fnode"));
                             }
-                            fnode__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            fnode__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Segments => {
                             if segments__.is_some() {
@@ -274,10 +273,7 @@ impl<'de> serde::Deserialize<'de> for Property {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "path",
-            "content",
-        ];
+        const FIELDS: &[&str] = &["path", "content"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -295,7 +291,10 @@ impl<'de> serde::Deserialize<'de> for Property {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -323,8 +322,8 @@ impl<'de> serde::Deserialize<'de> for Property {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Property, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut path__ = None;
                 let mut content__ = None;
@@ -412,12 +411,18 @@ impl serde::Serialize for RecordedOp {
         if self.first_offset != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("firstOffset", ToString::to_string(&self.first_offset).as_str())?;
+            struct_ser.serialize_field(
+                "firstOffset",
+                ToString::to_string(&self.first_offset).as_str(),
+            )?;
         }
         if self.last_offset != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastOffset", ToString::to_string(&self.last_offset).as_str())?;
+            struct_ser.serialize_field(
+                "lastOffset",
+                ToString::to_string(&self.last_offset).as_str(),
+            )?;
         }
         if !self.log.is_empty() {
             struct_ser.serialize_field("log", &self.log)?;
@@ -488,7 +493,10 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -525,8 +533,8 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<RecordedOp, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut seq_no__ = None;
                 let mut checksum__ = None;
@@ -545,41 +553,46 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                             if seq_no__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("seqNo"));
                             }
-                            seq_no__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            seq_no__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Checksum => {
                             if checksum__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("checksum"));
                             }
-                            checksum__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            checksum__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Author => {
                             if author__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("author"));
                             }
-                            author__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            author__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::FirstOffset => {
                             if first_offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("firstOffset"));
                             }
-                            first_offset__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            first_offset__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::LastOffset => {
                             if last_offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("lastOffset"));
                             }
-                            last_offset__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            last_offset__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Log => {
                             if log__.is_some() {
@@ -664,9 +677,7 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Create {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "path",
-        ];
+        const FIELDS: &[&str] = &["path"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -683,7 +694,10 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Create {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -710,8 +724,8 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Create {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<recorded_op::Create, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut path__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -767,10 +781,7 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Link {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "fnode",
-            "path",
-        ];
+        const FIELDS: &[&str] = &["fnode", "path"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -788,7 +799,10 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Link {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -816,8 +830,8 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Link {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<recorded_op::Link, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut fnode__ = None;
                 let mut path__ = None;
@@ -827,9 +841,10 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Link {
                             if fnode__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fnode"));
                             }
-                            fnode__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            fnode__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Path => {
                             if path__.is_some() {
@@ -893,11 +908,7 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &[
-            "fnode",
-            "offset",
-            "length",
-        ];
+        const FIELDS: &[&str] = &["fnode", "offset", "length"];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
@@ -916,7 +927,10 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -945,8 +959,8 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<recorded_op::Write, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut fnode__ = None;
                 let mut offset__ = None;
@@ -957,25 +971,28 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
                             if fnode__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fnode"));
                             }
-                            fnode__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            fnode__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Offset => {
                             if offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("offset"));
                             }
-                            offset__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            offset__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Length => {
                             if length__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("length"));
                             }
-                            length__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            length__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -1028,12 +1045,18 @@ impl serde::Serialize for Segment {
         if self.first_seq_no != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("firstSeqNo", ToString::to_string(&self.first_seq_no).as_str())?;
+            struct_ser.serialize_field(
+                "firstSeqNo",
+                ToString::to_string(&self.first_seq_no).as_str(),
+            )?;
         }
         if self.first_offset != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("firstOffset", ToString::to_string(&self.first_offset).as_str())?;
+            struct_ser.serialize_field(
+                "firstOffset",
+                ToString::to_string(&self.first_offset).as_str(),
+            )?;
         }
         if self.first_checksum != 0 {
             struct_ser.serialize_field("firstChecksum", &self.first_checksum)?;
@@ -1041,12 +1064,16 @@ impl serde::Serialize for Segment {
         if self.last_seq_no != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastSeqNo", ToString::to_string(&self.last_seq_no).as_str())?;
+            struct_ser
+                .serialize_field("lastSeqNo", ToString::to_string(&self.last_seq_no).as_str())?;
         }
         if self.last_offset != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastOffset", ToString::to_string(&self.last_offset).as_str())?;
+            struct_ser.serialize_field(
+                "lastOffset",
+                ToString::to_string(&self.last_offset).as_str(),
+            )?;
         }
         if !self.log.is_empty() {
             struct_ser.serialize_field("log", &self.log)?;
@@ -1096,7 +1123,10 @@ impl<'de> serde::Deserialize<'de> for Segment {
                 impl serde::de::Visitor<'_> for GeneratedVisitor {
                     type Value = GeneratedField;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         write!(formatter, "expected one of: {:?}", &FIELDS)
                     }
 
@@ -1129,8 +1159,8 @@ impl<'de> serde::Deserialize<'de> for Segment {
             }
 
             fn visit_map<V>(self, mut map_: V) -> std::result::Result<Segment, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
+            where
+                V: serde::de::MapAccess<'de>,
             {
                 let mut author__ = None;
                 let mut first_seq_no__ = None;
@@ -1145,49 +1175,55 @@ impl<'de> serde::Deserialize<'de> for Segment {
                             if author__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("author"));
                             }
-                            author__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            author__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::FirstSeqNo => {
                             if first_seq_no__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("firstSeqNo"));
                             }
-                            first_seq_no__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            first_seq_no__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::FirstOffset => {
                             if first_offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("firstOffset"));
                             }
-                            first_offset__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            first_offset__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::FirstChecksum => {
                             if first_checksum__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("firstChecksum"));
                             }
-                            first_checksum__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            first_checksum__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::LastSeqNo => {
                             if last_seq_no__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("lastSeqNo"));
                             }
-                            last_seq_no__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            last_seq_no__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::LastOffset => {
                             if last_offset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("lastOffset"));
                             }
-                            last_offset__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            last_offset__ = Some(
+                                map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?
+                                    .0,
+                            );
                         }
                         GeneratedField::Log => {
                             if log__.is_some() {
