@@ -1622,6 +1622,14 @@ fn control_channel() {
         serde_json::json!({"cid": 2, "port": 49092, "timeout": 5}),
     );
     assert_eq!(mapped, "error:ECONNRESET", "vsock-mapped-port");
+    // The resolver's refusals are served to a connection the guest initiates.
+    let refusals = probe(
+        &mut guest,
+        "vsock-refusals-port",
+        "vsock",
+        serde_json::json!({"cid": 2, "port": 49093, "timeout": 5}),
+    );
+    assert_eq!(refusals, "connected", "vsock-refusals-port");
     let unmapped = probe(
         &mut guest,
         "vsock-unmapped-port",

@@ -26,6 +26,7 @@ expression: table
 /connector-mount/flow-connector-init
 --image-inspect-json-path=/connector-mount/image-inspect.json
 --vsock-port=49092
+--resolver-vsock-port=49093
 
 ## with a persistent disk
 /flow-connector-guest-init
@@ -53,6 +54,7 @@ expression: table
 /connector-mount/flow-connector-init
 --image-inspect-json-path=/connector-mount/image-inspect.json
 --vsock-port=49092
+--resolver-vsock-port=49093
 
 ## --exec replaces the workload, not the init
 /flow-connector-guest-init
@@ -97,3 +99,4 @@ exit 7
 /connector-mount/flow-connector-init
 --image-inspect-json-path=/connector-mount/image-inspect.json
 --vsock-port=49092
+--resolver-vsock-port=49093
