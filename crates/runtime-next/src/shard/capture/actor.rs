@@ -1249,6 +1249,60 @@ mod tests {
         );
     }
 
+    /// A sequence which exceeds `sequence_bytes_limit` commits under a synthetic
+    /// checkpoint, and the rest of the sequence commits in a second transaction
+    /// without waiting on an actor tick. All three responses are queued before
+    /// the actor first polls, so the second document occupies the actor's ready
+    /// slot when the synthetic checkpoint is injected.
+    #[tokio::test(start_paused = true)]
+    async fn synthetic_checkpoint_keeps_reading_queued_connector_output() {
+        let mut task = mk_task(true);
+        task.sequence_bytes_limit = 16; // Exceeded by the first document alone.
+
+        let started = tokio::time::Instant::now();
+        let session = run_capture_session(
+            task,
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            BTreeMap::new(),
+            crate::TracingLogger,
+            vec![
+                captured(0, br#"{"id":"oversized-document"}"#),
+                captured(0, br#"{"id":"b"}"#),
+                checkpoint(br#"{"cursor":"next"}"#),
+            ],
+            1,
+        )
+        .await;
+
+        // Time is paused, so a session parked on its tick auto-advances by one.
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < crate::ACTOR_TICK_INTERVAL,
+            "capture waited {elapsed:?} to commit after a synthetic checkpoint",
+        );
+
+        // Two transactions committed. The synthetic one is not acknowledged,
+        // and the second acknowledges the connector's own checkpoint.
+        assert_eq!(session.publisher.take_stats().len(), 2);
+        assert_eq!(session.acks.len(), 1);
+        assert_eq!(session.acks[0].checkpoints, 1);
+        assert_eq!(
+            session
+                .publisher
+                .take_docs()
+                .into_iter()
+                .map(|(binding, _doc)| binding)
+                .collect::<Vec<_>>(),
+            [0, 0],
+        );
+
+        let (_db, recover) = session.recover().await;
+        assert_eq!(
+            recover.connector_state_json.as_ref(),
+            br#"{"cursor":"next"}"#
+        );
+    }
+
     /// A connector which exits before its committed transaction is acknowledged
     /// must not fail the session: sends to the connector are best-effort, and
     /// the acknowledgement is moot once it has exited -- the commit is durable,
