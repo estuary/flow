@@ -4,6 +4,12 @@ use crate::run;
 use std::path::Path;
 use std::time::Duration;
 
+pub fn prune(podman: &str, state_dir: &str) -> std::process::Command {
+    let mut command = std::process::Command::new("flow-connector-vmm-prune");
+    command.args(["--state-dir", state_dir, "--podman", podman]);
+    command
+}
+
 pub struct Root {
     pub dir: String,
     pub state_dir: String,

@@ -7,10 +7,7 @@ pub mod argv;
 pub(crate) mod launch;
 mod plan;
 mod record;
-mod recovery;
 mod release;
-
-pub use recovery::{Metrics as RecoveryMetrics, Recovery};
 
 /// VMM capability of a connector service, and the configuration every VMM it
 /// launches shares.
@@ -138,25 +135,40 @@ impl Vmm {
             cgroup_parent,
         }))
     }
+}
 
-    /// Recover what dead launches left beneath this configuration's
-    /// `STATE_DIR`, on `runtime`, until the returned `Recovery` is dropped:
-    /// one pass at once, then another 30 seconds after each ends. Its owner
-    /// must outlive the shard runtimes it recovers.
-    pub fn spawn_recovery(&self, runtime: &tokio::runtime::Handle) -> Recovery {
-        recovery::spawn(self.clone(), runtime)
+/// Run one host cleanup pass. Returns false when another prune holds the directory lock.
+pub async fn prune_vmm(podman: &str, state_dir: &str) -> anyhow::Result<bool> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    anyhow::ensure!(cfg!(target_os = "linux"), "VMM pruning requires Linux");
+    plan::check_state_dir(state_dir)
+        .with_context(|| format!("invalid state directory {state_dir:?}"))?;
+    let path = std::path::Path::new(state_dir);
+    let directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("opening state directory {state_dir}"))?;
+    launch::check_state_owner(path)
+        .with_context(|| format!("checking state directory {state_dir}"))?;
+    match directory.try_lock() {
+        Ok(()) => (),
+        Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
+        Err(std::fs::TryLockError::Error(err)) => {
+            return Err(err).with_context(|| format!("locking {state_dir}"));
+        }
     }
 
-    /// One recovery pass, now and to its end, as a `Recovery` runs them.
-    /// Returns how many problems it left.
-    pub async fn recover(&self) -> u64 {
-        recovery::pass(self, &Default::default()).await
+    let problems = release::recover(podman, state_dir).await;
+    if !problems.is_empty() {
+        let messages: Vec<_> = problems
+            .into_iter()
+            .map(|p| format!("{}: {}: {}", p.subject, p.message, p.error))
+            .collect();
+        anyhow::bail!("{}", messages.join("\n"));
     }
-
-    /// The metrics of this process's recovery passes.
-    pub fn recovery_metrics() -> RecoveryMetrics {
-        recovery::metrics()
-    }
+    Ok(true)
 }
 
 /// Bounding guest RAM to u32 MiB also keeps the container cap within

@@ -273,7 +273,7 @@ pub(crate) struct Problem {
 
 /// Release every record in `state_dir` whose owner is dead, then remove what
 /// carries `state_dir`'s label but has no record. Returns what remains to be
-/// retried or inspected, which `recovery` reports. If `state_dir` can't be
+/// retried or inspected. If `state_dir` can't be
 /// read, nothing is removed.
 pub(crate) async fn recover(podman: &str, state_dir: &str) -> Vec<Problem> {
     let mut problems = Vec::new();

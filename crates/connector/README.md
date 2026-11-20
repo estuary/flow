@@ -188,8 +188,7 @@ a defined file layout of resources handed to the connector for its use.
 | `vmm::plan::plan` | Pure plan of a VMM launch |
 | `vmm_argv` (`vmm::argv`) | Pure podman lines of a VMM launch, shared with `crates/connector-vmm-tests` |
 | `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
-| `Vmm::spawn_recovery`, `VmmRecovery` | A process's background recovery of its `STATE_DIR`, until dropped |
-| `Vmm::recover`, `Vmm::recovery_metrics` | One recovery pass now; the process's pass metrics |
+| `flow-connector-vmm-prune` | Host command for one cleanup pass under a state-directory lock |
 | `vmm::release::recover` | One pass: releases resources whose durable owner is dead, and labeled resources whose record is gone |
 | `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |
@@ -216,7 +215,6 @@ src/
 ├── vmm/launch.rs # Claimed launch and credential lifecycle
 ├── vmm/record.rs # Durable ownership and locks
 ├── vmm/release.rs# Resource release, and one recovery pass
-├── vmm/recovery.rs # Recovery's schedule, reporting and metrics
 └── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
 tests/
 ├── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
@@ -291,8 +289,7 @@ module that documents it.
 
 VMMs run only on Linux hosts, though the crate builds elsewhere for
 `flowctl`. Off Linux, admission is unchanged, `vmm::launch::start` refuses
-each start as `FAILED_PRECONDITION` before it pulls or creates anything, and
-recovery passes do nothing.
+each start as `FAILED_PRECONDITION` before it pulls or creates anything.
 
 1. **Configure.** `Vmm::from_env` reads `CONNECTOR_VMM_*` once.
    `CONNECTOR_VMM_STATE_DIR` enables VMM execution. The image is
@@ -322,9 +319,8 @@ recovery passes do nothing.
    as labels, and nothing without a record or that label is touched.
 6. **Release.** `vmm::release` is one state machine for teardown and
    recovery. A failed removal keeps the record for a later pass.
-7. **Recover.** `Vmm::spawn_recovery` runs passes for the process's life
-   (`vmm::recovery`), releasing what dead owners left, including labeled
-   resources whose record is gone.
+7. **Prune.** `flow-connector-vmm-prune` releases abandoned records and
+   labeled resources whose record is gone.
 
 Ingress is the built spec's `network_ports`, granted on the host by the
 launch's token and revoked with the image its record names. The connector

@@ -3,7 +3,7 @@
 //! podman, claim the launch's ownership record, prepare its connector mount
 //! and `fv_<id>` state, verify the host boundary, create the VMM's network,
 //! volume and container, wait for connector-init's stderr readiness byte,
-//! and dial `init.sock`. A launch recovers nothing of others': `recovery` does.
+//! and dial `init.sock`. A launch recovers nothing of others': the host prune command does.
 //!
 //! One spawned task owns everything a launch creates, from its claim to its
 //! release, and holds the record's lock throughout (see `record`). Network,
