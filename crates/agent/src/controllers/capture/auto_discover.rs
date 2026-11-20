@@ -244,9 +244,10 @@ async fn try_auto_discover<C: ControlPlane>(
     control_plane: &C,
     pub_status: &mut PublicationStatus,
 ) -> anyhow::Result<AutoDiscoverOutcome> {
-    let auto_discover = model.auto_discover.as_ref().unwrap();
-    let update_only = !auto_discover.add_new_bindings;
-    let reset_on_key_change = auto_discover.evolve_incompatible_collections;
+    let discover::Options {
+        update_only,
+        reset_on_key_change,
+    } = discover::Options::for_capture(model, true);
     let capture_name = models::Capture::new(&state.catalog_name);
 
     let mut draft = tables::DraftCatalog::default();
@@ -260,7 +261,7 @@ async fn try_auto_discover<C: ControlPlane>(
         is_touch: true,
     });
 
-    let mut output = control_plane
+    let output = control_plane
         .discover(
             models::Capture::new(&state.catalog_name),
             draft,
@@ -281,12 +282,10 @@ async fn try_auto_discover<C: ControlPlane>(
     }
 
     // The discover was successful, but has anything actually changed?
-    // First prune the discovered draft to remove any unchanged specs.
-    let unchanged_count = output.prune_unchanged_specs();
+    // The draft holds only the capture and collections which changed.
     let is_unchanged = output.is_unchanged();
     tracing::info!(
         %is_unchanged,
-        %unchanged_count,
         added=output.added.len(),
         removed=output.removed.len(),
         modified=output.modified.len(),

@@ -13,6 +13,12 @@ pub enum Error {
         name: String,
         unmatched: String,
     },
+    #[error("{entity} name is {len} bytes, which exceeds the limit of {limit}")]
+    NameTooLong {
+        entity: &'static str,
+        len: usize,
+        limit: usize,
+    },
     #[error(
         "{lhs_entity} {lhs_name} {error_class} {rhs_entity} {rhs_name}, defined at {rhs_scope}"
     )]
@@ -81,6 +87,26 @@ pub enum Error {
     NoSuchSchema { schema: Url },
     #[error("collection {collection} key cannot be empty (https://go.estuary.dev/Zq6zVB)")]
     CollectionKeyEmpty { collection: String },
+    #[error("collection {collection} key has {len} components, which exceeds the limit of {limit}")]
+    CollectionKeyTooLong {
+        collection: String,
+        len: usize,
+        limit: usize,
+    },
+    #[error(
+        "collection {collection} key location is {len} bytes, which exceeds the limit of {limit}"
+    )]
+    CollectionKeyPtrTooLong {
+        collection: String,
+        len: usize,
+        limit: usize,
+    },
+    #[error("collection {collection} schema is {len} bytes, which exceeds the limit of {limit}")]
+    CollectionSchemaTooLong {
+        collection: String,
+        len: usize,
+        limit: usize,
+    },
     #[error(
         "the logical partitions of existing collection {collection} cannot change (from {live:?} to {draft:?}) without also resetting it"
     )]

@@ -102,6 +102,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -111,8 +112,10 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
 
     harness
@@ -213,6 +216,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "flowers".to_string(),
@@ -222,8 +226,10 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -358,6 +364,7 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "flowers".to_string(),
@@ -367,8 +374,10 @@ async fn test_auto_discovers_add_new_bindings() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -464,7 +473,7 @@ async fn test_auto_discovers_no_evolution() {
         "captures": {
             "mules/capture": {
                 "autoDiscover": {
-                    "addNewBindings": false,
+                    "addNewBindings": true,
                     "evolveIncompatibleCollections": false,
                 },
                 "endpoint": {
@@ -489,7 +498,9 @@ async fn test_auto_discovers_no_evolution() {
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     let result = harness
         .user_discover(
@@ -498,7 +509,6 @@ async fn test_auto_discovers_no_evolution() {
             "mules/capture",
             draft_id,
             r#"{"hee": "hawwww"}"#,
-            false,
             Ok((spec_fixture(), discovered.clone())),
         )
         .await;
@@ -519,7 +529,9 @@ async fn test_auto_discovers_no_evolution() {
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     harness.set_auto_discover_due("mules/capture").await;
     harness
@@ -555,7 +567,7 @@ async fn test_auto_discovers_no_evolution() {
             "id": "[pub_id]",
             "created": "[ts]",
             "completed": "[ts]",
-            "detail": "auto-discover changes (0 added, 1 modified, 0 removed)",
+            "detail": "auto-discover changes (0 added, 1 modified, 0 removed)\n- mules/hey: changed collection key from [\"/id\"] to [\"/id\", \"/invalid-key\"]",
             "result": {
               "type": "buildFailed"
             },
@@ -852,6 +864,7 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -862,6 +875,7 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "lichen".to_string(),
@@ -871,8 +885,10 @@ async fn test_auto_discovers_update_only() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1041,6 +1057,7 @@ async fn test_auto_discovers_update_only() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -1051,10 +1068,12 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             // Lichens is missing, and we expect the corresponding binding to be
             // removed once a successful discover is published.
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1134,6 +1153,7 @@ async fn test_auto_discovers_update_only() {
                 disable: false,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             Binding {
                 recommended_name: "moss".to_string(),
@@ -1144,10 +1164,12 @@ async fn test_auto_discovers_update_only() {
                 disable: true,
                 resource_path: Vec::new(),
                 is_fallback_key: false,
+                collection_index: 0,
             },
             // Lichens is missing, and we expect the corresponding binding to be
             // removed once a successful discover is published.
         ],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1218,7 +1240,7 @@ async fn test_auto_discovers_update_only() {
     insta::assert_json_snapshot!(pub_history, @r###"
     [
       [
-        "auto-discover changes (0 added, 2 modified, 1 removed)\nUpdated 'pikas/capture':\nbackfilled binding of reset collection pikas/alpine-grass\nUpdated 'pikas/alpine-grass':\nreset collection to new generation <redacted>",
+        "auto-discover changes (0 added, 2 modified, 1 removed)\n- pikas/alpine-grass: changed collection key from [\"/id\"] to [\"/id\", \"/squeaks\"], and reset the collection\nUpdated 'pikas/capture':\nbackfilled binding of reset collection pikas/alpine-grass\nUpdated 'pikas/alpine-grass':\nreset collection to new generation <redacted>",
         {
           "type": "success"
         }
@@ -1313,7 +1335,9 @@ async fn test_auto_discovers_without_connector_tag() {
             disable: false,
             resource_path: vec!["tunnels".to_string()],
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
     harness
         .connectors
@@ -1330,4 +1354,65 @@ async fn test_auto_discovers_without_connector_tag() {
         .unwrap();
     assert_eq!(1, model.bindings.len());
     assert_eq!("voles/tunnels", model.bindings[0].target.as_str());
+}
+
+#[tokio::test]
+async fn test_auto_discovers_unauthorized_target() {
+    let mut harness = TestHarness::init("test_auto_discovers_unauthorized_target").await;
+    let user_id = harness.setup_tenant("voles").await;
+
+    // `voles/capture` isn't authorized to write the target of its binding.
+    let init_draft = draft_catalog(json!({
+        "captures": {
+            "voles/capture": {
+                "autoDiscover": { "addNewBindings": true },
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [{
+                    "resource": { "id": "burrows" },
+                    "target": "moles/burrows",
+                    "disable": true
+                }]
+            }
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "initial publication", init_draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    harness.run_pending_controllers(None).await;
+
+    let discovered = Discovered {
+        bindings: vec![Binding {
+            recommended_name: "burrows".to_string(),
+            resource_config_json: r#"{"id": "burrows"}"#.into(),
+            document_schema_json: document_schema(1).to_string().into(),
+            key: vec!["/id".to_string()],
+            ..Default::default()
+        }],
+        linked_collections: Vec::new(),
+    };
+    harness
+        .connectors
+        .mock_discover("voles/capture", Ok((spec_fixture(), discovered)));
+    harness.set_auto_discover_due("voles/capture").await;
+    let capture_state = harness.run_pending_controller("voles/capture").await;
+
+    let auto_discover = capture_state
+        .current_status
+        .unwrap_capture()
+        .auto_discover
+        .as_ref();
+    let outcome = &auto_discover
+        .unwrap()
+        .failure
+        .as_ref()
+        .unwrap()
+        .last_outcome;
+    assert_eq!(
+        "capture is not write-authorized to the target collections of its bindings: moles/burrows",
+        outcome.errors[0].detail
+    );
+    assert!(outcome.publish_result.is_none());
 }

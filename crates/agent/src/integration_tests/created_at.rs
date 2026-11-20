@@ -223,7 +223,9 @@ async fn discover_requests_carry_created_at() {
             disable: false,
             resource_path: Vec::new(),
             is_fallback_key: false,
+            collection_index: 0,
         }],
+        linked_collections: Vec::new(),
     };
 
     // Discover of a capture which doesn't exist: created_at is absent, and
@@ -238,7 +240,6 @@ async fn discover_requests_carry_created_at() {
             "gophers/capture",
             draft_id,
             r#"{"tail": "shake"}"#,
-            false,
             Ok((super::spec_fixture(), discovered.clone())),
         )
         .await;
@@ -263,7 +264,6 @@ async fn discover_requests_carry_created_at() {
             "gophers/capture",
             draft_id,
             r#"{"tail": "shake"}"#,
-            false,
             Ok((super::spec_fixture(), discovered)),
         )
         .await;

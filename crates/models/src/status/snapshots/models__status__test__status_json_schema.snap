@@ -177,7 +177,7 @@ expression: schema
           "type": "array"
         },
         "modified": {
-          "description": "Bindings that were modified, either to change the schema or the collection key.",
+          "description": "Collections that were modified, either to change the schema or the collection key.\nEach is represented by one of its bindings.",
           "items": {
             "$ref": "#/$defs/DiscoverChange"
           },

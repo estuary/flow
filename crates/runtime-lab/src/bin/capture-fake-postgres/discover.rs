@@ -19,9 +19,13 @@ pub fn discovered(config: &EndpointConfig) -> response::Discovered {
             disable: false,
             resource_path: vec![table.namespace.clone(), table.stream.clone()],
             is_fallback_key: false,
+            collection_index: 0,
         })
         .collect();
-    response::Discovered { bindings }
+    response::Discovered {
+        bindings,
+        linked_collections: Vec::new(),
+    }
 }
 
 /// `<namespace>/<stream>`, lowercased, with other than `[a-z0-9-_.]` as `_`.

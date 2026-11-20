@@ -1,0 +1,62 @@
+---
+source: crates/discover/src/collections.rs
+expression: drafted(&draft.collections)
+---
+[
+    (
+        "acmeCo/all-fallback",
+        [
+            "/id",
+        ],
+        false,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"next\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}}}",
+    ),
+    (
+        "acmeCo/disabled",
+        [
+            "/id",
+        ],
+        false,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"x2\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}},\"$ref\":\"flow://connector-schema\"}",
+    ),
+    (
+        "acmeCo/migrated",
+        [
+            "/next",
+        ],
+        true,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"next\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}}}",
+    ),
+    (
+        "acmeCo/migrating",
+        [
+            "/id",
+        ],
+        false,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"next\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}}}",
+    ),
+    (
+        "acmeCo/mixed-fallback",
+        [
+            "/next",
+        ],
+        true,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"next\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}}}",
+    ),
+    (
+        "acmeCo/new",
+        [
+            "/id",
+        ],
+        false,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"a\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}},\"$ref\":\"flow://connector-schema\"}",
+    ),
+    (
+        "acmeCo/provider",
+        [
+            "/id",
+        ],
+        false,
+        "{\"$defs\":{\"flow://connector-schema\":{\"$id\":\"flow://connector-schema\",\"const\":\"a\",\"properties\":{\"id\": {\"type\": \"integer\"}, \"next\": {\"type\": \"integer\"}},\"type\":\"object\"}}}",
+    ),
+]

@@ -1,51 +1,55 @@
 $defs:
-  Meta:
+  flow://connector-schema:
+    $id: flow://connector-schema
+    $defs:
+      Meta:
+        properties:
+          op:
+            default: u
+            description: 'Operation type (c: Create, u: Update, d: Delete)'
+            enum:
+            - c
+            - u
+            - d
+            title: Op
+            type: string
+          row_id:
+            default: -1
+            description: Row ID of the Document, counting up from zero, or -1 if not known
+            title: Row Id
+            type: integer
+        title: Meta
+        type: object
+    additionalProperties: false
+    description: A captured document. Its schema is published through discovery.
     properties:
-      op:
-        default: u
-        description: 'Operation type (c: Create, u: Update, d: Delete)'
-        enum:
-        - c
-        - u
-        - d
-        title: Op
-        type: string
-      row_id:
-        default: -1
-        description: Row ID of the Document, counting up from zero, or -1 if not known
-        title: Row Id
+      _meta:
+        $ref: '#/$defs/Meta'
+        description: Document metadata
+      id:
+        title: Id
         type: integer
-    title: Meta
+      message:
+        title: Message
+        type: string
+    required:
+    - id
+    - message
+    title: Greeting
     type: object
-additionalProperties: false
-description: A captured document. Its schema is published through discovery.
-properties:
-  _meta:
-    $ref: '#/$defs/Meta'
-    description: Document metadata
-  id:
-    title: Id
-    type: integer
-  message:
-    title: Message
-    type: string
-required:
-- id
-- message
-title: Greeting
-type: object
-x-infer-schema: true
-if:
-  required:
-  - _meta
-  properties:
-    _meta:
+    x-infer-schema: true
+    if:
       required:
-      - op
+      - _meta
       properties:
-        op:
-          const: d
-then:
-  reduce:
-    strategy: merge
-    delete: true
+        _meta:
+          required:
+          - op
+          properties:
+            op:
+              const: d
+    then:
+      reduce:
+        strategy: merge
+        delete: true
+$ref: flow://connector-schema

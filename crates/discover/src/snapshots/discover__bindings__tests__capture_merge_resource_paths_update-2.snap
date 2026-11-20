@@ -1,0 +1,121 @@
+---
+source: crates/discover/src/bindings.rs
+expression: out
+---
+Merged {
+    bindings: [
+        MergedBinding {
+            target: Collection(
+                "acmeCo/other",
+            ),
+            resource_path: [
+                "bar",
+            ],
+            disable: true,
+            collection: 2,
+        },
+        MergedBinding {
+            target: Collection(
+                "test/collection/disabled",
+            ),
+            resource_path: [
+                "disabled",
+            ],
+            disable: true,
+            collection: 3,
+        },
+        MergedBinding {
+            target: Collection(
+                "acmeCo/renamed",
+            ),
+            resource_path: [
+                "foo",
+            ],
+            disable: false,
+            collection: 0,
+        },
+        MergedBinding {
+            target: Collection(
+                "acmeCo/renamed-namepaced",
+            ),
+            resource_path: [
+                "foo",
+                "spacename",
+            ],
+            disable: false,
+            collection: 1,
+        },
+    ],
+    collections: [
+        Collection {
+            recommended_name: "suggested",
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered"},
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "suggested2",
+            document_schema: Schema(
+                RawValue(
+                    {"const":"discovered-namepaced"},
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "other",
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+        Collection {
+            recommended_name: "other",
+            document_schema: Schema(
+                RawValue(
+                    false,
+                ),
+            ),
+            key: CompositeKey(
+                [],
+            ),
+            is_fallback_key: false,
+        },
+    ],
+    added: {
+        [
+            "bar",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/other",
+            ),
+            disable: true,
+            reason: None,
+        },
+    },
+    removed: {
+        [
+            "removed",
+        ]: Changed {
+            target: Collection(
+                "acmeCo/discarded",
+            ),
+            disable: false,
+            reason: None,
+        },
+    },
+}

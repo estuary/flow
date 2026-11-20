@@ -114,6 +114,7 @@ dependencies = [
  "control-plane-api",
  "dekaf",
  "derivative",
+ "discover",
  "doc",
  "futures",
  "gazette",
@@ -2230,6 +2231,7 @@ dependencies = [
  "colored_json",
  "coroutines",
  "derivative",
+ "discover",
  "doc",
  "enumset",
  "flow-client-next",
@@ -3218,6 +3220,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "discover"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "doc",
+ "insta",
+ "itertools 0.13.0",
+ "json",
+ "models",
+ "proto-flow",
+ "serde_json",
+ "tables",
+ "tracing",
+ "validation",
+]
+
+[[package]]
 name = "disk-daemon"
 version = "0.0.0"
 dependencies = [
@@ -3728,6 +3748,7 @@ dependencies = [
  "coroutines",
  "crossterm",
  "dirs",
+ "discover",
  "doc",
  "extractors",
  "flow-client-next",

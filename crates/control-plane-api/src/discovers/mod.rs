@@ -1,13 +1,11 @@
 pub mod db;
-pub mod specs;
 
 use crate::connectors::ConnectorFactory;
 
 use anyhow::Context;
-use models::discovers::{Changed, Changes};
+use models::discovers::Changes;
 use proto_flow::{capture, connector};
 use sqlx::{PgPool, types::Uuid};
-use std::collections::HashSet;
 
 // Re-export key types and functions that executors will need
 pub use db::{Row, fetch_discover, resolve};
@@ -129,10 +127,9 @@ pub async fn create(
         .filter(|data_plane| data_plane.connector_route().is_ok())
         .ok_or_else(data_plane_error)?;
 
-    let update_only = model
-        .auto_discover
-        .as_ref()
-        .map_or(live_capture.is_some(), |policy| !policy.add_new_bindings);
+    // A record of the capture's policy at creation. The executor derives its
+    // options anew, from the drafted capture which it merges.
+    let update_only = discover::Options::for_capture(&model, live_capture.is_some()).update_only;
 
     // The executor takes the endpoint from the draft or live capture, which a
     // NULL `connector_tag_id` signals. `endpoint_config` is a placeholder.
@@ -237,7 +234,8 @@ pub struct DiscoverOutput {
     /// be disabled if `update_only` was `true`, and they will still be
     /// represented here.
     pub added: Changes,
-    /// Bindings that were modified by the discover.
+    /// Live collections whose key or schema was modified by the discover,
+    /// each represented by one of its bindings (see `discover::merge_collections`).
     pub modified: Changes,
     /// Bindings that were removed by the discover. The `disable` flag here
     /// reflects whether the binding _was_ disabled prior to removal.
@@ -269,57 +267,6 @@ impl DiscoverOutput {
     /// was successful.
     pub fn is_unchanged(&self) -> bool {
         self.added.is_empty() && self.modified.is_empty() && self.removed.is_empty()
-    }
-
-    /// Prunes any drafted specs that would be no-op changes. This includes
-    /// collection specs that are identical to the live specs, and any
-    /// collection specs that correspond to disabled bindings, regardless of
-    /// whether they are identical to the live specs. The `modified` set will
-    /// also be updated to remove mentions of such specs. The `added` set will
-    /// still contain records of the disabled bindings, though, even after the
-    /// collection specs themeselves have been pruned. This is because they
-    /// _were_ still added to the capture model, just in a disabled state.
-    pub fn prune_unchanged_specs(&mut self) -> usize {
-        assert!(
-            self.draft.errors.is_empty(),
-            "cannot prune_unchanged on discover output with errors"
-        );
-
-        let mut pruned_count = 0;
-        if self.is_unchanged() {
-            // We've discovered absolutely no changes, so remove everything from
-            // the draft. Note that this will also remove any pre-existing
-            // unrelated specs.
-            pruned_count = self.draft.spec_count();
-            self.draft = tables::DraftCatalog::default();
-        } else {
-            let DiscoverOutput {
-                draft,
-                added,
-                modified,
-                ..
-            } = self;
-            // At least one binding has changed, so the capture spec itself must
-            // be changed, and we'll only remove collection specs that have not
-            // been modified. Start by determining the set of modified
-            // collection names. Note that removed bindings are not included
-            // here because we want to remove the corresponding collection specs
-            // from the draft.
-            let changed_collections = added
-                .values()
-                .chain(modified.values())
-                .map(|changed| &changed.target)
-                .collect::<HashSet<&models::Collection>>();
-
-            draft.collections.retain(|row| {
-                let retain = changed_collections.contains(&row.collection);
-                if !retain {
-                    pruned_count += 1;
-                }
-                retain
-            });
-        }
-        pruned_count
     }
 }
 
@@ -447,12 +394,14 @@ impl DiscoverHandler {
             capture_name,
             &subject,
             filter_user_authz,
-            update_only,
+            discover::Options {
+                update_only,
+                reset_on_key_change,
+            },
             draft,
             discovered,
             spec.resource_path_pointers,
             db,
-            reset_on_key_change,
             snapshot,
         )
         .await?;
@@ -476,23 +425,13 @@ impl DiscoverHandler {
         capture_name: models::Capture,
         subject: &models::authz::Subject,
         filter_user_authz: bool,
-        update_only: bool,
+        options: discover::Options,
         mut draft: tables::DraftCatalog,
         discovered: capture::response::Discovered,
         resource_path_pointers: Vec<String>,
         db: &PgPool,
-        reset_on_key_change: bool,
         snapshot: &crate::Snapshot,
     ) -> anyhow::Result<DiscoverOutput> {
-        let discovered_bindings = match specs::parse_response(discovered)
-            .context("converting connector discovery response into specs")
-        {
-            Ok(b) => b,
-            Err(err) => {
-                return Ok(DiscoverOutput::failed(capture_name, err));
-            }
-        };
-
         let tables::DraftCatalog {
             captures,
             collections,
@@ -518,23 +457,51 @@ impl DiscoverHandler {
             .map(|p| json::Pointer::from_str(p.as_str()))
             .collect::<Vec<_>>();
 
-        // Bindings without a resource path, or with conflicting ones,
-        // are a failure of the connector's discover.
-        let (used_bindings, added_bindings, removed_bindings) = match specs::update_capture_bindings(
+        // A malformed response, or bindings without a resource path or with
+        // conflicting ones, are a failure of the connector's discover.
+        let merged = match discover::merge_bindings(
             capture_name.as_str(),
             capture_model,
-            discovered_bindings,
-            update_only,
+            discovered,
+            &options,
             &pointers,
-        ) {
-            Ok(bindings) => bindings,
+        )
+        .context("merging the connector's discovered bindings")
+        {
+            Ok(merged) => merged,
             Err(err) => return Ok(DiscoverOutput::failed(capture_name, err)),
         };
 
-        let collection_names = capture_model
-            .bindings
-            .iter()
-            .map(|b| b.target.to_string())
+        // The merge creates and changes the target collections of the capture's
+        // bindings, which the capture must be authorized to write. A denial
+        // requests an early Snapshot refresh: the needed role grant may
+        // postdate this Snapshot.
+        let denied = merged
+            .targets()
+            .into_iter()
+            .filter(|target| {
+                !snapshot.is_role_authorized(
+                    capture_name.as_str(),
+                    target.as_str(),
+                    models::Capability::Write,
+                )
+            })
+            .map(|target| target.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        if !denied.is_empty() {
+            snapshot.request_refresh();
+            let err = anyhow::anyhow!(
+                "capture is not write-authorized to the target collections of its bindings: {denied}"
+            );
+            return Ok(DiscoverOutput::failed(capture_name, err));
+        }
+
+        let collection_names = merged
+            .targets()
+            .into_iter()
+            .map(|target| target.to_string())
             .collect::<Vec<_>>();
 
         let live = if filter_user_authz {
@@ -550,28 +517,20 @@ impl DiscoverHandler {
             crate::live_specs::get_live_specs_unfiltered(&collection_names, db).await?
         };
 
-        let mut modified_bindings = specs::merge_collections(
-            used_bindings,
-            collections,
-            &live.collections,
-            reset_on_key_change,
-        )?;
-        // Don't report a binding as both added and modified, because that'd just be confusing
-        modified_bindings.retain(|path, _| !added_bindings.contains_key(path));
+        let modified =
+            discover::merge_collections(&merged, collections, &live.collections, &options)?;
+        let discover::Merged { added, removed, .. } = merged;
 
-        if !added_bindings.is_empty()
-            || !modified_bindings.is_empty()
-            || !removed_bindings.is_empty()
-        {
+        if !added.is_empty() || !modified.is_empty() || !removed.is_empty() {
             *is_touch = false; // We're modifying the capture, so it's no longer a touch
         }
 
         Ok(DiscoverOutput {
             capture_name,
             draft,
-            added: added_bindings,
-            modified: modified_bindings,
-            removed: removed_bindings,
+            added,
+            modified,
+            removed,
         })
     }
 }
