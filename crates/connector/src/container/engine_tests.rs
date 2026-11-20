@@ -141,7 +141,7 @@ fn engine_environment_child() {
         plane: crate::Plane::Local,
         process: None,
         start: crate::proto::request::Start {
-            execution: Some(execution.clone()),
+            execution: Some(Box::new(execution.clone())),
             ..Default::default()
         },
         task_name: "acmeCo/engine-environment".to_string(),

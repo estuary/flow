@@ -460,8 +460,9 @@ pub mod collection_spec {
         pub connector_spec:
             ::core::option::Option<::prost::alloc::boxed::Box<super::ConnectorSpec>>,
         /// Execution of this derivation's connector, or unset if ordinary.
-        #[prost(message, optional, tag = "13")]
-        pub execution: ::core::option::Option<super::ConnectorExecution>,
+        #[prost(message, optional, boxed, tag = "13")]
+        pub execution:
+            ::core::option::Option<::prost::alloc::boxed::Box<super::ConnectorExecution>>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -700,8 +701,8 @@ pub struct CaptureSpec {
     #[prost(message, optional, boxed, tag = "14")]
     pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
     /// Execution of this capture's connector, or unset if ordinary.
-    #[prost(message, optional, tag = "15")]
-    pub execution: ::core::option::Option<ConnectorExecution>,
+    #[prost(message, optional, boxed, tag = "15")]
+    pub execution: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorExecution>>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -842,8 +843,8 @@ pub struct MaterializationSpec {
     #[prost(message, optional, boxed, tag = "15")]
     pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
     /// Execution of this materialization's connector, or unset if ordinary.
-    #[prost(message, optional, tag = "16")]
-    pub execution: ::core::option::Option<ConnectorExecution>,
+    #[prost(message, optional, boxed, tag = "16")]
+    pub execution: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorExecution>>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

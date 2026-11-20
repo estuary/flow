@@ -192,7 +192,7 @@ fn extract_endpoint<'r>(
                     .capture
                     .as_mut()
                     .context("`apply` missing required `capture`")?;
-                crate::refuse_execution(inner.execution.as_ref())?;
+                crate::refuse_execution(inner.execution.as_deref())?;
 
                 (
                     inner.connector_type,
@@ -208,7 +208,7 @@ fn extract_endpoint<'r>(
                     .capture
                     .as_mut()
                     .context("`open` missing required `capture`")?;
-                crate::refuse_execution(inner.execution.as_ref())?;
+                crate::refuse_execution(inner.execution.as_deref())?;
 
                 (
                     inner.connector_type,
@@ -342,14 +342,14 @@ mod test {
         ] {
             let apply = Request {
                 kind: Some(request::Kind::Apply(Box::new(request::Apply {
-                    capture: Some(spec(execution.clone())),
+                    capture: Some(spec(execution.clone().map(Box::new))),
                     ..Default::default()
                 }))),
                 ..Default::default()
             };
             let open = Request {
                 kind: Some(request::Kind::Open(Box::new(request::Open {
-                    capture: Some(spec(execution.clone())),
+                    capture: Some(spec(execution.clone().map(Box::new))),
                     ..Default::default()
                 }))),
                 ..Default::default()

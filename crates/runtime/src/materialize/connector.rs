@@ -251,7 +251,7 @@ fn extract_endpoint<'r>(
                     .materialization
                     .as_mut()
                     .context("`apply` missing required `materialization`")?;
-                crate::refuse_execution(inner.execution.as_ref())?;
+                crate::refuse_execution(inner.execution.as_deref())?;
 
                 (
                     inner.connector_type,
@@ -267,7 +267,7 @@ fn extract_endpoint<'r>(
                     .materialization
                     .as_mut()
                     .context("`open` missing required `materialization`")?;
-                crate::refuse_execution(inner.execution.as_ref())?;
+                crate::refuse_execution(inner.execution.as_deref())?;
 
                 (
                     inner.connector_type,

@@ -103,7 +103,7 @@ fn spec(image: &str) -> proto::Request {
 fn spec_with(image: &str, execution: flow::ConnectorExecution) -> proto::Request {
     proto::Request {
         start: Some(proto::request::Start {
-            execution: Some(execution),
+            execution: Some(Box::new(execution)),
             log_level: ops::log::Level::Info as i32,
             ..Default::default()
         }),
@@ -163,8 +163,8 @@ const PASSED: Duration = Duration::from_secs(90);
 
 fn assert_started(started: &proto::response::Started) {
     assert_eq!(
-        started.execution,
-        Some(vmm_execution()),
+        started.execution.as_deref(),
+        Some(&vmm_execution()),
         "Started echoes VMM execution"
     );
     let Some(proto::response::started::Spec::Derive(spec)) = &started.spec else {
@@ -278,12 +278,12 @@ fn owner_process() {
             }
         };
     assert_eq!(
-        started.execution,
-        Some(execution),
+        started.execution.as_deref(),
+        Some(&execution),
         "Started echoes the task's egress"
     );
     assert_started(&proto::response::Started {
-        execution: Some(vmm_execution()),
+        execution: Some(Box::new(vmm_execution())),
         ..started
     });
     println!("owner: started");
@@ -895,7 +895,7 @@ fn python_spec(task_type: ops::TaskType, image: &str) -> proto::Request {
     };
     proto::Request {
         start: Some(proto::request::Start {
-            execution: Some(vmm_execution()),
+            execution: Some(Box::new(vmm_execution())),
             log_level: ops::log::Level::Info as i32,
             ..Default::default()
         }),
@@ -926,7 +926,11 @@ fn python_connectors_spec_through_the_vmm() {
         let logs = Logs::default();
         let started = unary(&runtime, &router, &logs, python_spec(task_type, image))
             .unwrap_or_else(|err| panic!("Spec of {image}: {err:#}\n{:#?}", logs.messages()));
-        assert_eq!(started.execution, Some(vmm_execution()), "{image}");
+        assert_eq!(
+            started.execution.as_deref(),
+            Some(&vmm_execution()),
+            "{image}"
+        );
         let schema = match started.spec {
             Some(proto::response::started::Spec::Capture(spec)) => spec.config_schema_json,
             Some(proto::response::started::Spec::Derive(spec)) => spec.config_schema_json,
@@ -1096,8 +1100,8 @@ fn probe_egress(
         .expect("the launch task completes")
         .unwrap_or_else(|err| panic!("launching: {err:#}\n{:#?}", logs.messages()));
     assert_eq!(
-        started.execution,
-        Some(execution),
+        started.execution.as_deref(),
+        Some(&execution),
         "Started echoes the task's egress"
     );
     assert_eq!(launcher::leftovers(root, Some(&name)), Vec::<String>::new());

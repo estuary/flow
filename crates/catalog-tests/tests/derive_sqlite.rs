@@ -751,8 +751,8 @@ async fn vmm_execution_is_carried_to_validate_and_open() {
         .find_map(|bc| bc.spec.clone().filter(|s| s.derivation.is_some()))
         .expect("the catalog builds one derivation");
     assert_eq!(
-        spec.derivation.as_ref().unwrap().execution,
-        Some(proto_flow::flow::ConnectorExecution {
+        spec.derivation.as_ref().unwrap().execution.as_deref(),
+        Some(&proto_flow::flow::ConnectorExecution {
             vmm: true,
             egress: Some(proto_flow::flow::connector_execution::Egress {
                 hosts: vec!["api.acmeco.example".to_string()],

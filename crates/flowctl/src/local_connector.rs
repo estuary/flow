@@ -12,7 +12,7 @@ pub(crate) async fn unary(
                 log_level: log_level
                     .and_then(ops::LogLevel::from_str_name)
                     .unwrap_or_default() as i32,
-                execution,
+                execution: execution.map(Box::new),
                 ..Default::default()
             }),
             kind: Some(kind),

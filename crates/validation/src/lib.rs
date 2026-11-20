@@ -866,7 +866,7 @@ fn walk_execution(
     egress: Option<&models::Egress>,
     shards: &models::ShardTemplate,
     errors: &mut tables::Errors,
-) -> Option<proto_flow::flow::ConnectorExecution> {
+) -> Option<Box<proto_flow::flow::ConnectorExecution>> {
     if vmm && !shards.uses_runtime_v2(task_type) {
         Error::VmmRequiresRuntimeV2 {
             entity,
@@ -909,7 +909,7 @@ fn walk_execution(
             }
         }
     }
-    assemble::connector_execution(vmm, egress)
+    assemble::connector_execution(vmm, egress).map(Box::new)
 }
 
 /// Issue a unary Validate `kind` to the task's connector (or to the permissive
@@ -921,7 +921,7 @@ async fn validate_connector<V>(
     no_op: bool,
     data_plane_id: models::Id,
     log_level: Option<&str>,
-    execution: Option<proto_flow::flow::ConnectorExecution>,
+    execution: Option<Box<proto_flow::flow::ConnectorExecution>>,
     kind: proto_flow::connector::request::Kind,
     unwrap_validated: fn(proto_flow::connector::response::Kind) -> Option<V>,
     errors: &mut tables::Errors,
