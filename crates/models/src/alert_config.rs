@@ -9,6 +9,9 @@ use std::time::Duration;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AlertConfig {
+    /// Applies only on a tenant's own prefix, since invoices are per tenant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing_threshold_exceeded: Option<BillingThresholdExceededConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_movement_stalled: Option<DataMovementStalledConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -17,6 +20,24 @@ pub struct AlertConfig {
     pub task_chronically_failing: Option<TaskChronicallyFailingConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_idle: Option<TaskIdleConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BillingThresholdExceededConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// The alert is off until a `condition` sets an amount.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<BillingThresholdExceededCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BillingThresholdExceededCondition {
+    /// The alert fires when the tenant's month-to-date invoice subtotal
+    /// reaches this amount, in US cents.
+    pub usd_cents: std::num::NonZeroU32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -119,6 +140,12 @@ mod test {
     #[test]
     fn roundtrip_full() {
         let cfg = AlertConfig {
+            billing_threshold_exceeded: Some(BillingThresholdExceededConfig {
+                enabled: Some(true),
+                condition: Some(BillingThresholdExceededCondition {
+                    usd_cents: std::num::NonZeroU32::new(50_000).unwrap(),
+                }),
+            }),
             data_movement_stalled: Some(DataMovementStalledConfig {
                 enabled: Some(true),
                 condition: Some(DataMovementStalledCondition {
@@ -150,6 +177,12 @@ mod test {
         let json = serde_json::to_value(&cfg).unwrap();
         insta::assert_json_snapshot!(json, @r#"
         {
+          "billingThresholdExceeded": {
+            "condition": {
+              "usdCents": 50000
+            },
+            "enabled": true
+          },
           "dataMovementStalled": {
             "condition": {
               "stalledFor": "2h"
@@ -252,6 +285,15 @@ mod test {
             r#"{"dataMovementStalled": {"condition": {"stalledFor": null}}}"#,
         )
         .expect_err("null stalledFor should be rejected");
+    }
+
+    #[test]
+    fn billing_threshold_requires_a_positive_amount() {
+        for condition in [r#"{}"#, r#"{"usdCents": 0}"#] {
+            let json = format!(r#"{{"billingThresholdExceeded": {{"condition": {condition}}}}}"#);
+            serde_json::from_str::<AlertConfig>(&json)
+                .expect_err(&format!("condition {condition} should be rejected"));
+        }
     }
 
     #[test]

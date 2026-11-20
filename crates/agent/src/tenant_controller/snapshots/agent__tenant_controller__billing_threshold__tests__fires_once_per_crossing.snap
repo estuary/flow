@@ -1,0 +1,71 @@
+---
+source: crates/agent/src/tenant_controller/billing_threshold.rs
+expression: results
+---
+[
+  {
+    "alerts": [],
+    "case": "no amount",
+    "waitSeconds": null
+  },
+  {
+    "alerts": [],
+    "case": "below the amount",
+    "waitSeconds": 3600
+  },
+  {
+    "alerts": [
+      "May 2026 open"
+    ],
+    "case": "reaches the amount",
+    "waitSeconds": 3600
+  },
+  {
+    "alerts": [
+      "May 2026 open"
+    ],
+    "case": "still over the amount",
+    "waitSeconds": 3600
+  },
+  {
+    "alerts": [
+      "May 2026 resolved"
+    ],
+    "case": "amount raised",
+    "waitSeconds": 3600
+  },
+  {
+    "alerts": [
+      "May 2026 resolved",
+      "May 2026 open"
+    ],
+    "case": "amount lowered",
+    "waitSeconds": 3600
+  },
+  {
+    "alerts": [
+      "May 2026 resolved",
+      "May 2026 resolved",
+      "June 2026 open"
+    ],
+    "case": "over in a new month",
+    "waitSeconds": 3600
+  },
+  {
+    "alerts": [
+      "May 2026 resolved",
+      "May 2026 resolved",
+      "June 2026 resolved"
+    ],
+    "case": "disabled",
+    "waitSeconds": null
+  },
+  {
+    "lastArguments": {
+      "month": "June 2026",
+      "subtotal_usd_cents": 1000,
+      "tenant": "billingThreshold/",
+      "threshold_usd_cents": 1000
+    }
+  }
+]

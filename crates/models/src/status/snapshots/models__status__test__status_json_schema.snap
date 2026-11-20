@@ -294,6 +294,9 @@ expression: schema
             "background_publication_failed": {
               "$ref": "#/$defs/ControllerAlert"
             },
+            "billing_threshold_exceeded": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
             "bindings_auto_disabled": {
               "$ref": "#/$defs/ControllerAlert"
             },
@@ -400,6 +403,9 @@ expression: schema
               "$ref": "#/$defs/ControllerAlert"
             },
             "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "billing_threshold_exceeded": {
               "$ref": "#/$defs/ControllerAlert"
             },
             "bindings_auto_disabled": {
@@ -671,6 +677,9 @@ expression: schema
               "$ref": "#/$defs/ControllerAlert"
             },
             "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "billing_threshold_exceeded": {
               "$ref": "#/$defs/ControllerAlert"
             },
             "bindings_auto_disabled": {
@@ -1080,6 +1089,9 @@ expression: schema
               "$ref": "#/$defs/ControllerAlert"
             },
             "background_publication_failed": {
+              "$ref": "#/$defs/ControllerAlert"
+            },
+            "billing_threshold_exceeded": {
               "$ref": "#/$defs/ControllerAlert"
             },
             "bindings_auto_disabled": {

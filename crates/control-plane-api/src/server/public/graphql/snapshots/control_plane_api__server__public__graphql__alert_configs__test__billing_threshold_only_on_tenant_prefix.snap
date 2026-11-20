@@ -1,0 +1,30 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
+expression: responses
+---
+[
+  {
+    "data": null,
+    "errors": [
+      {
+        "locations": [
+          {
+            "column": 29,
+            "line": 3
+          }
+        ],
+        "message": "billingThresholdExceeded can only be configured on the tenant prefix 'aliceCo/'",
+        "path": [
+          "updateAlertConfig"
+        ]
+      }
+    ]
+  },
+  {
+    "data": {
+      "updateAlertConfig": {
+        "catalogPrefixOrName": "aliceCo/"
+      }
+    }
+  }
+]
