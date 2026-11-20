@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            prev_image,\n            next_image,\n            step,\n            max_tier\n        FROM data_plane_releases\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        ",
+  "query": "\n        SELECT\n            prev_image,\n            next_image,\n            step,\n            max_tier\n        FROM data_plane_releases\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        -- The first match applies, so a data-plane's own releases win.\n        ORDER BY data_plane_id = '00:00:00:00:00:00:00:00', max_tier, prev_image, next_image\n        ",
   "describe": {
     "columns": [
       {
@@ -60,5 +60,5 @@
       false
     ]
   },
-  "hash": "68b97eb4cd2d8afa08baae652139b11686109d605754fb02e0410d606382ddb6"
+  "hash": "dd7cfcd129274176e756ed2a8be5a19504fe910aaaf879f11c6b5277695cdfc4"
 }
