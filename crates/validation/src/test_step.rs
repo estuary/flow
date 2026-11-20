@@ -71,7 +71,7 @@ fn walk_test(
         delete: _,
     } = model;
 
-    indexed::walk_name(scope, "test", test, models::Test::regex(), errors);
+    indexed::walk_catalog_name(scope, "test", test, models::Test::regex(), errors);
 
     // Map steps into built steps.
     let built_steps: Vec<flow::test_spec::Step> = steps

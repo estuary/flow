@@ -146,7 +146,7 @@ async fn walk_capture(
         reset,
     } = model;
 
-    indexed::walk_name(scope, "capture", capture, models::Capture::regex(), errors);
+    indexed::walk_catalog_name(scope, "capture", capture, models::Capture::regex(), errors);
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
 

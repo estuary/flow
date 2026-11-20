@@ -38,6 +38,17 @@ pub const MAX_BINDINGS: usize = 10_000;
 /// product with the size of an inlined collection, which is what holds
 /// MAX_BINDINGS down.
 pub const MAX_BINDINGS_INDIRECT_SPECS: usize = 65_536 - RESERVED_BINDINGS;
+/// Maximum length in bytes of a catalog name or prefix. A collection's
+/// journal names extend its name with a generation ID, partition fields and
+/// a pivot, and Gazette limits a journal name to 512 bytes.
+pub const MAX_CATALOG_NAME_LEN: usize = 384;
+/// Maximum number of JSON pointers in a collection key.
+pub const MAX_KEY_COMPONENTS: usize = 32;
+/// Maximum length in bytes of each JSON pointer of a collection key.
+pub const MAX_KEY_PTR_LEN: usize = 128;
+/// Maximum length in bytes of a collection's `schema` or `writeSchema`.
+/// `readSchema` has no limit: it inlines the inferred schema.
+pub const MAX_SCHEMA_LEN: usize = 1 << 20;
 
 /// Binding ceiling of a task, which its `indirect-specs` shard flag raises.
 pub fn max_bindings(indirect_specs: bool) -> usize {

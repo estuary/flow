@@ -148,13 +148,26 @@ fn walk_collection(
         reset,
     } = model;
 
-    indexed::walk_name(
+    indexed::walk_catalog_name(
         scope,
         "collection",
         collection,
         models::Collection::regex(),
         errors,
     );
+
+    for (prop, model) in [("schema", &schema_model), ("writeSchema", &write_model)] {
+        let Some(model) = model else { continue };
+
+        if model.get().len() > crate::MAX_SCHEMA_LEN {
+            Error::CollectionSchemaTooLong {
+                collection: collection.to_string(),
+                len: model.get().len(),
+                limit: crate::MAX_SCHEMA_LEN,
+            }
+            .push(scope.push_prop(prop), errors);
+        }
+    }
 
     // Determine the correct `journal_name_prefix` to use and its `generation_id`,
     // which is regenerated if `reset` is true or if this is a new collection.
@@ -539,12 +552,28 @@ fn walk_collection_key(
         }
         .push(scope, errors);
     }
+    if key.len() > crate::MAX_KEY_COMPONENTS {
+        Error::CollectionKeyTooLong {
+            collection: collection.to_string(),
+            len: key.len(),
+            limit: crate::MAX_KEY_COMPONENTS,
+        }
+        .push(scope, errors);
+    }
 
     // The collection key must validate as a key-able location
     // across both read and write schemas.
     for (index, ptr) in key.iter().enumerate() {
         let scope = scope.push_item(index);
 
+        if ptr.len() > crate::MAX_KEY_PTR_LEN {
+            Error::CollectionKeyPtrTooLong {
+                collection: collection.to_string(),
+                len: ptr.len(),
+                limit: crate::MAX_KEY_PTR_LEN,
+            }
+            .push(scope, errors);
+        }
         if let Err(err) = schema::Schema::walk_ptr(effective_read_spec, write_spec, ptr, true) {
             Error::from(err).push(scope, errors);
         }

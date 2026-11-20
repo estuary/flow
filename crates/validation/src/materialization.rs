@@ -163,7 +163,7 @@ async fn walk_materialization(
         reset,
     } = model;
 
-    indexed::walk_name(
+    indexed::walk_catalog_name(
         scope,
         "materialization",
         materialization,
