@@ -903,10 +903,7 @@ async fn test_discover_merge_filters_unauthorized_collection() {
     let user_id = harness.setup_tenant("squirrels").await;
 
     // The user holds SpecEdit to the drafted capture, but an existing binding
-    // targets a collection outside their grants. The binding is retained by
-    // the discover merge; its target is silently filtered from the
-    // merge-phase fetch, so the collection is drafted fresh rather than
-    // merged with any live spec the user can't read.
+    // targets a collection outside their grants.
     let draft_id = harness
         .create_draft(
             user_id,
@@ -939,8 +936,38 @@ async fn test_discover_merge_filters_unauthorized_collection() {
         }],
         linked_collections: Vec::new(),
     };
-    let discover_id = harness
-        .queue_user_discover(
+
+    // The capture isn't authorized to write its target, which fails the discover.
+    let result = harness
+        .user_discover(
+            "source/test",
+            ":test",
+            "squirrels/capture-1",
+            draft_id,
+            r#"{}"#,
+            Ok((spec_fixture(), discovered.clone())),
+        )
+        .await;
+    assert!(matches!(
+        result.job_status,
+        crate::discovers::JobStatus::DiscoverFailed
+    ));
+    assert_eq!(
+        "capture is not write-authorized to the target collections of its bindings: chipmunks/stolen",
+        result.errors[0].1
+    );
+
+    // Once the capture is authorized, the discover merge retains the binding.
+    // Its target is silently filtered from the merge-phase fetch, so the
+    // collection is drafted fresh rather than merged with any live spec the
+    // user can't read.
+    harness
+        .add_role_grant("squirrels/", "chipmunks/", models::Capability::Write)
+        .await;
+    harness.refresh_snapshot().await;
+
+    let result = harness
+        .user_discover(
             "source/test",
             ":test",
             "squirrels/capture-1",
@@ -949,7 +976,6 @@ async fn test_discover_merge_filters_unauthorized_collection() {
             Ok((spec_fixture(), discovered)),
         )
         .await;
-    let result = harness.run_queued_discover(discover_id).await;
 
     assert!(
         result.job_status.is_success(),

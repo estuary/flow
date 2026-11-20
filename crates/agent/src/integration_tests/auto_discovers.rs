@@ -1355,3 +1355,64 @@ async fn test_auto_discovers_without_connector_tag() {
     assert_eq!(1, model.bindings.len());
     assert_eq!("voles/tunnels", model.bindings[0].target.as_str());
 }
+
+#[tokio::test]
+async fn test_auto_discovers_unauthorized_target() {
+    let mut harness = TestHarness::init("test_auto_discovers_unauthorized_target").await;
+    let user_id = harness.setup_tenant("voles").await;
+
+    // `voles/capture` isn't authorized to write the target of its binding.
+    let init_draft = draft_catalog(json!({
+        "captures": {
+            "voles/capture": {
+                "autoDiscover": { "addNewBindings": true },
+                "endpoint": {
+                    "connector": { "image": "source/test:test", "config": {} }
+                },
+                "bindings": [{
+                    "resource": { "id": "burrows" },
+                    "target": "moles/burrows",
+                    "disable": true
+                }]
+            }
+        }
+    }));
+    let result = harness
+        .user_publication(user_id, "initial publication", init_draft)
+        .await;
+    assert!(result.status.is_success(), "{:?}", result.errors);
+    harness.run_pending_controllers(None).await;
+
+    let discovered = Discovered {
+        bindings: vec![Binding {
+            recommended_name: "burrows".to_string(),
+            resource_config_json: r#"{"id": "burrows"}"#.into(),
+            document_schema_json: document_schema(1).to_string().into(),
+            key: vec!["/id".to_string()],
+            ..Default::default()
+        }],
+        linked_collections: Vec::new(),
+    };
+    harness
+        .connectors
+        .mock_discover("voles/capture", Ok((spec_fixture(), discovered)));
+    harness.set_auto_discover_due("voles/capture").await;
+    let capture_state = harness.run_pending_controller("voles/capture").await;
+
+    let auto_discover = capture_state
+        .current_status
+        .unwrap_capture()
+        .auto_discover
+        .as_ref();
+    let outcome = &auto_discover
+        .unwrap()
+        .failure
+        .as_ref()
+        .unwrap()
+        .last_outcome;
+    assert_eq!(
+        "capture is not write-authorized to the target collections of its bindings: moles/burrows",
+        outcome.errors[0].detail
+    );
+    assert!(outcome.publish_result.is_none());
+}

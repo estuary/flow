@@ -472,6 +472,32 @@ impl DiscoverHandler {
             Err(err) => return Ok(DiscoverOutput::failed(capture_name, err)),
         };
 
+        // The merge creates and changes the target collections of the capture's
+        // bindings, which the capture must be authorized to write. A denial
+        // requests an early Snapshot refresh: the needed role grant may
+        // postdate this Snapshot.
+        let denied = merged
+            .targets()
+            .into_iter()
+            .filter(|target| {
+                !snapshot.is_role_authorized(
+                    capture_name.as_str(),
+                    target.as_str(),
+                    models::Capability::Write,
+                )
+            })
+            .map(|target| target.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        if !denied.is_empty() {
+            snapshot.request_refresh();
+            let err = anyhow::anyhow!(
+                "capture is not write-authorized to the target collections of its bindings: {denied}"
+            );
+            return Ok(DiscoverOutput::failed(capture_name, err));
+        }
+
         let collection_names = merged
             .targets()
             .into_iter()
