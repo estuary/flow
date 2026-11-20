@@ -126,30 +126,6 @@ fn assert_no_local_launch(what: &str, output: &Output) {
     );
 }
 
-/// What the stack's reactor serves at `/debug/metrics`. Its unit is
-/// `flow-reactor@<data plane>-<port>.service`, and its host
-/// `reactor-<data plane>.flow.localhost`.
-fn reactor_metrics(platform: &Platform) -> String {
-    let instance = platform
-        .reactor_unit
-        .strip_prefix("flow-reactor@")
-        .and_then(|unit| unit.strip_suffix(".service"))
-        .unwrap_or_else(|| panic!("a reactor unit, not {}", platform.reactor_unit));
-    let (data_plane, port) = instance.rsplit_once('-').expect("<data plane>-<port>");
-    let url = format!("https://reactor-{data_plane}.flow.localhost:{port}/debug/metrics");
-    let ca = std::env::var("SSL_CERT_FILE").expect("the task sets SSL_CERT_FILE");
-    let output = std::process::Command::new("curl")
-        .args(["-fsS", "--max-time", "30", "--cacert", &ca, &url])
-        .output()
-        .unwrap_or_else(|e| panic!("running curl {url}: {e}"));
-    assert!(
-        output.status.success(),
-        "curl {url}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).expect("UTF-8 metrics")
-}
-
 fn create(path: &Path) -> std::fs::File {
     std::fs::File::create(path).unwrap_or_else(|e| panic!("creating {}: {e}", path.display()))
 }
@@ -190,8 +166,7 @@ fn launched(calls: &[String]) -> Vec<String> {
     names
 }
 
-/// Wait for the reactor to release every launch of `names`, by its teardown
-/// or its recovery.
+/// Wait for teardown to release each launch.
 fn assert_released<'n>(root: &launcher::Root, names: impl IntoIterator<Item = &'n String>) {
     let deadline = Instant::now() + RELEASED;
     for name in names {
@@ -342,29 +317,9 @@ fn a_python_derivation_through_the_platform() {
         numbered[0]["humanize"]
     ));
 
-    // Shard deletion drops the launch's runtime before teardown. No launch
-    // follows: the reactor's own recovery releases what its sessions left.
     delete_and_release(&platform, "delete");
     evidence.push(format!(
-        "after deletion the reactor released its sessions {opened:?}, with no launch"
-    ));
-    let metrics = reactor_metrics(&platform);
-    let value = |name: &str| {
-        metrics
-            .lines()
-            .find_map(|line| line.strip_prefix(&format!("{name} ")))
-            .unwrap_or_else(|| panic!("the reactor exports {name}:\n{metrics}"))
-            .parse::<f64>()
-            .unwrap_or_else(|e| panic!("{name}: {e}"))
-    };
-    assert!(value("flow_vmm_recovery_last_success_timestamp_seconds") > 0.0);
-    evidence.push(format!(
-        "the reactor's recovery metrics: {}",
-        metrics
-            .lines()
-            .filter(|line| line.starts_with("flow_vmm_recovery_"))
-            .collect::<Vec<_>>()
-            .join("; ")
+        "after deletion prune released the sessions {opened:?}"
     ));
 
     let all = launcher::calls(&root)[first..].to_vec();
@@ -516,8 +471,7 @@ fn task_logs(platform: &Platform, name: &str, task: &str, expected: &[&str]) -> 
     })
 }
 
-/// Delete every task of the tests' prefix. The reactor's own recovery releases
-/// what its sessions left, and every launch so far is then gone.
+/// Deletion is asynchronous. Prune can claim a record once its shard stops.
 fn delete_and_release(platform: &Platform, name: &str) {
     let root = root(platform);
     let before = launcher::calls(&root).len();
@@ -532,7 +486,21 @@ fn delete_and_release(platform: &Platform, name: &str) {
             "--dangerous-auto-approve",
         ],
     );
-    assert_released(&root, &launched(&launcher::calls(&root)));
+    let launches = launched(&launcher::calls(&root));
+    run::eventually("prune to release the deleted tasks", RELEASED, || {
+        let output = launcher::prune(&root.podman, &root.state_dir)
+            .output()
+            .expect("running prune");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        launches
+            .iter()
+            .all(|name| launcher::left(&root.state_dir, &root.tmp_dir, name).is_empty())
+            .then_some(())
+    });
     assert_eq!(
         launched(&launcher::calls(&root)[before..]),
         Vec::<String>::new(),

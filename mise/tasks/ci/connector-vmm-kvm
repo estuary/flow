@@ -123,6 +123,7 @@ trap 'exit 143' TERM
 
 echo "=== Building flow-connector-vmm, flow-connector-guest-init, flow-connector-init and the Python connectors ==="
 rustup target add x86_64-unknown-linux-musl >/dev/null
+cargo build --locked -p connector --bin flow-connector-vmm-prune 9>&-
 cargo build --locked --release -p connector-vmm 9>&-
 cargo build --locked --release --target x86_64-unknown-linux-musl -p connector-init -p connector-guest-init \
     -p capture-python -p derive-python -p materialize-python 9>&-

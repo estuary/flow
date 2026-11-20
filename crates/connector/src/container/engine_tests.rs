@@ -293,7 +293,7 @@ fn engine_environment_child() {
                         .contains("closed stderr before flow-connector-init started"),
                 "{error:#}"
             );
-            assert_eq!(vmm.recover().await, 0);
+            assert!(crate::prune_vmm(&vmm.podman, &vmm.state_dir).await.unwrap());
         }
     });
     assert_eq!(std::fs::read_dir(&state).unwrap().count(), 0);

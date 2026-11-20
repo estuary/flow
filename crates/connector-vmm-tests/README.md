@@ -46,7 +46,7 @@ connector-init over a guest's vsock connection.
   materialization through a local stack's control plane and reactor, with
   fixtures under `fixtures/platform/`. flowctl launches no VMM: each test
   attributes every launch to the reactor, and checks its egress, data,
-  restarts, release and recovery metrics.
+  restarts, teardown and pruning.
 - `tests/release.rs`: the task's claim of its root and its resource
   cleanup, against stand-in commands and inert temporary fixtures.
 - `tests/publish.rs`: `ci:docker-images` never pushes a VMM image which did

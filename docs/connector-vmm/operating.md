@@ -209,24 +209,23 @@ mechanism. What an operator needs:
   shard's runtime before teardown runs. The VMM exits within seconds of its
   last RPC; its volume, network, state directory, record and mount remain
   for the next recovery pass.
-- **Each reactor recovers its `STATE_DIR` for as long as it runs.** A pass
-  starts at startup and another 30 seconds after each ends. It releases
-  records whose owner is gone, then labeled resources whose record is gone.
-  Failures are retried every pass.
-- **Never prune exited `fv_<id>-ingress` containers.** Until a pass records
+- **Run `flow-connector-vmm-prune` on the host.** Each invocation makes one
+  pass. Use the reactor's UID, rootful Podman engine and exact state-directory
+  path. `--state-dir` overrides `CONNECTOR_VMM_STATE_DIR` (required).
+  `--podman` overrides `CONNECTOR_VMM_PODMAN` (default `podman`).
+  A pass skips live owners and releases abandoned records. It scans labeled
+  resources even when the directory is empty because Podman can finish a
+  create after teardown. Leftovers persist until another invocation.
+- **Keep exited `fv_<id>-ingress` containers for the Flow prune command.** Until a pass records
   one, its labels may be the only record of a host grant. If one is removed
   unrecorded, its grant stays installed as the nftables table
   `flow_vmm_ingress_<token>`, which `boundary revoke --owner=<token>` from
   any VMM image removes.
 - **Keep an older VMM image while records name it.** Recovery revokes a
   grant with the image ID its record holds.
-- **Cleaning a host which will run no more reactors.** With every launcher
-  stopped and every record unlocked (`flock -n <record> true` succeeds),
-  for each record: remove the containers labeled with its token, revoke its
-  grant if it names an `ingress_image`, remove the networks and volumes so
-  labeled, then its `fv_<id>` directory, mount and record. Last, remove
-  what is labeled with the `STATE_DIR` and has no record, revoking each
-  `fv_<id>-ingress` container's grant before removing it.
+- **Retiring a host.** Stop launchers and let pending Podman creates finish.
+  Run the prune command for each state directory while the engine and
+  granting images are still available.
 
 ## Troubleshooting
 
@@ -257,44 +256,11 @@ names at `warn`, at most 32 per VMM (see
 refused is either absent from the task's `egress.hosts`, or resolves to a
 non-public address outside the task's `egress.cidrs`.
 
-Recovery reports go to the reactor's own logs (tracing), not the task's. Its
-info lines show only where the connector proxy's log level admits them. Each
-error names its `subject`. A problem which persists is logged when first
-seen, then again once ten minutes have passed (`repeats_after`), though every
-pass retries it:
-
-- "released the resources of a dead VMM launch": recovery worked.
-- "failed to release a resource of a dead VMM launch; its record is kept":
-  retried by every pass. Look for what still holds the resource, such as
-  another container on the VMM's network.
-- "a VMM ownership record is malformed, so nothing it names is released":
-  reported until an operator inspects and removes it.
-- "removed a VMM resource whose record is gone": a podman service finished a
-  create after its launch was released, and recovery removed what it made.
-- "recorded a VMM ingress grant whose record was gone": a grant's container
-  was created after its launch's release; recovery recorded, removed and
-  revoked it.
-- "failed to list VMM resources by their state directory", "failed to
-  remove a VMM resource whose record is gone", or "failed to record a VMM
-  ingress grant whose record is gone, so it is kept": retried by every pass.
-- "a VMM resource has no record that can be looked for, so it is kept": it
-  carries this `STATE_DIR`'s label, but either its name is not a launch's or
-  the state directory could not be read. Reported until an operator inspects
-  it.
-- "the VMM state directory is unsafe to recover, so nothing is released":
-  `CONNECTOR_VMM_STATE_DIR` fails the checks a launch makes of it.
-
-A reactor whose recovery has started exports:
-
-| Metric | Meaning |
-|---|---|
-| `flow_vmm_recovery_failed_passes_total` | Passes which left a problem. |
-| `flow_vmm_recovery_pending` | Problems the last pass left: resources, records or listings to retry, or to inspect. |
-| `flow_vmm_recovery_last_success_timestamp_seconds` | When the last pass which left no problem ended, or zero. |
-
-A stale last success, with pending problems, means leftovers are
-accumulating; the reactor's logs name them. Neither fails the reactor's
-readiness nor holds up a launch.
+Prune is quiet on a clean pass. If another invocation holds the directory
+lock, it prints `prune already running` and exits successfully. Errors go
+to stderr with the affected record or resource. Exit 1 means cleanup was
+incomplete. Resolve the reported problem and rerun the command. A malformed
+or unsupported record protects its resources until it can be inspected.
 
 ## Rollout
 
@@ -341,8 +307,6 @@ the local integration tests:
 - KVM device access for the engine's containers, the `fvm` prefix reserved,
   the boundary installed at boot before the reactor, and the VMM image
   pullable by tag.
-- A crash and restart of the production reactor, whose recovery then
-  releases what it left with no launch, and its recovery metrics scraped.
 - That the plane's `CONNECTOR_MEMORY_LIMIT` sizes a guest (see
   [Configuration](#configuration)), else VMM starts are refused.
 
