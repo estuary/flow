@@ -1,0 +1,84 @@
+---
+source: crates/validation/tests/group_by_conflicts.rs
+expression: "(selections, errors)"
+---
+(
+    [
+        (
+            [],
+            Some(
+                MaterializationDef {
+                    source: None,
+                    target_naming: None,
+                    on_incompatible_schema_change: None,
+                    endpoint: Connector(
+                        ConnectorConfig {
+                            image: "an/image:test",
+                            config: RawValue(
+                                {},
+                            ),
+                        },
+                    ),
+                    secrets: {},
+                    bindings: [
+                        MaterializationBinding {
+                            resource: RawValue(
+                                {"_meta":{"path":["a"]},"table":"a"},
+                            ),
+                            source: Collection(
+                                Collection(
+                                    "the/collection",
+                                ),
+                            ),
+                            disable: true,
+                            priority: 0,
+                            fields: MaterializationFields {
+                                group_by: [],
+                                require: {},
+                                exclude: [],
+                                recommended: Usize(
+                                    1,
+                                ),
+                            },
+                            backfill: 0,
+                            on_incompatible_schema_change: None,
+                        },
+                    ],
+                    shards: ShardTemplate {
+                        disable: false,
+                        min_txn_duration: None,
+                        max_txn_duration: None,
+                        hot_standbys: None,
+                        ring_buffer_size: None,
+                        read_channel_size: None,
+                        shuffle_disk_limit: None,
+                        log_level: None,
+                        flags: {},
+                    },
+                    expect_pub_id: None,
+                    triggers: None,
+                    sync_schedule: None,
+                    delete: false,
+                    reset: false,
+                },
+            ),
+            [
+                "disabling binding [\"a\"] due to group-by change from [\"f_one\"] to [\"f_one\", \"f_two\"]",
+            ],
+            [
+                AutoDisabledBinding {
+                    resource_path: [
+                        "a",
+                    ],
+                    collection: Collection(
+                        "the/collection",
+                    ),
+                    reason: IncompatibleSchemaChange,
+                    detail: "group-by key changed from [\"f_one\"] to [\"f_one\", \"f_two\"]\n\nThis binding was disabled because its source collection uses Estuary trial storage as its primary store. Automatically backfilling could rebuild the destination from incomplete history.",
+                    pub_id: 2020202020202020,
+                },
+            ],
+        ),
+    ],
+    [],
+)

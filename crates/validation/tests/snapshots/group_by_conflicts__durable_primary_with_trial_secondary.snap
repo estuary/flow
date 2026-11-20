@@ -1,0 +1,9 @@
+---
+source: crates/validation/tests/group_by_conflicts.rs
+expression: "(binding.disable, binding.backfill, &built.auto_disabled_bindings)"
+---
+(
+    false,
+    1,
+    [],
+)

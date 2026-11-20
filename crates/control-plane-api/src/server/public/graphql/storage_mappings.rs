@@ -703,9 +703,28 @@ impl StorageMapping {
             .collect())
     }
 
-    /// Stores for journal fragments under this mapping.
-    async fn fragment_stores(&self) -> Vec<FragmentStore> {
-        self.spec.stores.iter().map(FragmentStore::from).collect()
+    /// Stores for journal fragments under this mapping. The first receives new
+    /// writes; later stores remain available for historical reads.
+    async fn fragment_stores(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<FragmentStore>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let trial_stores = super::tenant::storage::trial_stores(
+            env.snapshot()
+                .data_planes()
+                .map(|plane| plane.data_plane_name.as_str()),
+        );
+
+        Ok(self
+            .spec
+            .stores
+            .iter()
+            .map(|store| {
+                let url = store.to_url(&self.catalog_prefix);
+                FragmentStore::new(store, trial_stores.contains(url.as_str()))
+            })
+            .collect())
     }
 }
 
@@ -728,6 +747,8 @@ pub struct FragmentStore {
     pub prefix: Option<String>,
     /// Bucket into which data is stored. Null for Azure stores.
     pub bucket: Option<String>,
+    /// Whether this store uses an Estuary trial bucket.
+    pub is_trial: bool,
     /// AWS region of the bucket. Null for GCS, Azure, and Custom stores.
     pub region: Option<String>,
     /// Azure storage account name. Null for non-Azure stores.
@@ -740,12 +761,13 @@ pub struct FragmentStore {
     pub endpoint: Option<String>,
 }
 
-impl From<&models::Store> for FragmentStore {
-    fn from(store: &models::Store) -> Self {
+impl FragmentStore {
+    fn new(store: &models::Store, is_trial: bool) -> Self {
         let prefix = |p: &Option<models::Prefix>| p.as_ref().map(|p| p.to_string());
 
         match store {
             models::Store::S3(cfg) => Self {
+                is_trial,
                 provider: FragmentStoreProvider::S3,
                 prefix: prefix(&cfg.prefix),
                 bucket: Some(cfg.bucket.clone()),
@@ -756,6 +778,7 @@ impl From<&models::Store> for FragmentStore {
                 endpoint: None,
             },
             models::Store::Gcs(cfg) => Self {
+                is_trial,
                 provider: FragmentStoreProvider::Gcs,
                 prefix: prefix(&cfg.prefix),
                 bucket: Some(cfg.bucket.clone()),
@@ -766,6 +789,7 @@ impl From<&models::Store> for FragmentStore {
                 endpoint: None,
             },
             models::Store::Azure(cfg) => Self {
+                is_trial,
                 provider: FragmentStoreProvider::Azure,
                 prefix: prefix(&cfg.prefix),
                 bucket: None,
@@ -776,6 +800,7 @@ impl From<&models::Store> for FragmentStore {
                 endpoint: None,
             },
             models::Store::Custom(cfg) => Self {
+                is_trial,
                 provider: FragmentStoreProvider::Custom,
                 prefix: prefix(&cfg.prefix),
                 bucket: Some(cfg.bucket.clone()),
@@ -1076,7 +1101,7 @@ mod test {
             models::Store::Custom(models::CustomStore::example()),
         ]
         .iter()
-        .map(super::FragmentStore::from)
+        .map(|store| super::FragmentStore::new(store, false))
         .collect::<Vec<_>>();
 
         insta::assert_debug_snapshot!(fragment_stores);

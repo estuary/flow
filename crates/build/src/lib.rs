@@ -103,6 +103,8 @@ pub async fn local(
         noop_materializations,
         // Use a constant for deterministic builds and snapshots.
         b"initialization vector",
+        // Local builds have no data planes from which to resolve trial stores.
+        &Default::default(),
     )
     .await;
 

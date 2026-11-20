@@ -1,0 +1,15 @@
+---
+source: crates/agent/src/integration_tests/auto_disabled_bindings.rs
+expression: reports
+---
+[
+  {
+    "resource_path": [
+      "sightings"
+    ],
+    "collection": "ravens/sightings",
+    "reason": "incompatible_schema_change",
+    "detail": "group-by key changed from [\"id\"] to [\"region\"]\n\nThis binding was disabled because its source collection uses Estuary trial storage as its primary store. Automatically backfilling could rebuild the destination from incomplete history.",
+    "pub_id": "[pub_id]"
+  }
+]

@@ -1,0 +1,7 @@
+---
+source: crates/agent/src/integration_tests/auto_disabled_bindings.rs
+expression: "body[detail_start..detail_end].lines().map(str::trim).collect::<Vec<_>>().join(\"\\n\")"
+---
+group-by key changed from [&quot;id&quot;] to [&quot;region&quot;]
+
+This binding was disabled because its source collection uses Estuary trial storage as its primary store. Automatically backfilling could rebuild the destination from incomplete history.
