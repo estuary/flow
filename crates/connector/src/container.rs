@@ -172,7 +172,7 @@ pub(crate) async fn run(
 
     tracing::debug!(docker_args=?docker_args, "invoking docker");
 
-    let mut process: async_process::Child = async_process::Command::new(docker_cli())
+    let mut process: async_process::Child = docker_cli()
         .args(docker_args)
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
@@ -375,10 +375,23 @@ fn unique_container_name() -> String {
     format!("fc_{:016x}", rand::random::<u64>())
 }
 
-fn docker_cli() -> String {
-    std::env::var("DOCKER_CLI")
+/// Docker CLIs and operator wrappers need their ambient configuration,
+/// but not the reactor's signing, decryption, or Flow login authority.
+fn docker_cli() -> async_process::Command {
+    let program = std::env::var("DOCKER_CLI")
         .ok()
-        .unwrap_or_else(|| "docker".to_string())
+        .unwrap_or_else(|| "docker".to_string());
+
+    let mut command = async_process::Command::new(program);
+    for name in [
+        "CONSUMER_AUTH_KEYS",
+        "BROKER_AUTH_KEYS",
+        "SOPS_AGE_KEY",
+        "FLOW_AUTH_TOKEN",
+    ] {
+        command.env_remove(name);
+    }
+    command
 }
 
 fn connector_memory_limit() -> String {
@@ -397,7 +410,7 @@ async fn docker_cmd<S>(args: &[S]) -> anyhow::Result<Vec<u8>>
 where
     S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
 {
-    let output = async_process::output(async_process::Command::new(docker_cli()).args(args))
+    let output = async_process::output(docker_cli().args(args))
         .await
         .with_context(|| format!("failed to run docker command {args:?}"))?;
 
