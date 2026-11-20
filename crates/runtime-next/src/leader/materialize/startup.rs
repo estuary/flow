@@ -133,6 +133,7 @@ pub(super) async fn run<
         trigger_params_json: pending_trigger_params,
         active_backfills: _, // capture-only state
         gap_floors,
+        disk_ack_intents,
     } = recv_recovers(shard_rx, &task.peers)
         .await
         .context("receiving Recover fan-in")?;
@@ -182,6 +183,7 @@ pub(super) async fn run<
                 range: shard.range.clone(),
                 connector_state_json: connector_state_json.clone(),
                 max_keys: max_keys.clone(),
+                disk_ack_intents: disk_ack_intents.clone(),
             }),
             ..Default::default()
         }));
@@ -315,6 +317,7 @@ impl Baseline {
             trigger_params_json: _,
             active_backfills: _, // Capture-only state.
             gap_floors: _,       // Inert to reconciliation.
+            disk_ack_intents: _, // Inert to reconciliation.
         } = recover;
 
         let baseline = Baseline {

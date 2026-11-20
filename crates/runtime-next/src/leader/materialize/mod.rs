@@ -64,6 +64,8 @@ struct Task {
     n_shards: usize,
     // Descriptive peer names of each shard, for logging and errors.
     peers: Vec<String>,
+    // True if the spec has a `disk_journal_template`.
+    has_disk: bool,
     // ShardRef embedded in every stats document.
     shard_ref: ops::ShardRef,
     // Compiled triggers, or None if the task has no triggers configured.

@@ -13,6 +13,7 @@ expression: changes
         "hintBackups": 2,
         "maxTxnDuration": "60s",
         "minTxnDuration": "0s",
+        "disable": true,
         "hotStandbys": 3,
         "labels": {
           "labels": [
@@ -23,6 +24,10 @@ expression: changes
             {
               "name": "estuary.dev/build",
               "value": "0101010101010101"
+            },
+            {
+              "name": "estuary.dev/cordon",
+              "value": "true"
             },
             {
               "name": "estuary.dev/flag/enable-runtime-v2",
@@ -110,8 +115,44 @@ expression: changes
           "refreshInterval": "300s",
           "flushInterval": "172800s"
         },
-        "flags": 4,
+        "flags": 1,
         "maxAppendRate": "4194304"
+      }
+    }
+  },
+  {
+    "Journal": {
+      "expectModRevision": "444",
+      "upsert": {
+        "name": "recovery/disk/derivation/example/derivation/2020202020202020/00000000-00000000/persist/pivot=00",
+        "replication": 3,
+        "labels": {
+          "labels": [
+            {
+              "name": "content-type",
+              "value": "application/x-journal-backed-disk"
+            },
+            {
+              "name": "estuary.dev/disk-replay-from",
+              "value": "00000000000004d2"
+            }
+          ]
+        },
+        "fragment": {
+          "length": "268435456",
+          "compressionCodec": "SNAPPY",
+          "stores": [
+            "gs://example-bucket/"
+          ],
+          "refreshInterval": "300s",
+          "flushInterval": "172800s"
+        },
+        "flags": 1,
+        "maxAppendRate": "4194304",
+        "suspend": {
+          "level": "PARTIAL",
+          "offset": "1234"
+        }
       }
     }
   },
@@ -177,6 +218,12 @@ expression: changes
         "ringBufferSize": 65536,
         "readChannelSize": 4096
       }
+    }
+  },
+  {
+    "Journal": {
+      "expectModRevision": "444",
+      "delete": "recovery/disk/derivation/example/derivation/2020202020202020/gone/persist/pivot=00"
     }
   }
 ]

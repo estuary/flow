@@ -55,6 +55,7 @@ impl Task {
             linked_collections: _,
             secrets: _,
             connector_spec: _,
+            disk_journal_template: _,
         } = derivation;
 
         if key.is_empty() {

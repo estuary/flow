@@ -68,6 +68,8 @@ struct Task {
     // opening the next transaction until the current one has passed StartCommit.
     // Set after the Opened fan-in, since Open precedes it.
     remote_authoritative: bool,
+    // True if the spec has a `disk_journal_template`.
+    has_disk: bool,
     // ShardRef embedded in every stats document.
     shard_ref: ops::ShardRef,
 }

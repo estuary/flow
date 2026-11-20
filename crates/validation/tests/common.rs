@@ -155,6 +155,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             expect_pub_id: None,
             interval: std::time::Duration::from_secs(32),
             secrets: Default::default(),
+            persistent_disk: false,
             shards: models::ShardTemplate::default(),
             delete: false,
             reset: false,
@@ -195,6 +196,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             interval_seconds: 100,
             network_ports: Vec::new(),
             recovery_log_template: Some(recovery_template),
+            disk_journal_template: None,
             bindings,
             shard_template: Some(shard_template),
             config_json: bytes::Bytes::new(),
@@ -291,6 +293,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
                         ..Default::default()
                     })
                 }),
+                disk_journal_template: None,
             }))
         } else {
             None
@@ -326,6 +329,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             endpoint: models::MaterializationEndpoint::Connector(live_connector_fixture.clone()),
             expect_pub_id: None,
             secrets: Default::default(),
+            persistent_disk: false,
             shards: models::ShardTemplate::default(),
             source: None,
             target_naming: None,
@@ -375,6 +379,7 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
             connector_type: flow::materialization_spec::ConnectorType::Image as i32,
             network_ports: Vec::new(),
             recovery_log_template: Some(recovery_template),
+            disk_journal_template: None,
             bindings,
             shard_template: Some(shard_template),
             config_json: bytes::Bytes::new(),

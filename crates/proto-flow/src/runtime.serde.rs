@@ -2727,6 +2727,9 @@ impl serde::Serialize for Derive {
         if self.started_commit.is_some() {
             len += 1;
         }
+        if self.acknowledge.is_some() {
+            len += 1;
+        }
         if self.persist.is_some() {
             len += 1;
         }
@@ -2800,6 +2803,9 @@ impl serde::Serialize for Derive {
         if let Some(v) = self.started_commit.as_ref() {
             struct_ser.serialize_field("startedCommit", v)?;
         }
+        if let Some(v) = self.acknowledge.as_ref() {
+            struct_ser.serialize_field("acknowledge", v)?;
+        }
         if let Some(v) = self.persist.as_ref() {
             struct_ser.serialize_field("persist", v)?;
         }
@@ -2860,6 +2866,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
             "startCommit",
             "started_commit",
             "startedCommit",
+            "acknowledge",
             "persist",
             "persisted",
             "close_now",
@@ -2890,6 +2897,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
             Stored,
             StartCommit,
             StartedCommit,
+            Acknowledge,
             Persist,
             Persisted,
             CloseNow,
@@ -2939,6 +2947,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             "stored" => Ok(GeneratedField::Stored),
                             "startCommit" | "start_commit" => Ok(GeneratedField::StartCommit),
                             "startedCommit" | "started_commit" => Ok(GeneratedField::StartedCommit),
+                            "acknowledge" => Ok(GeneratedField::Acknowledge),
                             "persist" => Ok(GeneratedField::Persist),
                             "persisted" => Ok(GeneratedField::Persisted),
                             "closeNow" | "close_now" => Ok(GeneratedField::CloseNow),
@@ -2982,6 +2991,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
                 let mut stored__ = None;
                 let mut start_commit__ = None;
                 let mut started_commit__ = None;
+                let mut acknowledge__ = None;
                 let mut persist__ = None;
                 let mut persisted__ = None;
                 let mut close_now__ = None;
@@ -3083,6 +3093,12 @@ impl<'de> serde::Deserialize<'de> for Derive {
                             }
                             started_commit__ = map_.next_value()?;
                         }
+                        GeneratedField::Acknowledge => {
+                            if acknowledge__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("acknowledge"));
+                            }
+                            acknowledge__ = map_.next_value()?;
+                        }
                         GeneratedField::Persist => {
                             if persist__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("persist"));
@@ -3164,6 +3180,7 @@ impl<'de> serde::Deserialize<'de> for Derive {
                     stored: stored__,
                     start_commit: start_commit__,
                     started_commit: started_commit__,
+                    acknowledge: acknowledge__,
                     persist: persist__,
                     persisted: persisted__,
                     close_now: close_now__,
@@ -3177,6 +3194,79 @@ impl<'de> serde::Deserialize<'de> for Derive {
             }
         }
         deserializer.deserialize_struct("runtime.Derive", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for derive::Acknowledge {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("runtime.Derive.Acknowledge", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for derive::Acknowledge {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = derive::Acknowledge;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct runtime.Derive.Acknowledge")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<derive::Acknowledge, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(derive::Acknowledge {})
+            }
+        }
+        deserializer.deserialize_struct("runtime.Derive.Acknowledge", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for derive::Flush {
@@ -4227,6 +4317,9 @@ impl serde::Serialize for derive::Stored {
         if self.publisher_commit.is_some() {
             len += 1;
         }
+        if !self.disk_ack_intents.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Derive.Stored", len)?;
         if self.published_docs_total != 0 {
             #[allow(clippy::needless_borrow)]
@@ -4263,6 +4356,14 @@ impl serde::Serialize for derive::Stored {
         if let Some(v) = self.publisher_commit.as_ref() {
             struct_ser.serialize_field("publisherCommit", v)?;
         }
+        if !self.disk_ack_intents.is_empty() {
+            let v: std::collections::HashMap<_, _> = self
+                .disk_ack_intents
+                .iter()
+                .map(|(k, v)| (k, pbjson::private::base64::encode(v)))
+                .collect();
+            struct_ser.serialize_field("diskAckIntents", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -4283,6 +4384,8 @@ impl<'de> serde::Deserialize<'de> for derive::Stored {
             "drainedBytesTotal",
             "publisher_commit",
             "publisherCommit",
+            "disk_ack_intents",
+            "diskAckIntents",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4292,6 +4395,7 @@ impl<'de> serde::Deserialize<'de> for derive::Stored {
             DrainedDocsTotal,
             DrainedBytesTotal,
             PublisherCommit,
+            DiskAckIntents,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4332,6 +4436,9 @@ impl<'de> serde::Deserialize<'de> for derive::Stored {
                             "publisherCommit" | "publisher_commit" => {
                                 Ok(GeneratedField::PublisherCommit)
                             }
+                            "diskAckIntents" | "disk_ack_intents" => {
+                                Ok(GeneratedField::DiskAckIntents)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4356,6 +4463,7 @@ impl<'de> serde::Deserialize<'de> for derive::Stored {
                 let mut drained_docs_total__ = None;
                 let mut drained_bytes_total__ = None;
                 let mut publisher_commit__ = None;
+                let mut disk_ack_intents__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PublishedDocsTotal => {
@@ -4404,6 +4512,20 @@ impl<'de> serde::Deserialize<'de> for derive::Stored {
                             }
                             publisher_commit__ = map_.next_value()?;
                         }
+                        GeneratedField::DiskAckIntents => {
+                            if disk_ack_intents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskAckIntents"));
+                            }
+                            disk_ack_intents__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<
+                                    _,
+                                    ::pbjson::private::BytesDeserialize<_>,
+                                >>()?
+                                .into_iter()
+                                .map(|(k, v)| (k, v.0))
+                                .collect(),
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4415,6 +4537,7 @@ impl<'de> serde::Deserialize<'de> for derive::Stored {
                     drained_docs_total: drained_docs_total__.unwrap_or_default(),
                     drained_bytes_total: drained_bytes_total__.unwrap_or_default(),
                     publisher_commit: publisher_commit__,
+                    disk_ack_intents: disk_ack_intents__.unwrap_or_default(),
                 })
             }
         }
@@ -7993,6 +8116,9 @@ impl serde::Serialize for materialize::StartedCommit {
         if !self.connector_patches_json.is_empty() {
             len += 1;
         }
+        if !self.disk_ack_intents.is_empty() {
+            len += 1;
+        }
         let mut struct_ser =
             serializer.serialize_struct("runtime.Materialize.StartedCommit", len)?;
         if !self.connector_patches_json.is_empty() {
@@ -8003,6 +8129,14 @@ impl serde::Serialize for materialize::StartedCommit {
                 &crate::as_raw_json(&self.connector_patches_json)?,
             )?;
         }
+        if !self.disk_ack_intents.is_empty() {
+            let v: std::collections::HashMap<_, _> = self
+                .disk_ack_intents
+                .iter()
+                .map(|(k, v)| (k, pbjson::private::base64::encode(v)))
+                .collect();
+            struct_ser.serialize_field("diskAckIntents", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -8012,11 +8146,17 @@ impl<'de> serde::Deserialize<'de> for materialize::StartedCommit {
     where
         D: serde::Deserializer<'de>,
     {
-        const FIELDS: &[&str] = &["connector_patches_json", "connectorPatches"];
+        const FIELDS: &[&str] = &[
+            "connector_patches_json",
+            "connectorPatches",
+            "disk_ack_intents",
+            "diskAckIntents",
+        ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ConnectorPatchesJson,
+            DiskAckIntents,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8045,6 +8185,9 @@ impl<'de> serde::Deserialize<'de> for materialize::StartedCommit {
                             "connectorPatches" | "connector_patches_json" => {
                                 Ok(GeneratedField::ConnectorPatchesJson)
                             }
+                            "diskAckIntents" | "disk_ack_intents" => {
+                                Ok(GeneratedField::DiskAckIntents)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8068,6 +8211,7 @@ impl<'de> serde::Deserialize<'de> for materialize::StartedCommit {
                 V: serde::de::MapAccess<'de>,
             {
                 let mut connector_patches_json__ = None;
+                let mut disk_ack_intents__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorPatchesJson => {
@@ -8077,6 +8221,20 @@ impl<'de> serde::Deserialize<'de> for materialize::StartedCommit {
                             connector_patches_json__ =
                                 Some(map_.next_value::<crate::RawJSONDeserialize>()?.0);
                         }
+                        GeneratedField::DiskAckIntents => {
+                            if disk_ack_intents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskAckIntents"));
+                            }
+                            disk_ack_intents__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<
+                                    _,
+                                    ::pbjson::private::BytesDeserialize<_>,
+                                >>()?
+                                .into_iter()
+                                .map(|(k, v)| (k, v.0))
+                                .collect(),
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8084,6 +8242,7 @@ impl<'de> serde::Deserialize<'de> for materialize::StartedCommit {
                 }
                 Ok(materialize::StartedCommit {
                     connector_patches_json: connector_patches_json__.unwrap_or_default(),
+                    disk_ack_intents: disk_ack_intents__.unwrap_or_default(),
                 })
             }
         }
@@ -8793,6 +8952,9 @@ impl serde::Serialize for Open {
         if !self.max_keys.is_empty() {
             len += 1;
         }
+        if !self.disk_ack_intents.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Open", len)?;
         if !self.spec.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -8820,6 +8982,14 @@ impl serde::Serialize for Open {
                 .collect();
             struct_ser.serialize_field("maxKeys", &v)?;
         }
+        if !self.disk_ack_intents.is_empty() {
+            let v: std::collections::HashMap<_, _> = self
+                .disk_ack_intents
+                .iter()
+                .map(|(k, v)| (k, pbjson::private::base64::encode(v)))
+                .collect();
+            struct_ser.serialize_field("diskAckIntents", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -8837,6 +9007,8 @@ impl<'de> serde::Deserialize<'de> for Open {
             "state",
             "max_keys",
             "maxKeys",
+            "disk_ack_intents",
+            "diskAckIntents",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8846,6 +9018,7 @@ impl<'de> serde::Deserialize<'de> for Open {
             Range,
             ConnectorStateJson,
             MaxKeys,
+            DiskAckIntents,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8878,6 +9051,9 @@ impl<'de> serde::Deserialize<'de> for Open {
                                 Ok(GeneratedField::ConnectorStateJson)
                             }
                             "maxKeys" | "max_keys" => Ok(GeneratedField::MaxKeys),
+                            "diskAckIntents" | "disk_ack_intents" => {
+                                Ok(GeneratedField::DiskAckIntents)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8902,6 +9078,7 @@ impl<'de> serde::Deserialize<'de> for Open {
                 let mut range__ = None;
                 let mut connector_state_json__ = None;
                 let mut max_keys__ = None;
+                let mut disk_ack_intents__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Spec => {
@@ -8946,6 +9123,20 @@ impl<'de> serde::Deserialize<'de> for Open {
                                 .collect(),
                             );
                         }
+                        GeneratedField::DiskAckIntents => {
+                            if disk_ack_intents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskAckIntents"));
+                            }
+                            disk_ack_intents__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<
+                                    _,
+                                    ::pbjson::private::BytesDeserialize<_>,
+                                >>()?
+                                .into_iter()
+                                .map(|(k, v)| (k, v.0))
+                                .collect(),
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8957,6 +9148,7 @@ impl<'de> serde::Deserialize<'de> for Open {
                     range: range__,
                     connector_state_json: connector_state_json__.unwrap_or_default(),
                     max_keys: max_keys__.unwrap_or_default(),
+                    disk_ack_intents: disk_ack_intents__.unwrap_or_default(),
                 })
             }
         }
@@ -9023,6 +9215,12 @@ impl serde::Serialize for Persist {
             len += 1;
         }
         if !self.gap_floors.is_empty() {
+            len += 1;
+        }
+        if self.delete_disk_ack_intents {
+            len += 1;
+        }
+        if !self.disk_ack_intents.is_empty() {
             len += 1;
         }
         if self.active_backfill_change.is_some() {
@@ -9126,6 +9324,17 @@ impl serde::Serialize for Persist {
                 .collect();
             struct_ser.serialize_field("gapFloors", &v)?;
         }
+        if self.delete_disk_ack_intents {
+            struct_ser.serialize_field("deleteDiskAckIntents", &self.delete_disk_ack_intents)?;
+        }
+        if !self.disk_ack_intents.is_empty() {
+            let v: std::collections::HashMap<_, _> = self
+                .disk_ack_intents
+                .iter()
+                .map(|(k, v)| (k, pbjson::private::base64::encode(v)))
+                .collect();
+            struct_ser.serialize_field("diskAckIntents", &v)?;
+        }
         if let Some(v) = self.active_backfill_change.as_ref() {
             match v {
                 persist::ActiveBackfillChange::Begin(v) => {
@@ -9181,6 +9390,10 @@ impl<'de> serde::Deserialize<'de> for Persist {
             "rescan",
             "gap_floors",
             "gapFloors",
+            "delete_disk_ack_intents",
+            "deleteDiskAckIntents",
+            "disk_ack_intents",
+            "diskAckIntents",
             "begin",
             "complete_binding",
             "completeBinding",
@@ -9206,6 +9419,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
             TriggerParamsJson,
             Rescan,
             GapFloors,
+            DeleteDiskAckIntents,
+            DiskAckIntents,
             Begin,
             CompleteBinding,
             __SkipField__,
@@ -9275,6 +9490,12 @@ impl<'de> serde::Deserialize<'de> for Persist {
                             }
                             "rescan" => Ok(GeneratedField::Rescan),
                             "gapFloors" | "gap_floors" => Ok(GeneratedField::GapFloors),
+                            "deleteDiskAckIntents" | "delete_disk_ack_intents" => {
+                                Ok(GeneratedField::DeleteDiskAckIntents)
+                            }
+                            "diskAckIntents" | "disk_ack_intents" => {
+                                Ok(GeneratedField::DiskAckIntents)
+                            }
                             "begin" => Ok(GeneratedField::Begin),
                             "completeBinding" | "complete_binding" => {
                                 Ok(GeneratedField::CompleteBinding)
@@ -9316,6 +9537,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
                 let mut trigger_params_json__ = None;
                 let mut rescan__ = None;
                 let mut gap_floors__ = None;
+                let mut delete_disk_ack_intents__ = None;
+                let mut disk_ack_intents__ = None;
                 let mut active_backfill_change__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -9475,6 +9698,28 @@ impl<'de> serde::Deserialize<'de> for Persist {
                                 .collect(),
                             );
                         }
+                        GeneratedField::DeleteDiskAckIntents => {
+                            if delete_disk_ack_intents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field(
+                                    "deleteDiskAckIntents",
+                                ));
+                            }
+                            delete_disk_ack_intents__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::DiskAckIntents => {
+                            if disk_ack_intents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskAckIntents"));
+                            }
+                            disk_ack_intents__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<
+                                    _,
+                                    ::pbjson::private::BytesDeserialize<_>,
+                                >>()?
+                                .into_iter()
+                                .map(|(k, v)| (k, v.0))
+                                .collect(),
+                            );
+                        }
                         GeneratedField::Begin => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
                                 if active_backfill_change__.is_some() {
@@ -9514,6 +9759,8 @@ impl<'de> serde::Deserialize<'de> for Persist {
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
                     rescan: rescan__.unwrap_or_default(),
                     gap_floors: gap_floors__.unwrap_or_default(),
+                    delete_disk_ack_intents: delete_disk_ack_intents__.unwrap_or_default(),
+                    disk_ack_intents: disk_ack_intents__.unwrap_or_default(),
                     active_backfill_change: active_backfill_change__,
                 })
             }
@@ -9736,6 +9983,9 @@ impl serde::Serialize for Recover {
         if !self.gap_floors.is_empty() {
             len += 1;
         }
+        if !self.disk_ack_intents.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("runtime.Recover", len)?;
         if !self.ack_intents.is_empty() {
             let v: std::collections::HashMap<_, _> = self
@@ -9818,6 +10068,14 @@ impl serde::Serialize for Recover {
                 .collect();
             struct_ser.serialize_field("gapFloors", &v)?;
         }
+        if !self.disk_ack_intents.is_empty() {
+            let v: std::collections::HashMap<_, _> = self
+                .disk_ack_intents
+                .iter()
+                .map(|(k, v)| (k, pbjson::private::base64::encode(v)))
+                .collect();
+            struct_ser.serialize_field("diskAckIntents", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -9852,6 +10110,8 @@ impl<'de> serde::Deserialize<'de> for Recover {
             "activeBackfills",
             "gap_floors",
             "gapFloors",
+            "disk_ack_intents",
+            "diskAckIntents",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -9868,6 +10128,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
             TriggerParamsJson,
             ActiveBackfills,
             GapFloors,
+            DiskAckIntents,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -9921,6 +10182,9 @@ impl<'de> serde::Deserialize<'de> for Recover {
                                 Ok(GeneratedField::ActiveBackfills)
                             }
                             "gapFloors" | "gap_floors" => Ok(GeneratedField::GapFloors),
+                            "diskAckIntents" | "disk_ack_intents" => {
+                                Ok(GeneratedField::DiskAckIntents)
+                            }
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -9952,6 +10216,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                 let mut trigger_params_json__ = None;
                 let mut active_backfills__ = None;
                 let mut gap_floors__ = None;
+                let mut disk_ack_intents__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AckIntents => {
@@ -10071,6 +10336,20 @@ impl<'de> serde::Deserialize<'de> for Recover {
                                 .collect(),
                             );
                         }
+                        GeneratedField::DiskAckIntents => {
+                            if disk_ack_intents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("diskAckIntents"));
+                            }
+                            disk_ack_intents__ = Some(
+                                map_.next_value::<std::collections::BTreeMap<
+                                    _,
+                                    ::pbjson::private::BytesDeserialize<_>,
+                                >>()?
+                                .into_iter()
+                                .map(|(k, v)| (k, v.0))
+                                .collect(),
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -10089,6 +10368,7 @@ impl<'de> serde::Deserialize<'de> for Recover {
                     trigger_params_json: trigger_params_json__.unwrap_or_default(),
                     active_backfills: active_backfills__.unwrap_or_default(),
                     gap_floors: gap_floors__.unwrap_or_default(),
+                    disk_ack_intents: disk_ack_intents__.unwrap_or_default(),
                 })
             }
         }

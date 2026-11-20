@@ -25,6 +25,7 @@ impl Task {
             name,
             network_ports: _,
             recovery_log_template: _,
+            disk_journal_template: _,
             shard_template: _,
             inactive_bindings: _,
             triggers_json: _,

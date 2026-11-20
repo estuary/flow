@@ -294,6 +294,11 @@ fn authorize(
         !start.sqlite_vfs_uri.is_empty(),
     )
     .map_err(|err| crate::invalid_argument(err.to_string()))?;
+    crate::policy::check_remote_volume(
+        matches!(transport, crate::service::Transport::Wire),
+        start.volume.as_ref(),
+    )
+    .map_err(|err| crate::invalid_argument(err.to_string()))?;
     let sqlite_vfs_uri =
         Some(std::mem::take(&mut start.sqlite_vfs_uri)).filter(|uri| !uri.is_empty());
 

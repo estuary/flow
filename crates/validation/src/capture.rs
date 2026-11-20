@@ -140,6 +140,7 @@ async fn walk_capture(
         interval,
         redact_salt: model_redact_salt,
         secrets,
+        persistent_disk,
         shards,
         expect_pub_id: _,
         delete: _,
@@ -516,6 +517,16 @@ async fn walk_capture(
         &shard_id_prefix,
         recovery_stores,
     );
+    let has_disk = persistent_disk && matches!(endpoint, models::CaptureEndpoint::Python(_));
+    let disk_journal_template = has_disk.then(|| {
+        assemble::disk_journal_template(
+            build_id,
+            &capture,
+            labels::TASK_TYPE_CAPTURE,
+            &shard_id_prefix,
+            recovery_stores,
+        )
+    });
     let shard_template = assemble::shard_template(
         build_id,
         &capture,
@@ -532,6 +543,7 @@ async fn walk_capture(
         bindings: bindings_spec,
         interval_seconds: interval.as_secs() as u32,
         recovery_log_template: Some(recovery_log_template),
+        disk_journal_template,
         shard_template: Some(shard_template),
         network_ports,
         inactive_bindings,
@@ -554,6 +566,7 @@ async fn walk_capture(
         interval,
         redact_salt: model_redact_salt,
         secrets,
+        persistent_disk,
         shards,
         expect_pub_id: None,
         delete: false,

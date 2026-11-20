@@ -16,7 +16,8 @@ pub enum Change {
     Journal(broker::apply_request::Change),
 }
 
-// JournalSplit describes a collection partition or a shard recovery log.
+// JournalSplit describes a collection partition, or a shard recovery log or
+// disk journal.
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize)]
 pub struct JournalSplit {
     pub name: String,
@@ -38,6 +39,7 @@ pub struct ShardSplit {
 pub struct TaskTemplate<'a> {
     pub shard: &'a ShardSpec,
     pub recovery: &'a JournalSpec,
+    pub disk: Option<&'a JournalSpec>,
 }
 
 // Map a CaptureSpec into its activation TaskTemplate.
@@ -61,6 +63,7 @@ pub fn capture_template(
     Ok(Some(TaskTemplate {
         shard: shard_template,
         recovery: recovery_template,
+        disk: task_spec.disk_journal_template.as_ref(),
     }))
 }
 
@@ -85,6 +88,7 @@ pub fn materialization_template(
     Ok(Some(TaskTemplate {
         shard: shard_template,
         recovery: recovery_template,
+        disk: task_spec.disk_journal_template.as_ref(),
     }))
 }
 
@@ -116,6 +120,7 @@ pub fn collection_template(
         Some(TaskTemplate {
             shard: shard_template,
             recovery: recovery_template,
+            disk: derivation.disk_journal_template.as_ref(),
         })
     } else {
         None
@@ -325,7 +330,7 @@ pub async fn fetch_task_splits<'a>(
     ops_stats_template: Option<&broker::JournalSpec>,
 ) -> anyhow::Result<(
     Vec<ShardSplit>,                                  // Shards.
-    Vec<JournalSplit>,                                // Recovery logs.
+    Vec<JournalSplit>,                                // Recovery logs and disk journals.
     (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops logs.
     (String, Option<JournalSpec>, Vec<JournalSplit>), // Ops stats.
 )> {
@@ -385,11 +390,13 @@ pub fn list_shards_request(task_type: ops::TaskType, task_name: &str) -> consume
     }
 }
 
+// A selector matches any of a label's values, so this also lists disk journals.
 fn list_recovery_logs_request(task_type: ops::TaskType, task_name: &str) -> broker::ListRequest {
     broker::ListRequest {
         selector: Some(LabelSelector {
             include: Some(labels::build_set([
                 (labels::CONTENT_TYPE, labels::CONTENT_TYPE_RECOVERY_LOG),
+                (labels::CONTENT_TYPE, labels::CONTENT_TYPE_DISK),
                 (labels::TASK_TYPE, task_type.as_str_name()),
                 (labels::TASK_NAME, task_name),
             ])),
@@ -479,8 +486,8 @@ fn non_zero_shards_are_stateless(shard_template: &ShardSpec) -> bool {
         == Some("true")
 }
 
-/// Determine the consumer shard and broker recovery and ops journal changes
-/// required to converge the desired splits towards the `template`.
+/// Determine the consumer shard and broker recovery log, disk, and ops journal
+/// changes required to converge the desired splits towards the `template`.
 pub fn task_changes<'a>(
     template: Option<TaskTemplate<'a>>,
     shards: Vec<ShardSplit>,
@@ -539,8 +546,8 @@ pub fn task_changes<'a>(
         // acquire all state through the leader protocol and must not have
         // recovery logs or hints.
         let range_spec = labels::shard::decode_range_spec(&split)?;
-        let stateless = non_zero_shards_are_stateless(template.shard)
-            && (range_spec.key_begin != 0 || range_spec.r_clock_begin != 0);
+        let is_zero = labels::shard::is_zero(&range_spec);
+        let stateless = non_zero_shards_are_stateless(template.shard) && !is_zero;
 
         if stateless {
             shard_spec.recovery_log_prefix = String::new();
@@ -572,6 +579,30 @@ pub fn task_changes<'a>(
             ..template.recovery.clone()
         };
 
+        // Only shard zero has a persistent disk.
+        let mut disk = match template.disk {
+            Some(disk) if is_zero => {
+                let disk_name = labels::shard::disk_journal_name(&disk.name, &range_spec);
+                let disk_split = recovery.remove(&disk_name).unwrap_or_default();
+
+                let mut disk_labels = disk.labels.clone().unwrap_or_default();
+                if let Some(label) =
+                    labels::values(&disk_split.labels, labels::DISK_REPLAY_FROM).first()
+                {
+                    disk_labels =
+                        labels::set_value(disk_labels, labels::DISK_REPLAY_FROM, &label.value);
+                }
+                let disk_spec = JournalSpec {
+                    name: disk_name,
+                    labels: Some(disk_labels),
+                    suspend: disk_split.suspend, // Must be passed through.
+                    ..disk.clone()
+                };
+                Some((disk_split.mod_revision, disk_spec))
+            }
+            _ => None,
+        };
+
         // Resolve the labels of the ShardSpec by merging labels managed the
         // control-plane versus the data-plane.
         let mut shard_labels = shard_spec.labels.take().unwrap_or_default();
@@ -594,10 +625,13 @@ pub fn task_changes<'a>(
             }
             shard_labels = labels::add_value(shard_labels, &label.name, &label.value);
 
-            // A cordoned task is disabled with its recovery log marked read-only.
+            // A cordoned task is disabled with its recovery log and disk marked read-only.
             if label.name == labels::CORDON {
                 shard_spec.disable = true;
                 recovery_spec.flags = proto_gazette::broker::journal_spec::Flag::ORdonly as u32;
+                if let Some((_, disk_spec)) = &mut disk {
+                    disk_spec.flags = proto_gazette::broker::journal_spec::Flag::ORdonly as u32;
+                }
             }
         }
         shard_labels = labels::set_value(shard_labels, labels::LOGS_JOURNAL, &ops_logs_name);
@@ -618,9 +652,18 @@ pub fn task_changes<'a>(
                 delete: String::new(),
             }));
         }
+
+        if let Some((disk_revision, disk_spec)) = disk {
+            changes.push(Change::Journal(broker::apply_request::Change {
+                expect_mod_revision: disk_revision,
+                upsert: Some(disk_spec),
+                delete: String::new(),
+            }));
+        }
     }
 
-    // Any remaining recovery logs are not paired with an active shard, and are deleted.
+    // Any remaining recovery journals are not paired with an active shard, and
+    // are deleted.
     for (name, JournalSplit { mod_revision, .. }) in recovery {
         changes.push(Change::Journal(broker::apply_request::Change {
             expect_mod_revision: mod_revision,
@@ -1121,10 +1164,12 @@ mod test {
         let task_template = TaskTemplate {
             shard: shard_template,
             recovery: recovery_template,
+            disk: None,
         };
         let disabled_task_template = TaskTemplate {
             shard: disabled_shard_template,
             recovery: disabled_recovery_template,
+            disk: None,
         };
 
         let mut make_partition = |key_begin, key_end, doc: serde_json::Value, labels: LabelSet| {
@@ -1291,7 +1336,8 @@ mod test {
             insta::assert_json_snapshot!("update", (partition_changes, task_changes));
         }
 
-        // Case: leaderful tasks have stateless non-zero shards.
+        // Case: leaderful tasks have stateless non-zero shards. Only shard
+        // zero, which is cordoned, has a recovery log and a persistent disk.
         {
             let shard_template = ShardSpec {
                 labels: Some(labels::set_value(
@@ -1301,9 +1347,18 @@ mod test {
                 )),
                 ..shard_template.clone()
             };
+            let disk_template = JournalSpec {
+                name: format!("recovery/disk/{}", shard_template.id),
+                labels: Some(labels::build_set([(
+                    labels::CONTENT_TYPE,
+                    labels::CONTENT_TYPE_DISK,
+                )])),
+                ..recovery_template.clone()
+            };
             let v2_template = TaskTemplate {
                 shard: &shard_template,
                 recovery: recovery_template,
+                disk: Some(&disk_template),
             };
 
             let mut shards = Vec::new();
@@ -1343,6 +1398,32 @@ mod test {
                     labels,
                     mod_revision: 222,
                     primary_hints: None,
+                });
+            }
+
+            shards[0].labels = labels::set_value(
+                std::mem::take(&mut shards[0].labels),
+                labels::CORDON,
+                "true",
+            );
+
+            // Shard zero's disk journal keeps its replay-from label and its
+            // suspension, but no other label. The disk journal of a shard which
+            // no longer exists is deleted.
+            for shard_id in [shards[0].id.clone(), format!("{}/gone", shard_template.id)] {
+                recovery_logs.push(JournalSplit {
+                    name: format!("recovery/disk/{shard_id}/persist/pivot=00"),
+                    labels: labels::build_set([
+                        (labels::CONTENT_TYPE, labels::CONTENT_TYPE_DISK),
+                        (labels::DISK_REPLAY_FROM, "00000000000004d2"),
+                        (labels::CORDON, ""),
+                        ("stale", "label"),
+                    ]),
+                    mod_revision: 444,
+                    suspend: Some(journal_spec::Suspend {
+                        level: journal_spec::suspend::Level::Partial as i32,
+                        offset: 1234,
+                    }),
                 });
             }
 
@@ -1467,6 +1548,7 @@ mod test {
                 Some(TaskTemplate {
                     shard: disabled_shard_template,
                     recovery: disabled_recovery_template,
+                    disk: None,
                 }),
                 shards,
                 Vec::new(),

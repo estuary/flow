@@ -370,6 +370,9 @@ message CollectionSpec {
     // task. Unset if the build didn't run the connector, as when the task is
     // disabled.
     ConnectorSpec connector_spec = 12;
+    // Template for disk journals of shards of this derivation, if it has a
+    // persistent disk.
+    protocol.JournalSpec disk_journal_template = 13;
   }
   Derivation derivation = 12;
 }
@@ -481,6 +484,9 @@ message CaptureSpec {
   // task. Unset if the build didn't run the connector, as when the task is
   // disabled.
   ConnectorSpec connector_spec = 14;
+  // Template for disk journals of shards of this capture, if it has a
+  // persistent disk.
+  protocol.JournalSpec disk_journal_template = 15;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
@@ -612,6 +618,9 @@ message MaterializationSpec {
   // task. Unset if the build didn't run the connector, as when the task is
   // disabled.
   ConnectorSpec connector_spec = 15;
+  // Template for disk journals of shards of this materialization, if it has a
+  // persistent disk.
+  protocol.JournalSpec disk_journal_template = 16;
 }
 
 // ConnectorSpec is a connector's response to a Spec request. Its fields match

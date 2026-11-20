@@ -425,6 +425,10 @@ pub mod collection_spec {
         #[prost(message, optional, boxed, tag = "12")]
         pub connector_spec:
             ::core::option::Option<::prost::alloc::boxed::Box<super::ConnectorSpec>>,
+        /// Template for disk journals of shards of this derivation, if it has a
+        /// persistent disk.
+        #[prost(message, optional, tag = "13")]
+        pub disk_journal_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
     }
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
@@ -662,6 +666,10 @@ pub struct CaptureSpec {
     /// disabled.
     #[prost(message, optional, boxed, tag = "14")]
     pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
+    /// Template for disk journals of shards of this capture, if it has a
+    /// persistent disk.
+    #[prost(message, optional, tag = "15")]
+    pub disk_journal_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -801,6 +809,10 @@ pub struct MaterializationSpec {
     /// disabled.
     #[prost(message, optional, boxed, tag = "15")]
     pub connector_spec: ::core::option::Option<::prost::alloc::boxed::Box<ConnectorSpec>>,
+    /// Template for disk journals of shards of this materialization, if it has a
+    /// persistent disk.
+    #[prost(message, optional, tag = "16")]
+    pub disk_journal_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {

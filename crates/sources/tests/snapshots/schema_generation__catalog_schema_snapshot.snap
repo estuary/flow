@@ -265,6 +265,11 @@ expression: "&schema"
           ],
           "pattern": "^\\d+(s|m|h|d)$"
         },
+        "persistentDisk": {
+          "title": "Give this capture a persistent disk.",
+          "description": "Persistent disks are currently only supported for custom connectors.",
+          "type": "boolean"
+        },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in captured documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
@@ -633,6 +638,11 @@ expression: "&schema"
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
       "properties": {
+        "persistentDisk": {
+          "title": "Give this derivation a persistent disk.",
+          "description": "Persistent disks are currently only supported for custom connectors.",
+          "type": "boolean"
+        },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in derived documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
@@ -1113,6 +1123,11 @@ expression: "&schema"
           "title": "Default handling of schema changes that are incompatible with the target resource.",
           "description": "This can be overridden on a per-binding basis.",
           "$ref": "#/$defs/OnIncompatibleSchemaChange"
+        },
+        "persistentDisk": {
+          "title": "Give this materialization a persistent disk.",
+          "description": "Persistent disks are currently only supported for custom connectors.",
+          "type": "boolean"
         },
         "reset": {
           "title": "Reset this materialization.",

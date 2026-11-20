@@ -73,6 +73,10 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { workspace = true }
 
+# Linux only: flowctl also builds this crate for macOS, where no disk attaches.
+[target.'cfg(target_os = "linux")'.dependencies]
+disk-daemon = { path = "../disk-daemon" }
+
 [dev-dependencies]
 axum = { workspace = true }
 build = { path = "../build" }

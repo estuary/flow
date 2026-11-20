@@ -42,6 +42,16 @@ pub(super) struct Actor {
         Option<BoxFuture<'static, anyhow::Result<(crate::shard::RocksDB, proto::Materialize)>>>,
     // When true, don't suppress C:Load for keys less-than `max_keys`.
     disable_load_optimization: bool,
+    // This shard's disk, if it has one; parked while a prepare borrows it, and
+    // until its prepared delta is acknowledged.
+    disk: Option<Option<crate::shard::disk::Attached>>,
+    // The disk, while its prepared delta awaits `L:Acknowledge`.
+    disk_prepared: Option<crate::shard::disk::Attached>,
+    // The disk's prepare. Resolves to the disk, and the `L:StartedCommit` which
+    // carries its delta's ACK intents.
+    disk_prepare_fut: Option<
+        BoxFuture<'static, anyhow::Result<(crate::shard::disk::Attached, proto::Materialize)>>,
+    >,
     // Wire codec negotiated with the connector.
     codec: connector_init::Codec,
     // Channel for sending to the controller. Used only to relay the leader's
@@ -76,6 +86,7 @@ impl Actor {
         controller_tx: mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
         db: crate::shard::RocksDB,
         disable_load_optimization: bool,
+        disk: Option<crate::shard::disk::Attached>,
         leader_tx: mpsc::UnboundedSender<proto::Materialize>,
         max_keys: Vec<(Bytes, Bytes)>,
         metrics: super::Metrics,
@@ -98,6 +109,9 @@ impl Actor {
             db: Some(db),
             db_persist_fut: None,
             disable_load_optimization,
+            disk: Some(disk),
+            disk_prepared: None,
+            disk_prepare_fut: None,
             codec,
             flushed: HashMap::new(),
             leader_tx,
@@ -119,7 +133,7 @@ impl Actor {
         logger: &impl crate::Logger,
         max_pinned_segments: usize,
         shuffle_reader: shuffle::log::Reader,
-    ) -> anyhow::Result<crate::shard::RocksDB>
+    ) -> anyhow::Result<(crate::shard::RocksDB, Option<crate::shard::disk::Attached>)>
     where
         Ctrl: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
         Ldr: futures::Stream<Item = tonic::Result<proto::Materialize>> + Send + Unpin + 'static,
@@ -293,6 +307,14 @@ impl Actor {
 
                     _ = self.leader_tx.send(response);
                 }
+                // Next, a disk's prepare. `response` is the `L:StartedCommit` which
+                // carries its delta's ACK intents.
+                result = maybe_fut(&mut self.disk_prepare_fut) => {
+                    let (disk, response) = result?;
+                    self.disk_prepared = Some(disk);
+
+                    _ = self.leader_tx.send(response);
+                }
                 // Next, wait for capacity to send to the connector.
                 true = wake_connector_tx => {}
                 // Next, a graceful session restart ahead of IAM token expiry.
@@ -325,6 +347,18 @@ impl Actor {
             anyhow::bail!("leader sent Stopped while shard was not idle");
         }
 
+        // The leader can stop right after a commit lands, without `L:Acknowledge`.
+        let disk = match self.disk_prepared.take() {
+            Some(mut disk) => {
+                () = disk.acknowledge();
+                Some(disk)
+            }
+            None => self
+                .disk
+                .take()
+                .context("leader Stopped while a disk prepare is in flight")?,
+        };
+
         // After Stopped and shuffle session drain, the leader's stream must EOF.
         let verify = crate::verify("Materialize", "leader EOF after Stopped", "leader");
         verify.eof(leader_rx.next().await)?;
@@ -336,7 +370,7 @@ impl Actor {
             anyhow::bail!("leader Stopped while a Persist is in flight");
         };
 
-        Ok(db)
+        Ok((db, disk))
     }
 
     fn try_connector_tx(&mut self) -> impl Future<Output = bool> + 'static {
@@ -495,6 +529,12 @@ impl Actor {
             connector_patches_json,
         }) = msg.acknowledge
         {
+            // A session's first `L:Acknowledge` is for a commit which the disk
+            // already acknowledged, at the last session's stop or at attach.
+            if let Some(mut disk) = self.disk_prepared.take() {
+                () = disk.acknowledge();
+                self.disk = Some(Some(disk));
+            }
             self.connector_pending.push_back(materialize::Request {
                 kind: Some(materialize::request::Kind::Acknowledge(
                     materialize::request::Acknowledge {
@@ -676,12 +716,41 @@ impl Actor {
             materialize::response::StartedCommit { state },
         )) = resp.kind
         {
-            _ = self.leader_tx.send(proto::Materialize {
-                started_commit: Some(proto::materialize::StartedCommit {
-                    connector_patches_json: patches::encode_connector_state(state),
-                }),
-                ..Default::default()
-            });
+            let connector_patches_json = patches::encode_connector_state(state);
+
+            match self
+                .disk
+                .take()
+                .context("C:StartedCommit while the disk is preparing or unacknowledged")?
+            {
+                Some(mut disk) => {
+                    self.disk_prepare_fut = Some(
+                        async move {
+                            let disk_ack_intents = disk.prepare().await?;
+
+                            let response = proto::Materialize {
+                                started_commit: Some(proto::materialize::StartedCommit {
+                                    connector_patches_json,
+                                    disk_ack_intents,
+                                }),
+                                ..Default::default()
+                            };
+                            Ok((disk, response))
+                        }
+                        .boxed(),
+                    );
+                }
+                None => {
+                    self.disk = Some(None);
+                    _ = self.leader_tx.send(proto::Materialize {
+                        started_commit: Some(proto::materialize::StartedCommit {
+                            connector_patches_json,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    });
+                }
+            }
         } else if let Some(materialize::response::Kind::Acknowledged(
             materialize::response::Acknowledged { state },
         )) = resp.kind
@@ -799,6 +868,9 @@ mod tests {
                 db: None,
                 db_persist_fut: None,
                 disable_load_optimization: false,
+                disk: Some(None),
+                disk_prepared: None,
+                disk_prepare_fut: None,
                 codec: connector_init::Codec::Proto,
                 leader_tx,
                 load_keys: Default::default(),
@@ -905,6 +977,9 @@ mod tests {
             db: Some(db),
             db_persist_fut: None,
             disable_load_optimization: false,
+            disk: Some(None),
+            disk_prepared: None,
+            disk_prepare_fut: None,
             codec: connector_init::Codec::Proto,
             leader_tx: actor_to_leader_tx,
             load_keys: Default::default(),
@@ -1113,7 +1188,7 @@ mod tests {
             .unwrap();
         std::mem::drop(leader_to_actor_tx);
 
-        let db = serve_handle.await.unwrap().unwrap();
+        let (db, _disk) = serve_handle.await.unwrap().unwrap();
 
         // Confirm the Persist round-tripped: scan back the last_applied bytes.
         let (_db, recover) = db.scan(Vec::<&str>::new()).await.unwrap();

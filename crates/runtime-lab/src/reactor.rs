@@ -88,6 +88,7 @@ pub fn run(args: Args, registry: service_kit::Registry) -> anyhow::Result<()> {
             runtime_next::TracingLoggerFactory,
             registry.clone(),
             None, // No AuthN+AuthZ signer (local loopback).
+            runtime_next::shard::Disks::Persistent { uds_path: None },
         );
         let listener = runtime
             .block_on(async { tokio::net::UnixListener::bind(socket) })

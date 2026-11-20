@@ -206,6 +206,20 @@ pub(crate) fn check_remote_sqlite_vfs(
     Ok(())
 }
 
+/// A remote client may ask for an `ephemeral` volume, which is just an empty
+/// directory. It may not ask for a `host_dir`, which is a directory on this machine.
+pub(crate) fn check_remote_volume(
+    is_wire: bool,
+    volume: Option<&crate::proto::request::start::Volume>,
+) -> anyhow::Result<()> {
+    use crate::proto::request::start;
+
+    if is_wire && matches!(volume, Some(start::Volume::HostDir(_))) {
+        anyhow::bail!("Start.host_dir is runtime-internal and may not be set by a remote client");
+    }
+    Ok(())
+}
+
 pub(crate) fn check_connector_sqlite_vfs(
     is_sqlite: bool,
     sqlite_vfs_uri_is_set: bool,
@@ -321,8 +335,8 @@ pub(crate) const TASK_UPDATE_LIFETIME: tokens::TimeDelta = tokens::TimeDelta::ho
 #[cfg(test)]
 mod test {
     use super::{
-        Image, SecretIdentity, check_connector_sqlite_vfs, check_remote_sqlite_vfs, check_secrets,
-        sanitize_connector_log,
+        Image, SecretIdentity, check_connector_sqlite_vfs, check_remote_sqlite_vfs,
+        check_remote_volume, check_secrets, sanitize_connector_log,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -749,5 +763,36 @@ mod test {
             ),
         ]
         ");
+    }
+
+    #[test]
+    fn only_a_host_dir_volume_is_runtime_internal() {
+        use crate::proto::request::start::{Ephemeral, Volume};
+
+        let mut outcomes = Vec::new();
+        for (transport, is_wire) in [("local", false), ("wire", true)] {
+            for (kind, volume) in [
+                ("none", None),
+                ("host_dir", Some(Volume::HostDir("/a/dir".to_string()))),
+                ("ephemeral", Some(Volume::Ephemeral(Ephemeral {}))),
+            ] {
+                let outcome = match check_remote_volume(is_wire, volume.as_ref()) {
+                    Ok(()) => "ok".to_string(),
+                    Err(err) => err.to_string(),
+                };
+                outcomes.push(format!("{transport} {kind}: {outcome}"));
+            }
+        }
+
+        insta::assert_debug_snapshot!(outcomes, @r#"
+        [
+            "local none: ok",
+            "local host_dir: ok",
+            "local ephemeral: ok",
+            "wire none: ok",
+            "wire host_dir: Start.host_dir is runtime-internal and may not be set by a remote client",
+            "wire ephemeral: ok",
+        ]
+        "#);
     }
 }

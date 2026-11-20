@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 8
 expression: outcome
 ---
 Outcome {
@@ -524,6 +523,7 @@ Outcome {
                         resource_path_pointers: [],
                     },
                 ),
+                disk_journal_template: None,
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -1317,6 +1317,7 @@ Outcome {
                         resource_path_pointers: [],
                     },
                 ),
+                disk_journal_template: None,
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -2611,6 +2612,7 @@ Outcome {
                                 resource_path_pointers: [],
                             },
                         ),
+                        disk_journal_template: None,
                     },
                 ),
             },
@@ -4314,6 +4316,7 @@ Outcome {
                         linked_collections: [],
                         secrets: {},
                         connector_spec: None,
+                        disk_journal_template: None,
                     },
                 ),
             },
@@ -5076,6 +5079,7 @@ Outcome {
                         linked_collections: [],
                         secrets: {},
                         connector_spec: None,
+                        disk_journal_template: None,
                     },
                 ),
             },
@@ -7023,6 +7027,7 @@ Outcome {
                         resource_path_pointers: [],
                     },
                 ),
+                disk_journal_template: None,
             },
             previous_spec: NULL,
             is_touch: 0,
@@ -8253,6 +8258,7 @@ Outcome {
                         resource_path_pointers: [],
                     },
                 ),
+                disk_journal_template: None,
             },
             previous_spec: NULL,
             is_touch: 0,

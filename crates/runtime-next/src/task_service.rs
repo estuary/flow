@@ -37,6 +37,9 @@ impl TaskService {
         let control_api_endpoint = std::env::var("FLOW_CONTROL_API").ok();
         let config_encryption_endpoint = std::env::var("FLOW_CONFIG_ENCRYPTION_URL").ok();
 
+        let disk_daemon_uds_path =
+            std::env::var_os("FLOW_DISK_DAEMON_UDS_PATH").map(std::path::PathBuf::from);
+
         // Every key verifies (supporting rotation); the first also signs.
         let consumer_auth_keys =
             std::env::var("CONSUMER_AUTH_KEYS").context("CONSUMER_AUTH_KEYS not set")?;
@@ -119,6 +122,9 @@ impl TaskService {
             crate::FnLoggerFactory::new(log_handler, tokio_context.log_level_handle()),
             registry,
             Some(data_plane_signer),
+            shard::Disks::Persistent {
+                uds_path: disk_daemon_uds_path,
+            },
         );
 
         let uds = tokio_context

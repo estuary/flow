@@ -102,6 +102,10 @@ src/
     ├── service.rs       # gRPC entry, dispatches by task type
     ├── connector.rs     # client of the `connector` crate: route, start, and read
     │                     #   its stream, sinking interleaved connector logs
+    ├── disk/
+    │   ├── mod.rs           # Disks: which shards get a disk, and of what kind
+    │   ├── attach.rs        # attach, format, and mount a disk; prepare and acknowledge deltas
+    │   └── unsupported.rs   # attach.rs's stand-in elsewhere, where no disk attaches
     ├── recovery.rs      # Persist <-> RocksDB WriteBatch encode/decode + scan-time FC: pruning
     ├── rocksdb.rs       # single Persist application path
     ├── split_policy.rs  # append-rate throttling which drives partition splits
@@ -266,6 +270,25 @@ between loses the floors of that one transaction.
 A Head reduces every `Load` into its extents, then on a resolved `Load` calls
 `Frontier::clear_discharged_hints`, so a hint the Session discharges rather
 than resolves cannot pin the transaction open.
+
+## Persistent disks (`DI:`)
+
+Shard zero of a task with a disk journal template attaches a journal-backed
+disk (`shard/disk/`, `Disks::for_shard`). Its connector sees the disk at
+`$CONNECTOR_MOUNT/persist`.
+
+The disk commits with each transaction. The shard prepares the disk's delta
+(`Attached::prepare`) after the connector's commit point: at `L:Store` for a
+derivation, after `C:StartedCommit` for a materialization, and right before the
+committing `Persist` for a capture. The delta's ACK intent commits in that
+`Persist` as `DI:{journal}` rows. Recovery reads them into
+`Recover.disk_ack_intents`, and the leader of a derivation or materialization
+passes them on in `Open.disk_ack_intents`. A derivation with a disk opens its
+next transaction only after this one's disk is cut (`HeadIdle::step`).
+
+A capture's disk can run ahead of its checkpoint. The connector keeps writing
+while a transaction commits, and those writes can be saved with it. A graceful
+restart doesn't undo them either.
 
 ## Idempotent recovery (materialize)
 

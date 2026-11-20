@@ -22,6 +22,10 @@ pub struct Derivation {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Give this derivation a persistent disk.
+    /// Persistent disks are currently only supported for custom connectors.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub persistent_disk: bool,
     /// # Transforms which make up this derivation.
     pub transforms: Vec<TransformDef>,
     /// # Key component types of the shuffle keys used by derivation lambdas.

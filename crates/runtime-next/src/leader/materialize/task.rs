@@ -18,6 +18,7 @@ impl Task {
             connector_type,
             config_json,
             sync_schedule_json,
+            disk_journal_template,
             ..
         } = spec;
 
@@ -109,6 +110,7 @@ impl Task {
             max_transactions,
             n_shards: peers.len(),
             peers,
+            has_disk: disk_journal_template.is_some(),
             shard_ref,
             triggers,
             sync_schedule,

@@ -49,6 +49,8 @@ pub struct Extents {
     // Aggregated connector state patches gathered across this transaction's
     // Flush iterations, persisted with the committing Persist. State Update Wire Format.
     connector_patches: bytes::Bytes,
+    // ACK intents of shards' disks, from their Stored responses.
+    disk_ack_intents: BTreeMap<String, bytes::Bytes>,
 }
 
 #[derive(Debug, Default)]
@@ -112,6 +114,8 @@ pub enum Action {
     },
     /// Persist one `proto::Persist` WriteBatch to shard zero.
     Persist { persist: proto::Persist },
+    /// Broadcast `L:Acknowledge`.
+    Acknowledge,
     /// Write ACK intents to their journals.
     WriteIntents {
         ack_intents: BTreeMap<String, bytes::Bytes>,
@@ -125,6 +129,7 @@ pub enum Action {
 impl Action {
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::Acknowledge => "Acknowledge",
             Self::Error { .. } => "Error",
             Self::Flush { .. } => "Flush",
             Self::Idle => "Idle",
@@ -278,15 +283,18 @@ impl HeadIdle {
             open_duration: task.close_policy.open_duration.clone(),
         });
 
-        // Remote-authoritative connectors cannot receive C:Read of the next
-        // transaction until C:StartCommit of the current one. Hold back opening
-        // a new transaction until the Tail has passed StartCommit; once open,
-        // further extends within the transaction are unconstrained.
+        // Open the next transaction only once the Tail reaches Persist, if:
+        // - the connector is remote-authoritative, since it can't take the next
+        //   transaction's C:Read before this one's C:StartCommit; or
+        // - the task has a disk, since the next transaction's writes must not
+        //   end up in this transaction's disk commit.
+        // Once open, a transaction extends freely.
         let tail_post_commit = matches!(
             tail,
             Tail::Persist(_) | Tail::Recover(_) | Tail::WriteIntents(_) | Tail::Done(_)
         );
-        let extend_blocked = task.remote_authoritative && !is_open && !tail_post_commit;
+        let extend_blocked =
+            (task.remote_authoritative || task.has_disk) && !is_open && !tail_post_commit;
 
         // Should we extend with a ready next Frontier?
         if may_extend
@@ -594,6 +602,7 @@ impl TailStore {
                 drained_docs_total,
                 drained_bytes_total,
                 publisher_commit,
+                disk_ack_intents,
             } = std::mem::take(stored);
 
             self.extents.published.docs_total += published_docs_total;
@@ -604,6 +613,7 @@ impl TailStore {
             if let Some(commit) = publisher_commit {
                 self.publisher_commits.push(commit);
             }
+            self.extents.disk_ack_intents.extend(disk_ack_intents);
 
             // Mark received and consume `shard_rx`.
             self.shard_stored[*shard_index] = true;
@@ -712,6 +722,7 @@ impl TailWriteStats {
             published: _,
             drained: _,
             connector_patches,
+            disk_ack_intents,
         } = extents;
 
         let seq_no = now.as_u64();
@@ -722,6 +733,8 @@ impl TailWriteStats {
             committed_frontier: Some(shuffle::JournalFrontier::encode(&frontier.journals)),
             connector_patches_json: connector_patches,
             delete_ack_intents: true,
+            delete_disk_ack_intents: task.has_disk,
+            disk_ack_intents,
             legacy_checkpoint,
             ..Default::default()
         };
@@ -729,7 +742,11 @@ impl TailWriteStats {
         let persist_action = Action::Persist { persist };
         let persist_state = Tail::Persist(TailPersist {
             seq_no,
-            next_action: Action::PollAgain,
+            next_action: if task.has_disk {
+                Action::Acknowledge
+            } else {
+                Action::PollAgain
+            },
             next_state: Box::new(Tail::Recover(TailRecover { ack_intents })),
         });
 
@@ -978,6 +995,7 @@ mod tests {
             n_shards,
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
             remote_authoritative: false,
+            has_disk: false,
             shard_ref: ops::ShardRef::default(),
         }
     }
@@ -1028,6 +1046,7 @@ mod tests {
                         clock: 1000 + shard as u64,
                         journals: vec![format!("my/collection/pivot=0{shard}")],
                     }),
+                    disk_ack_intents: BTreeMap::new(),
                 }),
                 ..Default::default()
             },
@@ -1286,6 +1305,7 @@ mod tests {
         assert!(commit_persist.connector_patches_json.is_empty());
         assert!(commit_persist.delete_ack_intents);
         assert!(!commit_persist.ack_intents.is_empty());
+        assert!(!commit_persist.delete_disk_ack_intents);
 
         // ===== Phase 3: stop signal; Tail finishes txn 1; Head closes txn 2 =====
         ctx.stopping = true;
@@ -1333,11 +1353,20 @@ mod tests {
         tail = Tail::Begin(TailBegin { extents });
 
         // Commit txn 2 (all IO completes immediately).
+        ctx.task.has_disk = true;
+        let disk_intents = BTreeMap::from([(
+            "recovery/disk/a/persist/pivot=00".to_string(),
+            Bytes::from_static(b"disk-intent"),
+        )]);
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         assert!(matches!(action, Action::Store));
         for s in 0..2 {
-            ctx.shard_rx = Some(mk_stored(s));
+            let mut stored = mk_stored(s);
+            if s == 0 {
+                stored.1.stored.as_mut().unwrap().disk_ack_intents = disk_intents.clone();
+            }
+            ctx.shard_rx = Some(stored);
             let (_action, t) = ctx.step_tail(tail);
             tail = t;
         }
@@ -1346,12 +1375,17 @@ mod tests {
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         ctx.stats_idle = false;
-        assert!(matches!(action, Action::Persist { .. }));
+        let persist = match action {
+            Action::Persist { persist } => persist,
+            other => panic!("expected Action::Persist, got {other:?}"),
+        };
+        assert!(persist.delete_disk_ack_intents);
+        assert_eq!(persist.disk_ack_intents, disk_intents);
         assert!(matches!(tail, Tail::Persist(_)));
         ctx.shard_rx = Some(mk_tail_persisted(&tail));
         let (action, t) = ctx.step_tail(tail);
         tail = t;
-        assert!(matches!(action, Action::PollAgain));
+        assert!(matches!(action, Action::Acknowledge));
         assert!(matches!(tail, Tail::Recover(_)));
         let (action, t) = ctx.step_tail(tail);
         tail = t;
@@ -1524,6 +1558,41 @@ mod tests {
             ctx.ready_frontier.is_none(),
             "frontier consumed once unblocked"
         );
+    }
+
+    /// A task with a disk starts its next transaction only once the Tail is in Persist.
+    #[test]
+    fn disk_holdback() {
+        let task = mk_task(1);
+        let mut ctx = Ctx {
+            binding_bytes_behind: vec![0; task.binding_collection_names.len()],
+            close_requested: false,
+            intents_idle: true,
+            legacy_checkpoint: None,
+            now: uuid::Clock::from_unix(1_700_000_000, 0),
+            pending_ack_intents: BTreeMap::new(),
+            ready_frontier: Some(shuffle::Frontier::default()),
+            shard_rx: None,
+            stats_idle: false,
+            stopping: false,
+            task,
+        };
+        ctx.task.has_disk = true;
+
+        let mut tail = Tail::WriteStats(TailWriteStats {
+            extents: Extents::default(),
+        });
+        let (action, head) = ctx.step_head(Head::Idle(HeadIdle::default()), &mut tail);
+        assert!(matches!(action, Action::Idle));
+        assert!(ctx.ready_frontier.is_some());
+
+        let mut tail = Tail::Persist(TailPersist {
+            seq_no: 1,
+            next_action: Action::Acknowledge,
+            next_state: Box::new(Tail::Done(TailDone::default())),
+        });
+        let (action, _head) = ctx.step_head(head, &mut tail);
+        assert!(matches!(action, Action::Load { .. }));
     }
 
     /// An empty transaction must still build a stats document which

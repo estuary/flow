@@ -581,6 +581,13 @@ pub struct Recover {
     /// journal of the binding. Resolved from "GF:{state_key}" keys by the scan.
     #[prost(btree_map = "uint32, fixed64", tag = "12")]
     pub gap_floors: ::prost::alloc::collections::BTreeMap<u32, u64>,
+    /// Committed ACK intents of the task's disks, keyed by disk journal name.
+    /// Resolved from "DI:{journal}" keys by the scan.
+    #[prost(btree_map = "string, bytes", tag = "13")]
+    pub disk_ack_intents: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
 }
 /// Persist is sent by the leader to shard zero when state must be durably
 /// written. Each field maps to a contractual WriteBatch effect on shard
@@ -677,6 +684,18 @@ pub struct Persist {
     /// Effect: Put fixed64-LE under "GF:{state_key}" (state_key resolved by the encoder).
     #[prost(btree_map = "uint32, fixed64", tag = "20")]
     pub gap_floors: ::prost::alloc::collections::BTreeMap<u32, u64>,
+    /// Delete previously-persisted disk ACK intents. Applies ahead of
+    /// `disk_ack_intents`.
+    /// Effect: DeleteRange("DI:")
+    #[prost(bool, tag = "21")]
+    pub delete_disk_ack_intents: bool,
+    /// Disk ACK intents, keyed by disk journal name.
+    /// Effect: Put under "DI:{journal}".
+    #[prost(btree_map = "string, bytes", tag = "22")]
+    pub disk_ack_intents: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
     /// The active-backfill change this transaction observed, if any. At most one
     /// per commit — a backfill control signal stands alone in its transaction.
     #[prost(oneof = "persist::ActiveBackfillChange", tags = "18, 19")]
@@ -769,6 +788,12 @@ pub struct Open {
     /// Key: binding index; Value: packed composite key tuple.
     #[prost(btree_map = "uint32, bytes", tag = "5")]
     pub max_keys: ::prost::alloc::collections::BTreeMap<u32, ::prost::bytes::Bytes>,
+    /// Committed ACK intents of the task's disks, from `Recover`.
+    #[prost(btree_map = "string, bytes", tag = "6")]
+    pub disk_ack_intents: ::prost::alloc::collections::BTreeMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
 }
 /// CloseNow is sent Controller → Shard → Leader, as a request to
 /// immediately close a transaction being held open by policy.
@@ -1227,12 +1252,18 @@ pub mod materialize {
     }
     /// Shard → Leader. Commit initiated.
     /// Remote-authoritative connectors will literally commit prior to return.
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct StartedCommit {
         /// Connector state patches from this shard's C:StartedCommit.
         /// State Update Wire Format.
         #[prost(bytes = "bytes", tag = "1")]
         pub connector_patches_json: ::prost::bytes::Bytes,
+        /// ACK intents of this shard's disks, keyed by disk journal name.
+        #[prost(btree_map = "string, bytes", tag = "2")]
+        pub disk_ack_intents: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::bytes::Bytes,
+        >,
     }
     /// Leader → Shards. Transaction complete.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1295,6 +1326,8 @@ pub struct Derive {
     pub start_commit: ::core::option::Option<derive::StartCommit>,
     #[prost(message, optional, tag = "47")]
     pub started_commit: ::core::option::Option<derive::StartedCommit>,
+    #[prost(message, optional, tag = "48")]
+    pub acknowledge: ::core::option::Option<derive::Acknowledge>,
     /// Leader → Shard zero. Durably persist state.
     #[prost(message, optional, tag = "50")]
     pub persist: ::core::option::Option<Persist>,
@@ -1431,7 +1464,7 @@ pub mod derive {
     /// publisher_commits from all shards, calls build_transaction_intents()
     /// to construct final ACK documents, persists them to shard zero, and
     /// writes them to journals after the connector commit (WriteIntents).
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Stored {
         /// Number of documents published by the connector (C:Published), before
         /// combining.
@@ -1449,6 +1482,12 @@ pub mod derive {
         pub drained_bytes_total: u64,
         #[prost(message, optional, tag = "5")]
         pub publisher_commit: ::core::option::Option<stored::PublisherCommit>,
+        /// ACK intents of this shard's disks, keyed by disk journal name.
+        #[prost(btree_map = "string, bytes", tag = "6")]
+        pub disk_ack_intents: ::prost::alloc::collections::BTreeMap<
+            ::prost::alloc::string::String,
+            ::prost::bytes::Bytes,
+        >,
     }
     /// Nested message and enum types in `Stored`.
     pub mod stored {
@@ -1485,6 +1524,10 @@ pub mod derive {
     /// sending this; V2 connector state flows via Flushed.
     #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct StartedCommit {}
+    /// Leader → Shards. The transaction committed. Sent only for a task with a
+    /// disk, so that shards which predate it never receive it.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct Acknowledge {}
 }
 /// SyncNowRequest is the request of a TaskControl.SyncNow RPC.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

@@ -138,6 +138,11 @@ pub fn decode_range_spec(set: &LabelSet) -> Result<flow::RangeSpec, Error> {
     })
 }
 
+/// Whether `spec` is shard zero's: it starts both the key and r-clock ranges.
+pub fn is_zero(spec: &flow::RangeSpec) -> bool {
+    spec.key_begin == 0 && spec.r_clock_begin == 0
+}
+
 /// Determine if the LabelSet encodes a RangeSpec.
 pub fn has_range_spec(set: &LabelSet) -> bool {
     for name in [
@@ -160,6 +165,18 @@ pub fn id_suffix(set: &LabelSet) -> Result<String, Error> {
     let key_begin = expect_one(&set, KEY_BEGIN)?;
     let rclock_begin = expect_one(&set, RCLOCK_BEGIN)?;
     Ok(format!("{key_begin}-{rclock_begin}"))
+}
+
+/// Name the disk journal of the shard with `range`, under its task's disk
+/// journal `template_name`.
+pub fn disk_journal_name(template_name: &str, range: &flow::RangeSpec) -> String {
+    let id_suffix = id_suffix(&encode_range_spec(LabelSet::default(), range))
+        .expect("an encoded range has its begin labels");
+
+    crate::partition::append_key_range_name_suffix(
+        format!("{template_name}/{id_suffix}/persist/"),
+        u32::MIN,
+    )
 }
 
 /// One shard of an even split of the range space: its range, the LabelSet
@@ -332,6 +349,13 @@ mod test {
         let id = format!("base/shard/id/{}", id_suffix(&set).unwrap());
         assert_eq!(id, "base/shard/id/00000100-00000000");
         assert_eq!(id_prefix(&id), Some("base/shard/id/"));
+        assert_eq!(
+            disk_journal_name(
+                "recovery/disk/base/shard/id",
+                labeling.range.as_ref().unwrap()
+            ),
+            "recovery/disk/base/shard/id/00000100-00000000/persist/pivot=00"
+        );
     }
 
     #[test]

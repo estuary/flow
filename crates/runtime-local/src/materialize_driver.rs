@@ -97,6 +97,7 @@ async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
         controls.logger_factory.clone(),
         run.registry,
         None, // No AuthN+AuthZ signer (local loopback).
+        runtime_next::shard::Disks::Ephemeral,
     );
 
     let mut response_rx = shard_svc.spawn_materialize(UnboundedReceiverStream::new(request_rx));

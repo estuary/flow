@@ -160,5 +160,6 @@ class IDerivation[C = EndpointConfig, R: pydantic.BaseModel = ResourceConfig, S 
             yield  # Mark as a generator.
 
     async def reset(self) -> None:
-        """Reset internal state for testing. The default does nothing."""
+        """Reset internal state for testing. The default does nothing.
+        If you keep files in $CONNECTOR_MOUNT/persist, delete them here."""
         pass

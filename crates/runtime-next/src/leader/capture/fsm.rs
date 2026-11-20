@@ -256,7 +256,7 @@ impl Tail {
         match self {
             Self::Begin(s) => s.step(),
             Self::Drain(s) => s.step(drain_finished, task),
-            Self::WriteStats(s) => s.step(now, stats_write_idle, active_backfill_change),
+            Self::WriteStats(s) => s.step(now, stats_write_idle, active_backfill_change, task),
             Self::Persist(s) => s.step(persist_done),
             Self::Recover(s) => s.step(task),
             Self::Acknowledge(s) => s.step(acknowledge_done),
@@ -637,6 +637,7 @@ impl TailWriteStats {
         now: uuid::Clock,
         stats_write_idle: Option<&mut BTreeMap<String, bytes::Bytes>>,
         active_backfill_change: &mut Option<proto::persist::ActiveBackfillChange>,
+        task: &Task,
     ) -> (Action, Tail) {
         // The stats write yields this transaction's ACK intents (and, for a
         // marker transaction, its resolved active-backfill change); hold until it
@@ -667,6 +668,7 @@ impl TailWriteStats {
             ack_intents: ack_intents.clone(),
             connector_patches_json: connector_patches,
             delete_ack_intents: true,
+            delete_disk_ack_intents: task.has_disk,
             active_backfill_change,
             ..Default::default()
         };
@@ -993,6 +995,7 @@ mod tests {
             // keeps the test free of policy-driven close timing.
             close_policy: close_policy::Policy::new(Duration::ZERO, Duration::MAX),
             explicit_acknowledgements,
+            has_disk: false,
             max_transactions: 0,
             redact_salt: Bytes::new(),
             // In the past, so an EOF in HeadIdle resolves to an immediate Stop.
@@ -1255,6 +1258,8 @@ mod tests {
             Bytes::from_static(b"intent-txn1"),
         )]);
         ctx.stats_idle = true;
+        // A task with a disk also replaces its disk's intent.
+        ctx.task.has_disk = true;
         let (action, t) = ctx.step_tail(tail);
         tail = t;
         let persist = match action {
@@ -1267,6 +1272,7 @@ mod tests {
                 &persist.connector_patches_json,
                 persist.delete_ack_intents,
                 &persist.ack_intents,
+                persist.delete_disk_ack_intents,
             ),
             @r#"
         (
@@ -1275,6 +1281,7 @@ mod tests {
             {
                 "ops/journal": b"intent-txn1",
             },
+            true,
         )
         "#
         );

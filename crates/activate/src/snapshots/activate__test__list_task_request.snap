@@ -39,6 +39,11 @@ expression: "list_task_request(ops::TaskType::Derivation, \"the/derivation\")"
                                 prefix: false,
                             },
                             Label {
+                                name: "content-type",
+                                value: "application/x-journal-backed-disk",
+                                prefix: false,
+                            },
+                            Label {
                                 name: "estuary.dev/task-name",
                                 value: "the/derivation",
                                 prefix: false,
