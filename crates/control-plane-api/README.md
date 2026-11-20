@@ -54,6 +54,11 @@ Authorization applies the minted capability and prefix masks through
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
+`billing/db.rs` serves GraphQL invoices: frozen invoices and manual bills from
+PostgreSQL, plus a preview for each unfrozen month, calculated by
+[`billing-types`](../billing-types/README.md) from Bigtable usage. Reports are
+read and previews calculated only for the requested page.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

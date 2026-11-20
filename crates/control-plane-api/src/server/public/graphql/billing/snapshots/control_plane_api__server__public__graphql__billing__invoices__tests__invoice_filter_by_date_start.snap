@@ -10,26 +10,38 @@ expression: response
           "edges": [
             {
               "node": {
-                "dateEnd": "2024-01-31",
-                "dateStart": "2024-01-01",
+                "dateEnd": "2024-02-29",
+                "dateStart": "2024-02-01",
                 "extra": {
-                  "billed_month": "2024-01-01T00:00:00Z",
+                  "billed_month": "2024-02-01T00:00:00+00:00",
+                  "billed_prefix": "aliceco/",
+                  "daily_usage": [],
+                  "free_tier_credit": 0,
                   "line_items": [
                     {
+                      "count": 1,
                       "description": "Usage",
-                      "subtotal": 1234
+                      "rate": 900,
+                      "subtotal": 900
                     }
                   ],
-                  "subtotal": 1234
+                  "processed_data_gb": 0.0,
+                  "recurring_fee": 0,
+                  "subtotal": 900,
+                  "task_usage_hours": 0.0,
+                  "trial_credit": 0,
+                  "trial_start": null
                 },
                 "invoiceType": "FINAL",
                 "lineItems": [
                   {
+                    "count": 1,
                     "description": "Usage",
-                    "subtotal": 1234
+                    "rate": 900,
+                    "subtotal": 900
                   }
                 ],
-                "subtotal": 1234
+                "subtotal": 900
               }
             }
           ]

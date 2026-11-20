@@ -103,29 +103,19 @@ impl TenantBilling {
             first,
             last,
             |after, before, first, last| async move {
-                let (rows, has_prev, has_next) = if before.is_some() || last.is_some() {
-                    let (rows, has_prev) = billing::fetch_invoice_rows_backward(
-                        &env.pg_pool,
-                        &tenant,
-                        &query,
-                        before,
-                        last,
-                    )
-                    .await
-                    .map_err(async_graphql::Error::from)?;
-                    (rows, has_prev, before.is_some())
-                } else {
-                    let (rows, has_next) = billing::fetch_invoice_rows_forward(
-                        &env.pg_pool,
-                        &tenant,
-                        &query,
-                        after,
-                        first,
-                    )
-                    .await
-                    .map_err(async_graphql::Error::from)?;
-                    (rows, after.is_some(), has_next)
-                };
+                let (rows, has_prev, has_next) = billing::fetch_invoice_page(
+                    &env.pg_pool,
+                    ctx.data_opt::<Arc<catalog_stats::Client>>()
+                        .map(Arc::as_ref),
+                    &tenant,
+                    &query,
+                    after,
+                    before,
+                    first,
+                    last,
+                )
+                .await
+                .map_err(async_graphql::Error::from)?;
 
                 let mut connection = Connection::new(has_prev, has_next);
                 connection.edges.extend(rows.into_iter().map(|row| {
