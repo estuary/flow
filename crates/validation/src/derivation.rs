@@ -558,12 +558,21 @@ async fn walk_derivation(
         _ => network_ports,
     };
 
+    // No-op validation has no connector schema for the plaintext secret check.
+    let declared = match &using {
+        models::DeriveUsing::Python(python) if noop_derivations => {
+            python.spec.config_schema.as_ref()
+        }
+        _ => None,
+    };
     crate::secrets::walk_plaintext(
         scope,
         "derivation",
         collection,
         &secrets_ctx,
-        &connector_spec.config_schema_json,
+        declared.map_or(&connector_spec.config_schema_json[..], |schema| {
+            schema.get().as_bytes()
+        }),
         errors,
     );
 

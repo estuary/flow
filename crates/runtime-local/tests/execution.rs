@@ -63,7 +63,6 @@ async fn vmm_execution_is_carried_to_capture_apply() {
     let run = runtime_local::services::Run::start_capture(
         runtime_local::local_router(
             String::new(),
-            None,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         ),

@@ -76,6 +76,9 @@ pub async fn do_oauth(
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
     let model = capture.model.as_ref().expect("not a deletion");
+    if model.vmm {
+        anyhow::bail!(local_specs::local_vmm_refusal(&capture.capture));
+    }
 
     println!(
         "Performing oauth flow on task '{}'",

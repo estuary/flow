@@ -1,4 +1,3 @@
-# What `flowctl generate` and uv write beside a project. The tests generate
-# into copies, but a developer may run flowctl here.
+# Generated project files and uv environments.
 flow_generated/
 .venv/

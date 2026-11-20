@@ -190,7 +190,6 @@ a defined file layout of resources handed to the connector for its use.
 | `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
 | `Vmm::spawn_recovery`, `VmmRecovery` | A process's background recovery of its `STATE_DIR`, until dropped |
 | `Vmm::recover`, `Vmm::recovery_metrics` | One recovery pass now; the process's pass metrics |
-| `Vmm::drain_launches` | Bounded wait for this process's launches, teardown included |
 | `vmm::release::recover` | One pass: releases resources whose durable owner is dead, and labeled resources whose record is gone |
 | `TaskUpdate`                    | Signer and URLs by which a connector updates its config and secrets |
 | `protocol::Endpoint`            | Normalized endpoint: image, local subprocess, or in-process connector     |

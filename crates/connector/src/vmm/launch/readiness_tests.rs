@@ -416,7 +416,6 @@ fn hung_commands_time_out_and_late_creates_are_recovered() {
                     std::fs::remove_file(h.dir.join(file)).unwrap();
                 }
             }
-            assert!(super::drain(RELEASED).await, "every launch's task ended");
             insta::assert_snapshot!(rows.join("\n"), @r#"
             * boundary verify => failed (FailedPrecondition): the host's VMM network boundary did not verify, so this data plane cannot run VMM connectors: <dir>/engine command [..] did not finish within 60s
               client reaped before teardown looked: true

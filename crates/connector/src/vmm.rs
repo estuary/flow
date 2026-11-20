@@ -157,13 +157,6 @@ impl Vmm {
     pub fn recovery_metrics() -> RecoveryMetrics {
         recovery::metrics()
     }
-
-    /// Wait at most `timeout` for every VMM launch of this process to end,
-    /// teardown included, returning whether they all did. For a process about
-    /// to exit, whose runtime would otherwise drop them where they are.
-    pub async fn drain_launches(timeout: std::time::Duration) -> bool {
-        launch::drain(timeout).await
-    }
 }
 
 /// Bounding guest RAM to u32 MiB also keeps the container cap within

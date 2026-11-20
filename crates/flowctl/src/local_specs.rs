@@ -2,15 +2,14 @@ use crate::graphql::*;
 use anyhow::Context;
 use proto_flow::flow;
 
-/// Load and validate sources and derivation connectors (only).
-/// Capture and materialization connectors are not validated.
+/// Prepare catalog sources without running any connector locally.
 pub(crate) async fn load_and_validate(
     ctx: &crate::CliContext,
     source: &str,
 ) -> anyhow::Result<build::Output> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let output = validate(ctx, true, false, true, draft, ops::tracing_log_handler).await;
+    let output = validate(ctx, true, true, true, draft, ops::tracing_log_handler).await;
     surface_errors(output.into_result())
 }
 
@@ -29,7 +28,19 @@ pub(crate) async fn load_and_validate_task(
     Ok((task, surface_errors(output.into_result())?))
 }
 
-/// Select the task named `task`, or else the draft's only task.
+pub(crate) fn local_vmm_refusal(task: &str) -> String {
+    format!(
+        "Task \"{task}\" requests VMM sandboxing (vmm: true). flowctl cannot run this \
+         connector locally in a sandbox.\n\n\
+         To keep sandboxing, publish the original spec to a VMM-enabled data plane. For \
+         ordinary local execution, make a local copy of the spec, set vmm to false or omit it, \
+         and remove egress. Local execution cannot enforce those egress rules. Only run Python \
+         code you trust this way."
+    )
+}
+
+/// Select the task named `task`, or else the draft's only task, to run its
+/// connector locally. A task requesting VMM sandboxing is refused.
 /// Every other task is disabled, so that validation doesn't run its connector.
 /// A connector Validate may reach out to its endpoint, and a user who means
 /// one task shouldn't wait on, or see errors from, all the others.
@@ -39,24 +50,24 @@ pub(crate) fn select_task(
 ) -> anyhow::Result<String> {
     let captures = draft.captures.iter_mut().filter_map(|row| {
         let model = row.model.as_mut()?;
-        Some((row.capture.as_str(), &mut model.shards))
+        Some((row.capture.as_str(), model.vmm, &mut model.shards))
     });
     let derivations = draft.collections.iter_mut().filter_map(|row| {
         let derive = row.model.as_mut()?.derive.as_mut()?;
-        Some((row.collection.as_str(), &mut derive.shards))
+        Some((row.collection.as_str(), derive.vmm, &mut derive.shards))
     });
     let materializations = draft.materializations.iter_mut().filter_map(|row| {
         let model = row.model.as_mut()?;
-        Some((row.materialization.as_str(), &mut model.shards))
+        Some((row.materialization.as_str(), model.vmm, &mut model.shards))
     });
-    let mut tasks: Vec<(&str, &mut models::ShardTemplate)> = captures
+    let mut tasks: Vec<(&str, bool, &mut models::ShardTemplate)> = captures
         .chain(derivations)
         .chain(materializations)
         .collect();
 
     let task = match (task, tasks.as_slice()) {
         (Some(task), _) => task.to_string(),
-        (None, [(only, _)]) => only.to_string(),
+        (None, [(only, _, _)]) => only.to_string(),
         (None, []) => anyhow::bail!(
             "sourced specification files do not contain any tasks (captures, derivations, or materializations)"
         ),
@@ -64,10 +75,13 @@ pub(crate) fn select_task(
             "sourced specification files contain multiple tasks. Use --task to identify a specific one"
         ),
     };
-    if !tasks.iter().any(|(name, _)| *name == task) {
+    let Some((_, vmm, _)) = tasks.iter().find(|(name, ..)| *name == task) else {
         anyhow::bail!("could not find capture, derivation, or materialization {task}");
+    };
+    if *vmm {
+        anyhow::bail!(local_vmm_refusal(&task));
     }
-    for (name, shards) in tasks.iter_mut() {
+    for (name, _, shards) in tasks.iter_mut() {
         if *name != task {
             shards.disable = true;
         }
@@ -772,7 +786,7 @@ mod test {
     }
 
     /// Generation fails if the connector service refuses the execution a
-    /// task requests, as a service without a VMM refuses VMM execution, with
+    /// task requests, as flowctl's local service refuses VMM execution, with
     /// or without declared egress. A connector's own failure is logged, and
     /// generation goes on.
     #[tokio::test]

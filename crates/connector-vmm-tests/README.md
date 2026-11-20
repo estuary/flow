@@ -11,9 +11,10 @@ engine, and platform.
   tests at a time. Individual tests may launch several VMMs.
 - Append a test-name filter to run a subset. Filtered runs skip
   connector-init's separate vsock test.
-- `mise run ci:connector-vmm-kvm --platform` previews, publishes and runs
-  Python captures, derivations and materializations on this checkout's local
-  stack. The task starts and stops the stack and refuses to start if it is
+- `mise run ci:connector-vmm-kvm --platform` discovers, dry-runs, publishes
+  and runs Python captures, derivations and materializations through the
+  control plane of this checkout's local stack, whose reactor runs them in
+  VMMs. The task starts and stops the stack and refuses to start if it is
   already running.
 - `mise exec -- cargo nextest run -p connector-vmm-tests` runs the harness's
   unit tests. The default nextest profile excludes KVM and platform tests.
@@ -42,8 +43,10 @@ connector-init over a guest's vsock connection.
   Python connector, ownership records, and recovery after killed owners,
   killed recoveries and late ingress grants.
 - `tests/platform.rs` (`--platform`): a Python capture, derivation and
-  materialization through flowctl and a local stack's reactor, with
-  fixtures under `fixtures/platform/`.
+  materialization through a local stack's control plane and reactor, with
+  fixtures under `fixtures/platform/`. flowctl launches no VMM: each test
+  attributes every launch to the reactor, and checks its egress, data,
+  restarts, release and recovery metrics.
 - `tests/release.rs`: the task's claim of its root and its resource
   cleanup, against stand-in commands and inert temporary fixtures.
 - `tests/publish.rs`: `ci:docker-images` never pushes a VMM image which did

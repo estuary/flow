@@ -99,7 +99,8 @@ fail-fast = false
 
 # `ci:connector-vmm-kvm --platform`: tests against the one stack the task
 # started, which wait on VMM boots, dependency installs and shard assignment.
-# The platform test accounts for launches through the shared state directory.
+# The platform tests account for the reactor's launches through its podman's
+# records.
 [profile.connector-vmm-platform]
 default-filter = 'binary_id(/connector-vmm-tests::platform/)'
 slow-timeout = { period = "120s", terminate-after = 15 }
