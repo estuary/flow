@@ -1,21 +1,10 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                data_plane_id as \"data_plane_id: models::Id\",\n                id as \"id: models::Id\",\n                config as \"config!: sqlx::types::Json<models::PrivateLink>\",\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            FROM internal.data_plane_private_links\n            WHERE data_plane_id = ANY($1::flowid[])\n            ORDER BY data_plane_id, created_at, id\n            ",
+  "query": "\n            INSERT INTO internal.data_plane_private_links (data_plane_id, config, detail)\n            SELECT dp.id, $2, $3\n            FROM data_planes dp WHERE dp.data_plane_name = $1\n            RETURNING\n                id as \"id: models::Id\",\n                detail,\n                created_at,\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "data_plane_id: models::Id",
-        "type_info": "Macaddr8",
-        "origin": {
-          "Table": {
-            "table": "internal.data_plane_private_links",
-            "name": "data_plane_id"
-          }
-        }
-      },
-      {
-        "ordinal": 1,
         "name": "id: models::Id",
         "type_info": "Macaddr8",
         "origin": {
@@ -26,13 +15,24 @@
         }
       },
       {
-        "ordinal": 2,
-        "name": "config!: sqlx::types::Json<models::PrivateLink>",
-        "type_info": "Jsonb",
+        "ordinal": 1,
+        "name": "detail",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "internal.data_plane_private_links",
-            "name": "config"
+            "name": "detail"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.data_plane_private_links",
+            "name": "created_at"
           }
         }
       },
@@ -83,26 +83,14 @@
     ],
     "parameters": {
       "Left": [
-        {
-          "Custom": {
-            "name": "flowid[]",
-            "kind": {
-              "Array": {
-                "Custom": {
-                  "name": "flowid",
-                  "kind": {
-                    "Domain": "Macaddr8"
-                  }
-                }
-              }
-            }
-          }
-        }
+        "Text",
+        "Jsonb",
+        "Text"
       ]
     },
     "nullable": [
       false,
-      false,
+      true,
       false,
       false,
       true,
@@ -110,5 +98,5 @@
       true
     ]
   },
-  "hash": "81951888355221339404af3eac1005d173c2d0204b3cfdf07ad52895dd18951b"
+  "hash": "362333845911283a4a3f57fca25bf85022afce469ff7c6fda000a0a1838b9a1c"
 }
