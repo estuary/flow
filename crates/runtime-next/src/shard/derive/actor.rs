@@ -533,6 +533,12 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
         if let Some(derive::response::Kind::Published(derive::response::Published { doc_json })) =
             resp.kind
         {
+            anyhow::ensure!(
+                doc_json.len() <= crate::MAX_DOCUMENT_BYTES,
+                "connector document is {} bytes, which exceeds the {} MiB limit",
+                doc_json.len(),
+                crate::MAX_DOCUMENT_BYTES >> 20,
+            );
             let (memtable, alloc, mut doc) = accumulator
                 .parse_json_doc(&doc_json)
                 .context("couldn't parse derived document as JSON")?;

@@ -54,6 +54,11 @@ pub use tokio_context::TokioContext;
 // See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
 
+/// Maximum size of a document which a capture or derivation connector produces,
+/// and of a document which a capture or derivation publishes after reduction.
+/// A larger document fails the task.
+pub const MAX_DOCUMENT_BYTES: usize = 64 << 20;
+
 /// JSON-Schema annotation used to track collection generations in inferred
 /// schemas.
 pub const X_GENERATION_ID: &str = "x-collection-generation-id";
