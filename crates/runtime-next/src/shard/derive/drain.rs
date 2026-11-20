@@ -67,6 +67,12 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
             .await
             .context("publishing derived document")?;
 
+        anyhow::ensure!(
+            bytes_written <= crate::MAX_DOCUMENT_BYTES,
+            "reduced document is {bytes_written} bytes, which exceeds the {} MiB limit",
+            crate::MAX_DOCUMENT_BYTES >> 20,
+        );
+
         drained_docs += 1;
         drained_bytes += bytes_written as u64;
 

@@ -442,13 +442,21 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                     .with_context(|| format!("invalid captured binding {binding}"))?;
                 let target = &self.task.targets[binding_spec.target as usize];
 
-                let (memtable, alloc, mut doc) =
-                    accumulator.parse_json_doc(&doc_json).with_context(|| {
-                        format!(
-                            "couldn't parse captured document as JSON (target {})",
-                            target.collection_name
-                        )
-                    })?;
+                let parsed = if doc_json.len() > crate::MAX_DOCUMENT_BYTES {
+                    Err(anyhow::anyhow!(
+                        "connector document is {} bytes, which exceeds the {} MiB limit",
+                        doc_json.len(),
+                        crate::MAX_DOCUMENT_BYTES >> 20,
+                    ))
+                } else {
+                    accumulator.parse_json_doc(&doc_json)
+                };
+                let (memtable, alloc, mut doc) = parsed.with_context(|| {
+                    format!(
+                        "invalid captured document (target {})",
+                        target.collection_name
+                    )
+                })?;
 
                 let uuid_ptr = &target.document_uuid_ptr;
                 if !uuid_ptr.0.is_empty() {
@@ -1643,6 +1651,46 @@ mod tests {
             .observe(J, true, std::time::Instant::now());
         actor.observe_throttle();
         assert!(actor.split_fut.is_none());
+    }
+
+    /// A captured document which is too large, or isn't JSON, fails with
+    /// context naming its target collection.
+    #[tokio::test]
+    async fn captured_document_errors_name_their_target() {
+        let task = std::sync::Arc::new(mk_task(true));
+        let (mut actor, _connector_rx) = mk_actor(
+            &task,
+            BTreeMap::new(),
+            crate::shard::RocksDB::open(None).await.unwrap(),
+            true, // is_shard_zero
+            crate::TracingLogger,
+            RecordingPublisher::default(),
+        );
+        let mut accumulator = crate::Accumulator::new(task.combine_spec().unwrap()).unwrap();
+
+        let errors = [
+            Bytes::from(vec![b' '; crate::MAX_DOCUMENT_BYTES + 1]),
+            Bytes::from_static(b"{not json"),
+        ]
+        .into_iter()
+        .map(|doc_json| {
+            let captured = response::Captured {
+                binding: 1,
+                doc_json,
+            };
+            let err = actor
+                .dispatch(fsm::Action::Captured { captured }, &mut accumulator)
+                .unwrap_err();
+            format!("{err:#}")
+        })
+        .collect::<Vec<_>>();
+
+        insta::assert_debug_snapshot!(errors, @r#"
+        [
+            "invalid captured document (target test/collectionB): connector document is 67108865 bytes, which exceeds the 64 MiB limit",
+            "invalid captured document (target test/collectionB): key must be a string at line 1 column 2",
+        ]
+        "#);
     }
 
     #[tokio::test]

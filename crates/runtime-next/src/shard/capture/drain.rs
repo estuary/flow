@@ -105,10 +105,25 @@ pub(super) async fn drain_and_publish<P: crate::Publisher, L: crate::Logger>(
             updated_inferences.insert(target, binding as u32);
         }
 
+        let target = &task.targets[target];
         let bytes_written = publisher
-            .publish_doc(binding, doc, &task.targets[target].document_uuid_ptr)
+            .publish_doc(binding, doc, &target.document_uuid_ptr)
             .await
-            .context("publishing captured document")?;
+            .map_err(anyhow::Error::from)
+            .and_then(|bytes_written| {
+                anyhow::ensure!(
+                    bytes_written <= crate::MAX_DOCUMENT_BYTES,
+                    "reduced document is {bytes_written} bytes, which exceeds the {} MiB limit",
+                    crate::MAX_DOCUMENT_BYTES >> 20,
+                );
+                Ok(bytes_written)
+            })
+            .with_context(|| {
+                format!(
+                    "publishing captured document (target {})",
+                    target.collection_name
+                )
+            })?;
 
         let drained = drained.entry(binding as u32).or_default();
         drained.docs_total += 1;
