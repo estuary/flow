@@ -24,8 +24,6 @@ mod version;
 use models::authorizations::ControlClaims;
 use output::{Output, OutputType};
 
-const VMM_DRAIN: std::time::Duration = std::time::Duration::from_secs(30);
-
 /// A command-line tool for working with Estuary.
 #[derive(Debug, Parser)]
 #[command(author, about, version, next_display_order = None)]
@@ -78,6 +76,9 @@ pub enum Command {
     /// endpoint. Any project files and supplemental type implementations
     /// the connector generates are written into the task's project directory,
     /// which is the directory of the specification file that defines it.
+    ///
+    /// A task which requests VMM sandboxing (`vmm: true`) is refused, as
+    /// flowctl cannot run its connector locally in a sandbox.
     Generate(generate::Generate),
     /// Locally run and preview a capture, derivation, or materialization.
     ///
@@ -101,6 +102,9 @@ pub enum Command {
     /// WARNING: previews of captures and materializations make live changes
     /// to their configured endpoints. Be sure that your task does not conflict
     /// or collide with a live task running in the Flow managed service.
+    ///
+    /// A task which requests VMM sandboxing (`vmm: true`) is refused, as
+    /// flowctl cannot run its connector locally in a sandbox.
     // Still homed under `raw` while `crates/runtime-local` is in flight; see
     // the TODO on `raw::Command::PreviewNext`.
     Preview(raw::preview_next::Preview),
@@ -295,15 +299,9 @@ impl Cli {
             )))
         };
 
-        let vmm = runtime_local::Vmm::from_env()?;
-        let vmm_recovery = vmm
-            .as_ref()
-            .map(|vmm| vmm.spawn_recovery(&tokio::runtime::Handle::current()));
-
         // Locally-run connectors decrypt secrets under the user's authority.
         let connector_router = runtime_local::local_router(
             self.connector_network.clone(),
-            vmm,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::User::new(
                 flow_client_next::rest::Client {
@@ -342,19 +340,6 @@ impl Cli {
             Command::Raw(advanced) => advanced.run(&mut context).await,
             Command::Secrets(secrets) => secrets.run(&mut context).await,
         };
-
-        // A session can end with its command, before its VMM's teardown has.
-        // Give those teardowns a bounded time, as `main` drops what's left.
-        if let Some(vmm_recovery) = vmm_recovery {
-            std::mem::drop(vmm_recovery);
-            if !runtime_local::Vmm::drain_launches(VMM_DRAIN).await {
-                tracing::warn!(
-                    timeout = ?VMM_DRAIN,
-                    "VMM teardowns did not finish before exit; a later invocation using the same \
-                     CONNECTOR_VMM_STATE_DIR recovers what they leave"
-                );
-            }
-        }
 
         // Print before `result?` so the warning is visible even when the command fails
         if let Ok(Some((current, latest))) = version_check.await {

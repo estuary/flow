@@ -54,9 +54,11 @@ Selection is binary:
   accepted and normalized away.
 - `vmm: true`: every invocation of the task's connector runs in a VMM, or
   fails with an error. That covers Spec, Validate, Discover, Apply and Open,
-  so publication, discovery, preview, `flowctl generate` and the running task
-  all use it. There is no automatic fallback to an ordinary container. The
-  task must declare `egress` (see [Declaring egress](#declaring-egress)).
+  so publication, discovery and the running task all use it. flowctl never
+  runs the connector on your machine (see
+  [Working locally with flowctl](#working-locally-with-flowctl)). There is no
+  automatic fallback to an ordinary container. The task must declare
+  `egress` (see [Declaring egress](#declaring-egress)).
 
 ## Which tasks are eligible
 
@@ -211,8 +213,8 @@ the connector.
   exclusions above still apply within them: `0.0.0.0/0` reaches every public
   and private address, but not the metadata service, loopback, the host or
   other VMMs.
-- Only private data planes accept a range, and local ones for a preview. A
-  public data plane refuses any nonempty `cidrs` when the connector starts,
+- Only private data planes accept a range, as do the local data planes of
+  development stacks. A public data plane refuses any nonempty `cidrs` when the connector starts,
   including at publication: "the task declares egress.cidrs, which only
   private data planes accept". Publication checks the syntax of each range
   and reports an invalid one at its index, as "declares an invalid egress
@@ -236,20 +238,37 @@ permitted destination, or through DNS queries. Name filtering runs inside the
 VMM, so a connector which compromises its VMM can remove it; the platform's
 exclusions above still hold.
 
-## Previewing locally
+## Working locally with flowctl
 
-`flowctl preview`, `flowctl generate`, `flowctl raw spec` and `flowctl raw
-discover` run a task's connectors on your own machine, as a local data plane.
-A task with `vmm: true` runs there only on a machine configured for VMM
-execution as a reactor host would be (see [operating.md](operating.md));
-elsewhere each command fails with "this data plane does not support VMM
-execution". On any machine, a VMM task which declares no `egress` fails too.
-Either way, `flowctl generate` writes none of the task's files. To run
-the task's logic without one, omit both `vmm` and `egress` in a local copy:
-local planes run Python tasks ordinarily, with no egress enforcement.
+flowctl cannot run a connector on your machine in a VMM. `flowctl preview`,
+`flowctl generate`, `flowctl raw spec`, `flowctl raw discover` and `flowctl
+raw oauth` refuse a selected task with `vmm: true`. They do so as soon as the
+task is selected, before contacting the control plane, starting a connector
+or writing a file:
 
-A local plane holds a VMM task to its declared egress as every plane does. It
-accepts `egress.cidrs`, which a public plane refuses.
+```
+Task "acmeCo/anvils/enriched" requests VMM sandboxing (vmm: true). flowctl cannot run this connector locally in a sandbox.
+
+To keep sandboxing, publish the original spec to a VMM-enabled data plane. For ordinary local execution, make a local copy of the spec, set vmm to false or omit it, and remove egress. Local execution cannot enforce those egress rules. Only run Python code you trust this way.
+```
+
+Selecting another task of the same catalog works as before.
+
+`flowctl raw build` and `flowctl raw test` validate connectors through
+flowctl's local connector service. A VMM request fails validation for that
+task. `raw build` records the error in its build database. `raw test` validates only derivations, so neither a VMM capture or
+materialization nor a disabled task stops it. A VMM task which declares no
+`egress` reports that first.
+
+`flowctl catalog publish`, `catalog test`, `draft author` and `discover` run no
+connector locally, whatever the task. They check the catalog's structure and
+upload `vmm` and `egress` as written, and the data plane validates each
+connector. A Python task's `config` is still checked for plaintext secrets
+before upload, against its declared `spec.configSchema`.
+
+In a local copy which omits `vmm`, a Python task runs ordinarily, with nothing
+enforcing egress. A copy which keeps `egress`, even `egress: {}`, is refused,
+as on every plane.
 
 ## Network ports
 

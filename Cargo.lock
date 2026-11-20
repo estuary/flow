@@ -2113,7 +2113,6 @@ dependencies = [
  "tokens",
  "tokio",
  "tokio-stream",
- "tokio-util",
  "tonic",
  "tracing",
  "tracing-subscriber",

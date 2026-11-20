@@ -349,12 +349,20 @@ async fn walk_capture(
         _ => network_ports,
     };
 
+    let declared = match &endpoint {
+        models::CaptureEndpoint::Python(python) if noop_captures => {
+            python.spec.config_schema.as_ref()
+        }
+        _ => None,
+    };
     crate::secrets::walk_plaintext(
         scope,
         "capture",
         capture,
         &secrets_ctx,
-        &connector_spec.config_schema_json,
+        declared.map_or(&connector_spec.config_schema_json[..], |schema| {
+            schema.get().as_bytes()
+        }),
         errors,
     );
 

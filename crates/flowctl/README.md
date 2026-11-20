@@ -56,6 +56,12 @@ flowctl draft author --source ~/estuary/flow/examples/citi-bike/flow.yaml
 flowctl draft publish
 ```
 
+### Tasks which request VMM sandboxing
+
+Local connector commands reject `vmm: true`. Catalog publication, draft
+authoring and remote discovery preserve the task's requested execution
+policy. See [Working locally with flowctl](../../docs/connector-vmm/tasks.md#working-locally-with-flowctl).
+
 ### Trace context
 
 GraphQL requests carry the `TRACEPARENT` environment value when it is a valid W3C trace context.

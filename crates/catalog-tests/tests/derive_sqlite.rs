@@ -154,7 +154,6 @@ async fn start_sessions(
             n_shards,
             runtime_local::local_router(
                 String::new(),
-                None,
                 registry.clone(),
                 std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
             ),
@@ -769,7 +768,6 @@ async fn vmm_execution_is_carried_to_validate_and_open() {
         1,
         runtime_local::local_router(
             String::new(),
-            None,
             registry.clone(),
             std::sync::Arc::new(flow_client_next::secret_resolver::NoOp),
         ),

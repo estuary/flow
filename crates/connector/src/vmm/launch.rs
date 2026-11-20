@@ -16,7 +16,7 @@
 //! Resources carry labels which `release::recover` inventories after record
 //! removal. A late grant's container is recorded before its grant is revoked.
 //! The task holds a clone of the session's log sink, so the session
-//! ends only once its teardown has. `drain` awaits every such task.
+//! ends only once its teardown has.
 
 use super::{Eligible, TaskEgress, Vmm, plan, record, release};
 use anyhow::Context;
@@ -29,17 +29,6 @@ const READY_TIMEOUT: Duration = Duration::from_secs(60);
 /// its container is removed.
 const START_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PUMP_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Every launch's task in this process, for `drain`.
-static LAUNCHES: std::sync::LazyLock<tokio_util::task::TaskTracker> =
-    std::sync::LazyLock::new(tokio_util::task::TaskTracker::new);
-
-/// Wait at most `timeout` for every launch's task to end, returning whether
-/// they did. Launches which start meanwhile are waited for too.
-pub(super) async fn drain(timeout: Duration) -> bool {
-    LAUNCHES.close();
-    tokio::time::timeout(timeout, LAUNCHES.wait()).await.is_ok()
-}
 
 /// Ties a VMM to the served stream: dropping it tells the launch's task to
 /// tear the VMM down.
@@ -130,7 +119,7 @@ pub(crate) async fn start(
     };
     let (launched_tx, launched_rx) = tokio::sync::oneshot::channel();
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-    LAUNCHES.spawn(lifecycle(input, launched_tx, stop_rx));
+    tokio::spawn(lifecycle(input, launched_tx, stop_rx));
 
     // Dropping this future, as an abandoned start does, drops the receiver,
     // which the task watches for.
@@ -758,29 +747,6 @@ mod readiness_tests;
 mod test {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
-    use std::time::Duration;
-
-    /// `drain` waits for every launch's task, those started meanwhile too,
-    /// and no longer than its timeout.
-    #[tokio::test(start_paused = true)]
-    async fn drain_awaits_launches_within_its_bound() {
-        let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
-        super::LAUNCHES.spawn(async move { _ = end_rx.await });
-
-        let began = tokio::time::Instant::now();
-        assert!(!super::drain(Duration::from_secs(30)).await);
-        assert_eq!(began.elapsed(), Duration::from_secs(30), "bounded");
-
-        super::LAUNCHES.spawn(tokio::time::sleep(Duration::from_secs(5)));
-        std::mem::drop(end_tx);
-        let began = tokio::time::Instant::now();
-        assert!(super::drain(Duration::from_secs(30)).await);
-        assert_eq!(
-            began.elapsed(),
-            Duration::from_secs(5),
-            "until the last ended"
-        );
-    }
 
     /// The fixture's state directory and podman don't exist, so reaching
     /// either would produce a different failure from the host refusal.

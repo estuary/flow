@@ -455,8 +455,9 @@ and nothing in it needs KVM, rootful podman or sudo. The one way to run VMM
 tasks on a stack is `mise run ci:connector-vmm-kvm --platform`, which needs all
 three. It refuses while this stack is running, then starts it with a drop-in,
 `flow-reactor@<dp>-<port>.service.d/connector-vmm.conf`, adding the VMM
-settings to the reactor's environment. It previews and publishes a Python
-derivation through flowctl and the reactor, then stops the stack.
+settings to the reactor's environment. It discovers, tests and publishes
+Python tasks through the control plane, whose reactor runs them in VMMs, then
+stops the stack.
 See [`crates/connector-vmm-tests`](../crates/connector-vmm-tests/README.md#tests),
 and [`docs/connector-vmm/operating.md`](../docs/connector-vmm/operating.md)
 for what a production host needs instead.

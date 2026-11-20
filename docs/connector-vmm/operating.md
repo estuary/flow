@@ -7,8 +7,8 @@ and the rollout and security limits of this support. What tasks declare is in
 
 ## Three separate states
 
-- **Code availability.** Reactors and flowctl built from this repository can
-  launch VMMs. Nothing does so unless `CONNECTOR_VMM_STATE_DIR` is set, and no
+- **Code availability.** Reactors built from this repository can launch VMMs.
+  flowctl never does. Nothing does so unless `CONNECTOR_VMM_STATE_DIR` is set, and no
   deployment template in this repository sets it.
 - **Operator preparation.** A host has KVM, a rootful podman, a published VMM
   image, a static `flow-connector-init`, the state and mount paths below, and
@@ -46,8 +46,7 @@ Tested on x86_64 Ubuntu 24.04 with rootful Podman 4.9.3. Required:
   source, which the platform build also tags the image with. Nothing
   configures it. The engine pulls it with its own registry credentials when
   a boundary command or launch first needs it, so check that the host can
-  pull the tag before activating. A released flowctl is built as its release
-  tag, which no image is published under, so it needs `CONNECTOR_VMM_IMAGE`.
+  pull the tag before activating.
 - **The connector images** are `ghcr.io/estuary/capture-python`,
   `derive-python` and `materialize-python`, at `:stable` or their
   `custom-image-tag` shard flag's tag. The VMM engine pulls each.
@@ -57,9 +56,8 @@ Tested on x86_64 Ubuntu 24.04 with rootful Podman 4.9.3. Required:
 
 ## Configuration
 
-Read from the environment of every process which launches connectors: each
-reactor (its V2 task services and its connector proxy), and flowctl for local
-commands. Read once, when a service is constructed.
+Read from each reactor's environment, by its V2 task services and its
+connector proxy. Read once, when a service is constructed.
 
 | Variable | Default | Accepted |
 |---|---|---|
@@ -176,8 +174,8 @@ podman run --rm --network=host --log-driver=none --read-only \
 - **Ownership.** The tables are host-wide provisioned state, owned by the
   host's provisioning, not by any launcher or task. Every owner of one build
   writes identical tables.
-- **Remove** only after stopping every launcher on the host (reactors, and any
-  flowctl using its engine) and confirming that they have stopped. `remove`
+- **Remove** only after stopping every reactor on the host and confirming
+  that they have stopped. `remove`
   refuses while any `fvm*` interface exists, but the absence of bridges does
   not prove it safe: a launch between its verify and its network, or with a
   network created and not yet started, has no bridge yet.

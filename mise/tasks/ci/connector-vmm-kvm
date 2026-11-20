@@ -4,7 +4,7 @@ set -euo pipefail
 #MISE description="Run the connector VMM's KVM integration suite, or with --platform its local platform integration test (needs /dev/kvm, passwordless sudo, rootful podman and docker buildx)"
 #USAGE arg "[filter]" help="Run only tests whose names match, of the suite or, with --platform, of the platform tests. The run is then partial; for the suite, connector-init's vsock test is skipped."
 #USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
-#USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, preview, publish and run Python captures, derivations and materializations through flowctl and the reactor, and stop the stack. Refused while the stack is running."
+#USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, discover, dry-run, publish and run Python captures, derivations and materializations through the control plane and the reactor, and stop the stack. Refused while the stack is running."
 
 # Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
 ROOT=/var/tmp/connector-vmm-kvm
@@ -211,15 +211,15 @@ if [ "${PLATFORM}" = true ]; then
     PLATFORM_DIR="${ROOT}/platform-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
     BIN="${RUN_DIR}/bin"
 
-    # Share state between flowctl and the reactor so each can recover the
-    # other's dead launches. The podman wrapper records resources for cleanup.
+    # The reactor's VMM state, mounts and podman. The podman wrapper records
+    # its calls, and the resources it makes for cleanup.
     record dir "${PLATFORM_DIR}"
     mkdir -m 0755 "${PLATFORM_DIR}"
     mkdir -m 0700 "${PLATFORM_DIR}/state" "${PLATFORM_DIR}/tmp"
     install -m 0755 "${FIXTURES}/podman.sh" "${PLATFORM_DIR}/podman"
 
-    # Launchers prefer flow-connector-init beside their executable, then PATH.
-    # Use the static build for guests, avoiding debug/'s dynamically linked one.
+    # The reactor finds flow-connector-init on its PATH. Use the static build
+    # for guests, avoiding debug/'s dynamically linked one.
     mkdir -p "${BIN}"
     ln -f "${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release/flow-connector-init" "${BIN}/"
     {
@@ -253,13 +253,12 @@ if [ "${PLATFORM}" = true ]; then
     mise run local:test-tenant --tenant acmeCo 9>&-
     # shellcheck source=/dev/null
     source "${FLOW_STACK_DIR}/test-tenant-acmeCo.env"
-    ln -f "${CARGO_TARGET_DIR}/debug/flowctl" "${BIN}/flowctl"
 
     jq -n \
         --arg runDir "${RUN_DIR}" \
         --arg dir "${PLATFORM_DIR}" \
         --arg vmmImage "${VMM_IMAGE}" \
-        --arg flowctl "${BIN}/flowctl" \
+        --arg flowctl "${CARGO_TARGET_DIR}/debug/flowctl" \
         --arg connectorInit "${BIN}/flow-connector-init" \
         --arg derivePythonImage "${DERIVE_PYTHON}" \
         --arg reactorUnit "${REACTOR}" \
@@ -277,13 +276,11 @@ if [ "${PLATFORM}" = true ]; then
         nextest --locked --profile connector-vmm-platform -p connector-vmm-tests \
         ${FILTER:+"${FILTER}"} || status=$?
 
-    # Kept for a failure: the release removes the platform directory and the
-    # tests' own launcher directories, and local:stop the reactor's unit.
-    for calls in "${PLATFORM_DIR}/calls" "${ROOT}"/launcher-*/calls; do
-        if [ -e "${calls}" ]; then
-            cp "${calls}" "${RUN_DIR}/$(basename "$(dirname "${calls}")").calls" || true
-        fi
-    done
+    # Kept for a failure: the release removes the platform directory, and
+    # local:stop the reactor's unit.
+    if [ -e "${PLATFORM_DIR}/calls" ]; then
+        cp "${PLATFORM_DIR}/calls" "${RUN_DIR}/$(basename "${PLATFORM_DIR}").calls" || true
+    fi
     journalctl --user -u "${REACTOR}" --since "@${STARTED}" --no-pager >"${RUN_DIR}/reactor.journal" 2>&1 || true
     echo "The static flow-connector-init: $(sha256sum "${BIN}/flow-connector-init")"
     echo "flowctl's output, the podman calls and the reactor's journal: ${RUN_DIR}"

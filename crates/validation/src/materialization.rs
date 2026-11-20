@@ -389,12 +389,20 @@ async fn walk_materialization(
         _ => network_ports,
     };
 
+    let declared = match &endpoint {
+        models::MaterializationEndpoint::Python(python) if noop_materializations => {
+            python.spec.config_schema.as_ref()
+        }
+        _ => None,
+    };
     crate::secrets::walk_plaintext(
         scope,
         "materialization",
         materialization,
         &secrets_ctx,
-        &connector_spec.config_schema_json,
+        declared.map_or(&connector_spec.config_schema_json[..], |schema| {
+            schema.get().as_bytes()
+        }),
         errors,
     );
 

@@ -54,6 +54,9 @@ pub async fn do_discover(
     };
 
     let model = capture.model.as_mut().expect("not a deletion");
+    if model.vmm {
+        anyhow::bail!(local_specs::local_vmm_refusal(&capture.capture));
+    }
     let mut model_clone = model.clone();
 
     // Inline a clone of the capture model for use with the discover RPC.
