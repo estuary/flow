@@ -66,6 +66,10 @@ impl PrivateLinkProvisioningStatus {
 pub struct DataPlanePrivateLink {
     /// Stable identifier of this private link.
     pub id: models::Id,
+    /// User-provided name for this private link.
+    pub detail: Option<String>,
+    /// When this private link record was created.
+    pub created_at: chrono::DateTime<chrono::Utc>,
     /// The link configuration (AWS PrivateLink, Azure Private Link, or GCP PSC).
     /// Its variant (`AWSPrivateLink`/`AzurePrivateLink`/`GCPPrivateServiceConnect`)
     /// is the link's cloud provider.
@@ -104,7 +108,9 @@ impl async_graphql::dataloader::Loader<DataPlanePrivateLinksKey> for super::PgDa
                 status,
                 details as "details: sqlx::types::Json<serde_json::Value>",
                 error,
-                observed_at as "observed_at: chrono::DateTime<chrono::Utc>"
+                observed_at as "observed_at: chrono::DateTime<chrono::Utc>",
+                detail,
+                created_at
             FROM internal.data_plane_private_links
             WHERE data_plane_id = ANY($1::flowid[])
             ORDER BY data_plane_id, created_at, id
@@ -125,6 +131,8 @@ impl async_graphql::dataloader::Loader<DataPlanePrivateLinksKey> for super::PgDa
                 .or_default()
                 .push(DataPlanePrivateLink {
                     id: row.id,
+                    detail: row.detail,
+                    created_at: row.created_at,
                     config: row.config.0,
                     status,
                     details: row.details.map(|details| async_graphql::Json(details.0)),
@@ -807,6 +815,7 @@ impl DataPlanesMutation {
         ctx: &Context<'_>,
         data_plane_name: String,
         config: models::PrivateLink,
+        detail: Option<String>,
     ) -> async_graphql::Result<DataPlanePrivateLink> {
         let env = ctx.data::<crate::Envelope>()?;
         require_private_dp_name(&data_plane_name)?;
@@ -819,11 +828,13 @@ impl DataPlanesMutation {
 
         let row = sqlx::query!(
             r#"
-            INSERT INTO internal.data_plane_private_links (data_plane_id, config)
-            SELECT dp.id, $2
+            INSERT INTO internal.data_plane_private_links (data_plane_id, config, detail)
+            SELECT dp.id, $2, $3
             FROM data_planes dp WHERE dp.data_plane_name = $1
             RETURNING
                 id as "id: models::Id",
+                detail,
+                created_at,
                 status,
                 details as "details: sqlx::types::Json<serde_json::Value>",
                 error,
@@ -831,6 +842,7 @@ impl DataPlanesMutation {
             "#,
             data_plane_name,
             sqlx::types::Json(&config) as sqlx::types::Json<&models::PrivateLink>,
+            detail,
         )
         .fetch_optional(&env.pg_pool)
         .await
@@ -846,6 +858,8 @@ impl DataPlanesMutation {
 
         Ok(DataPlanePrivateLink {
             id: row.id,
+            detail: row.detail,
+            created_at: row.created_at,
             config,
             status: PrivateLinkProvisioningStatus::from_db(&row.status)?,
             details: row.details.map(|d| async_graphql::Json(d.0)),
@@ -865,6 +879,7 @@ impl DataPlanesMutation {
         ctx: &Context<'_>,
         id: models::Id,
         config: models::PrivateLink,
+        #[graphql(desc = "Omit or pass null to keep the current name.")] detail: Option<String>,
     ) -> async_graphql::Result<DataPlanePrivateLink> {
         let env = ctx.data::<crate::Envelope>()?;
         resolve_modifiable_link(ctx, id).await?;
@@ -875,9 +890,14 @@ impl DataPlanesMutation {
         let row = sqlx::query!(
             r#"
             UPDATE internal.data_plane_private_links SET
-                config = $2
+                config = $2,
+                detail = coalesce($3, detail),
+                updated_at = case when detail is distinct from coalesce($3, detail)
+                                  then now() else updated_at end
             WHERE id = $1
             RETURNING
+                detail,
+                created_at,
                 status,
                 details as "details: sqlx::types::Json<serde_json::Value>",
                 error,
@@ -885,6 +905,7 @@ impl DataPlanesMutation {
             "#,
             id as models::Id,
             sqlx::types::Json(&config) as sqlx::types::Json<&models::PrivateLink>,
+            detail,
         )
         .fetch_optional(&env.pg_pool)
         .await
@@ -897,6 +918,8 @@ impl DataPlanesMutation {
 
         Ok(DataPlanePrivateLink {
             id,
+            detail: row.detail,
+            created_at: row.created_at,
             config,
             status: PrivateLinkProvisioningStatus::from_db(&row.status)?,
             details: row.details.map(|d| async_graphql::Json(d.0)),
@@ -1547,6 +1570,8 @@ mod tests {
                                     gcpPscEndpoints
                                     privateLinks {
                                         id
+                                        detail
+                                        createdAt
                                         status
                                         details
                                         config {
@@ -1725,9 +1750,10 @@ mod tests {
     fn add_mutation(name: &str, config_json: &str) -> serde_json::Value {
         serde_json::json!({
             "query": r#"
-            mutation($name: String!, $config: PrivateLinkConfigInput!) {
-                addDataPlanePrivateLink(dataPlaneName: $name, config: $config) {
+            mutation($name: String!, $config: PrivateLinkConfigInput!, $detail: String) {
+                addDataPlanePrivateLink(dataPlaneName: $name, config: $config, detail: $detail) {
                     id
+                    detail
                     status
                     config {
                         __typename
@@ -1749,7 +1775,7 @@ mod tests {
             "query": r#"
             mutation($id: Id!, $config: PrivateLinkConfigInput!) {
                 updateDataPlanePrivateLink(id: $id, config: $config) {
-                    id status config { __typename ... on AWSPrivateLink { serviceName } }
+                    id detail status config { __typename ... on AWSPrivateLink { serviceName } }
                 }
             }"#,
             "variables": {
@@ -1806,9 +1832,9 @@ mod tests {
 
         // A new link is created `pending` (no endpoint provisioned yet) as a
         // fourth row alongside the three from the fixture.
-        let added: serde_json::Value = server
-            .graphql(&add_mutation(dp, NEW_AWS_INPUT), Some(&alice_token))
-            .await;
+        let mut add = add_mutation(dp, NEW_AWS_INPUT);
+        add["variables"]["detail"] = "Analytics".into();
+        let added: serde_json::Value = server.graphql(&add, Some(&alice_token)).await;
         let link = &added["data"]["addDataPlanePrivateLink"];
         assert_eq!(
             link["config"]["__typename"], "AWSPrivateLink",
@@ -1820,6 +1846,7 @@ mod tests {
             "com.amazonaws.vpce.us-east-1.vpce-svc-new999"
         );
         assert!(link["id"].is_string());
+        assert_eq!(link["detail"], "Analytics");
         assert_eq!(count_links(&pool, dp).await, 4);
 
         // Adding a link whose service identity already exists on the data plane
@@ -1862,6 +1889,7 @@ mod tests {
             .await;
         let link = &updated["data"]["updateDataPlanePrivateLink"];
         assert_eq!(link["id"], aws_id, "got: {updated}");
+        assert_eq!(link["detail"], "Warehouse");
         assert_eq!(link["status"], "PENDING");
         assert_eq!(
             link["config"]["serviceName"],

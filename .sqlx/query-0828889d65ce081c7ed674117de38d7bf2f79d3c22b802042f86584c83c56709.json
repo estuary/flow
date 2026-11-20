@@ -1,21 +1,32 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO internal.data_plane_private_links (data_plane_id, config)\n            SELECT dp.id, $2\n            FROM data_planes dp WHERE dp.data_plane_name = $1\n            RETURNING\n                id as \"id: models::Id\",\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
+  "query": "\n            UPDATE internal.data_plane_private_links SET\n                config = $2,\n                detail = coalesce($3, detail),\n                updated_at = case when detail is distinct from coalesce($3, detail)\n                                  then now() else updated_at end\n            WHERE id = $1\n            RETURNING\n                detail,\n                created_at,\n                status,\n                details as \"details: sqlx::types::Json<serde_json::Value>\",\n                error,\n                observed_at as \"observed_at: chrono::DateTime<chrono::Utc>\"\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id: models::Id",
-        "type_info": "Macaddr8",
+        "name": "detail",
+        "type_info": "Text",
         "origin": {
           "Table": {
             "table": "internal.data_plane_private_links",
-            "name": "id"
+            "name": "detail"
           }
         }
       },
       {
         "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.data_plane_private_links",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "details: sqlx::types::Json<serde_json::Value>",
         "type_info": "Jsonb",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "error",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "observed_at: chrono::DateTime<chrono::Utc>",
         "type_info": "Timestamptz",
         "origin": {
@@ -61,11 +72,13 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Jsonb"
+        "Macaddr8",
+        "Jsonb",
+        "Text"
       ]
     },
     "nullable": [
+      true,
       false,
       false,
       true,
@@ -73,5 +86,5 @@
       true
     ]
   },
-  "hash": "a0c421220700d7e356553f5fbdceb74cae7803adeed28c851bd6a1c697d78561"
+  "hash": "0828889d65ce081c7ed674117de38d7bf2f79d3c22b802042f86584c83c56709"
 }

@@ -2113,7 +2113,7 @@ type MutationRoot {
 	converges to provision it on its next poll; the returned link starts
 	`pending`. Requires `ModifyDataPlanePrivateNetworking` on the data plane.
 	"""
-	addDataPlanePrivateLink(dataPlaneName: String!, config: PrivateLinkConfigInput!): PrivateLink!
+	addDataPlanePrivateLink(dataPlaneName: String!, config: PrivateLinkConfigInput!, detail: String): PrivateLink!
 	"""
 	Replaces the configuration of an existing private link by id. A changed
 	config resets the observed status to `pending` and re-triggers convergence:
@@ -2122,7 +2122,12 @@ type MutationRoot {
 	previous configuration cannot later stamp this link with a stale status.
 	Requires `ModifyDataPlanePrivateNetworking` on the owning data plane.
 	"""
-	updateDataPlanePrivateLink(id: Id!, config: PrivateLinkConfigInput!): PrivateLink!
+	updateDataPlanePrivateLink(		id: Id!,		config: PrivateLinkConfigInput!,
+		"""
+		Omit or pass null to keep the current name.
+		"""
+		detail: String
+	): PrivateLink!
 	"""
 	Removes a private link by id. The controller tears down its endpoint on
 	the next converge. Requires `ModifyDataPlanePrivateNetworking` on the
@@ -2533,6 +2538,14 @@ type PrivateLink {
 	Stable identifier of this private link.
 	"""
 	id: Id!
+	"""
+	User-provided name for this private link.
+	"""
+	detail: String
+	"""
+	When this private link record was created.
+	"""
+	createdAt: DateTime!
 	"""
 	The link configuration (AWS PrivateLink, Azure Private Link, or GCP PSC).
 	Its variant (`AWSPrivateLink`/`AzurePrivateLink`/`GCPPrivateServiceConnect`)
