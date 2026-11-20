@@ -20,6 +20,7 @@ pub(crate) fn every_first_request(
     use ops::TaskType::{Capture, Derivation, Materialization};
     let (task, spec_task) = ("acmeCo/task", proto_grpc::connector::SPEC_TASK_NAME);
     let config_json = config_json.clone();
+    let spec_execution = spec_execution.map(Box::new);
 
     let capture_spec = flow::CaptureSpec {
         name: task.to_string(),

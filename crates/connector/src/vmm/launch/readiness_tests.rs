@@ -679,7 +679,7 @@ fn a_public_vmm_start_has_only_its_launch_mount() {
             ctx.plane = crate::Plane::Public;
             ctx.vmm = Some(config);
             ctx.task_update = Some(crate::TaskUpdate::for_test());
-            let execution = ctx.start.execution.clone().unwrap();
+            let execution = ctx.start.execution.as_deref().unwrap().clone();
 
             let endpoint: bytes::Bytes = serde_json::json!({"image": IMAGE, "config": {}})
                 .to_string()
@@ -733,7 +733,7 @@ fn a_public_vmm_start_has_only_its_launch_mount() {
             else {
                 panic!("the start's response is Started");
             };
-            assert_eq!(response.execution, Some(execution));
+            assert_eq!(response.execution.as_deref(), Some(&execution));
             assert!(response.container.is_some());
             std::mem::drop(started);
 
@@ -1583,10 +1583,10 @@ fn prepare(h: &Harness) -> Prepared {
         plane: crate::Plane::Local,
         process: None,
         start: crate::proto::request::Start {
-            execution: Some(proto_flow::flow::ConnectorExecution {
+            execution: Some(Box::new(proto_flow::flow::ConnectorExecution {
                 vmm: true,
                 egress: Some(Default::default()),
-            }),
+            })),
             ..Default::default()
         },
         task_name: "acmeCo/readiness".to_string(),

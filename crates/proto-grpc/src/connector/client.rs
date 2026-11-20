@@ -45,7 +45,7 @@ pub async fn start(
     let requested = first
         .start
         .as_ref()
-        .and_then(|start| start.execution.clone())
+        .and_then(|start| start.execution.as_deref().cloned())
         .unwrap_or_default();
     let (request_tx, request_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
     request_tx.try_send(first).expect("channel is empty");
@@ -69,8 +69,9 @@ pub async fn start(
 
     // A service which predates a requested execution ignores it, and would
     // start the connector ordinarily. Its `Started` doesn't echo the request.
-    let reported = started.execution.clone().unwrap_or_default();
-    if reported != requested {
+    let ordinary = proto_flow::flow::ConnectorExecution::default();
+    let reported = started.execution.as_deref().unwrap_or(&ordinary);
+    if *reported != requested {
         anyhow::bail!(
             "connector Started with execution {reported:?}, but {requested:?} was requested"
         );
@@ -287,7 +288,7 @@ mod test {
     fn request_with(execution: Option<proto_flow::flow::ConnectorExecution>) -> connector::Request {
         connector::Request {
             start: Some(connector::request::Start {
-                execution,
+                execution: execution.map(Box::new),
                 ..Default::default()
             }),
             kind: Some(connector::request::Kind::Capture(capture::Request {
@@ -315,7 +316,7 @@ mod test {
                     spec: Some(connector::response::started::Spec::Capture(Box::new(
                         Default::default(),
                     ))),
-                    execution,
+                    execution: execution.map(Box::new),
                     ..Default::default()
                 },
             )),

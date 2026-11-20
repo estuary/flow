@@ -16,7 +16,7 @@ impl Protocol for Materialize {
             Some(request::Kind::Open(open)) => open.materialization.as_ref(),
             _ => None,
         }?;
-        Some(spec.execution.clone().unwrap_or_default())
+        Some(spec.execution.as_deref().cloned().unwrap_or_default())
     }
 
     fn extract_endpoint<'r>(

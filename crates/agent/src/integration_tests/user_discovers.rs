@@ -1114,7 +1114,12 @@ async fn test_discover_carries_drafted_execution() {
             .last_discover_start(capture)
             .expect("a Discover request was made");
 
-        executions.push((capture, model.vmm, model.egress.clone(), start.execution));
+        executions.push((
+            capture,
+            model.vmm,
+            model.egress.clone(),
+            start.execution.map(|execution| *execution),
+        ));
     }
 
     assert_eq!(

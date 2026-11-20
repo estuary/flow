@@ -46,8 +46,8 @@ async fn vmm_execution_is_carried_to_capture_apply() {
         .find_map(|row| row.spec.clone())
         .expect("the catalog builds one capture");
     assert_eq!(
-        spec.execution,
-        Some(proto_flow::flow::ConnectorExecution {
+        spec.execution.as_deref(),
+        Some(&proto_flow::flow::ConnectorExecution {
             vmm: true,
             egress: Some(proto_flow::flow::connector_execution::Egress {
                 hosts: vec![

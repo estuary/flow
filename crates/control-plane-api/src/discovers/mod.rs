@@ -408,7 +408,7 @@ impl DiscoverHandler {
         let request = connector::Request {
             start: Some(connector::request::Start {
                 log_level: log_level as i32,
-                execution,
+                execution: execution.map(Box::new),
                 ..Default::default()
             }),
             kind: Some(connector::request::Kind::Capture(capture::Request {

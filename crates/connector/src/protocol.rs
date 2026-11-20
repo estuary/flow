@@ -127,13 +127,14 @@ pub(crate) async fn start<P: Protocol>(
         Endpoint::Image { image, .. } => Some(image.as_str()),
         Endpoint::Local { .. } | Endpoint::InProcess { .. } => None,
     };
-    let requested = ctx.start.execution.clone().unwrap_or_default();
+    let default_execution = flow::ConnectorExecution::default();
+    let requested = ctx.start.execution.as_deref().unwrap_or(&default_execution);
     let execution = crate::vmm::vmm_for(
         ctx.vmm.as_ref(),
         ctx.plane,
         P::TASK_TYPE,
         image,
-        &requested,
+        requested,
         spec_execution.as_ref(),
     )?;
 
@@ -342,7 +343,10 @@ pub(crate) async fn start<P: Protocol>(
                 token_restart_at,
                 process: ctx.process,
                 spec,
-                execution: Some(requested).filter(|execution| *execution != Default::default()),
+                execution: ctx
+                    .start
+                    .execution
+                    .filter(|value| **value != default_execution),
             })),
         },
         connector_tx: request_tx,

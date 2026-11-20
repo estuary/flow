@@ -35,8 +35,10 @@ pub mod request {
         /// A task-less Spec carries the execution chosen by its caller's policy.
         /// A requested execution which this service cannot provide fails the
         /// stream before the connector starts.
-        #[prost(message, optional, tag = "3")]
-        pub execution: ::core::option::Option<super::super::flow::ConnectorExecution>,
+        #[prost(message, optional, boxed, tag = "3")]
+        pub execution: ::core::option::Option<
+            ::prost::alloc::boxed::Box<super::super::flow::ConnectorExecution>,
+        >,
     }
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {
@@ -82,8 +84,10 @@ pub mod response {
         /// Execution with which the connector was started, echoing
         /// `Start.execution`. Clients verify it, so that a service which predates
         /// a requested execution cannot silently start the connector without it.
-        #[prost(message, optional, tag = "8")]
-        pub execution: ::core::option::Option<super::super::flow::ConnectorExecution>,
+        #[prost(message, optional, boxed, tag = "8")]
+        pub execution: ::core::option::Option<
+            ::prost::alloc::boxed::Box<super::super::flow::ConnectorExecution>,
+        >,
         /// The connector's response to a Spec request, which the service issues as
         /// part of starting it. Always set, of the stream's protocol.
         #[prost(oneof = "started::Spec", tags = "5, 6, 7")]

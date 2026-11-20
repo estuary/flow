@@ -138,7 +138,7 @@ fn extract_endpoint<'r>(
                 .derivation
                 .as_mut()
                 .context("`collection` missing required `derivation`")?;
-            crate::refuse_execution(inner.execution.as_ref())?;
+            crate::refuse_execution(inner.execution.as_deref())?;
 
             (inner.connector_type, &mut inner.config_json)
         }

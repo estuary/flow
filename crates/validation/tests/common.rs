@@ -807,7 +807,10 @@ impl MockDriverCalls {
         anyhow::Result<(connector::response::Started, connector::response::Kind)>,
     > {
         async move {
-            let execution = request.start.and_then(|start| start.execution);
+            let execution = request
+                .start
+                .and_then(|start| start.execution)
+                .map(|execution| *execution);
 
             match request.kind {
                 Some(connector::request::Kind::Capture(capture::Request {

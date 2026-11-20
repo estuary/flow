@@ -16,7 +16,7 @@ impl Protocol for Derive {
             return None;
         };
         let derivation = open.collection.as_ref()?.derivation.as_ref()?;
-        Some(derivation.execution.clone().unwrap_or_default())
+        Some(derivation.execution.as_deref().cloned().unwrap_or_default())
     }
 
     fn extract_endpoint<'r>(

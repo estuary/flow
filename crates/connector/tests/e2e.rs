@@ -1083,7 +1083,7 @@ mod execution {
 
     fn start_with(execution: Option<flow::ConnectorExecution>) -> proto::request::Start {
         proto::request::Start {
-            execution,
+            execution: execution.map(Box::new),
             ..start("")
         }
     }

@@ -124,14 +124,14 @@ fn ex_secrets() -> std::collections::BTreeMap<String, String> {
     .into()
 }
 
-fn ex_execution(hosts: &[&str], cidrs: &[&str]) -> Option<flow::ConnectorExecution> {
-    Some(flow::ConnectorExecution {
+fn ex_execution(hosts: &[&str], cidrs: &[&str]) -> Option<Box<flow::ConnectorExecution>> {
+    Some(Box::new(flow::ConnectorExecution {
         vmm: true,
         egress: Some(flow::connector_execution::Egress {
             hosts: hosts.iter().map(ToString::to_string).collect(),
             cidrs: cidrs.iter().map(ToString::to_string).collect(),
         }),
-    })
+    }))
 }
 
 fn ex_network_ports() -> Vec<flow::NetworkPort> {
