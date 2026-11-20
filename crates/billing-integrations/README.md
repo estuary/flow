@@ -25,7 +25,12 @@ approving collection.
   other invoices from completing, but cause the command to exit unsuccessfully.
   Errors use structured logging so invoice context is retained in redirected output.
   Bills are selected from the database with the same query as publishing, and each bill's invoice is retrieved by its recorded ID. Usage bills without one are skipped; a manual bill without one is skipped with a warning. After editing a manual bill's dates, republish its draft before sending it.
-- `stripe_utils.rs` wraps Stripe invoices for metadata access and operator tables.
+- `stripe_utils.rs` wraps Stripe invoices for metadata access and operator tables,
+  and checks invoice customer IDs.
+
+Recorded invoices must belong to the tenant's recorded Stripe customer before
+publishing, cleanup, or sending. A missing or mismatched customer ID prevents
+writes to that invoice. Cleanup reports the failure as a warning.
 
 All commands require `--connection-string` and accept `--month YYYY-MM` or the legacy `YYYY-MM-01` form.
 
