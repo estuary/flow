@@ -117,6 +117,45 @@ pub fn parse(discovered: response::Discovered) -> anyhow::Result<Discovered> {
                     source.recommended_name,
                 );
             }
+            // These limits match `validation`. The name and key limits also
+            // bound ordering and merging, which walk a collection's name and
+            // key once per binding which shares it.
+            if source.recommended_name.len() > validation::MAX_CATALOG_NAME_LEN {
+                anyhow::bail!(
+                    "connector protocol error: recommended name of {} bytes \
+                     exceeds the limit of {}",
+                    source.recommended_name.len(),
+                    validation::MAX_CATALOG_NAME_LEN,
+                );
+            }
+            if source.key.len() > validation::MAX_KEY_COMPONENTS {
+                anyhow::bail!(
+                    "connector protocol error: key of discovered collection {recommended_name} \
+                     has {} components, which exceeds the limit of {}",
+                    source.key.len(),
+                    validation::MAX_KEY_COMPONENTS,
+                );
+            }
+            if let Some(ptr) = source
+                .key
+                .iter()
+                .find(|ptr| ptr.len() > validation::MAX_KEY_PTR_LEN)
+            {
+                anyhow::bail!(
+                    "connector protocol error: key of discovered collection {recommended_name} \
+                     has a location of {} bytes, which exceeds the limit of {}",
+                    ptr.len(),
+                    validation::MAX_KEY_PTR_LEN,
+                );
+            }
+            if source.document_schema_json.len() > validation::MAX_SCHEMA_LEN {
+                anyhow::bail!(
+                    "connector protocol error: document schema of discovered collection \
+                     {recommended_name} is {} bytes, which exceeds the limit of {}",
+                    source.document_schema_json.len(),
+                    validation::MAX_SCHEMA_LEN,
+                );
+            }
             let document_schema = models::Schema::new(
                 serde_json::from_slice::<models::RawValue>(&source.document_schema_json)
                     .with_context(|| {
@@ -395,9 +434,39 @@ mod tests {
             linked_collections: vec![Default::default(); over],
         };
 
+        // Collections may not exceed the name and key limits of `validation`.
+        let collection = |name: String, key: Vec<String>| response::Discovered {
+            bindings: vec![Default::default()],
+            linked_collections: vec![response::discovered::Collection {
+                recommended_name: name,
+                document_schema_json: "true".into(),
+                key,
+                is_fallback_key: false,
+            }],
+        };
+        let long_name = collection("a".repeat(validation::MAX_CATALOG_NAME_LEN + 1), vec![]);
+        let long_key = collection(
+            "one".into(),
+            vec!["/k".into(); validation::MAX_KEY_COMPONENTS + 1],
+        );
+        let long_ptr = collection(
+            "one".into(),
+            vec![format!("/{}", "k".repeat(validation::MAX_KEY_PTR_LEN))],
+        );
+        let mut long_schema = collection("one".into(), vec![]);
+        long_schema.linked_collections[0].document_schema_json =
+            format!("{}true", " ".repeat(validation::MAX_SCHEMA_LEN)).into();
+
         let errors = errors
             .into_iter()
-            .chain([too_many_bindings, too_many_collections])
+            .chain([
+                too_many_bindings,
+                too_many_collections,
+                long_name,
+                long_key,
+                long_ptr,
+                long_schema,
+            ])
             .map(|discovered| format!("{:#}", parse(discovered).unwrap_err()))
             .collect::<Vec<_>>();
 
@@ -412,6 +481,10 @@ mod tests {
             "parsing document schema of discovered collection one: EOF while parsing a value at line 1 column 0",
             "connector protocol error: Discovered response has 65437 bindings, which exceeds the limit of 65436",
             "connector protocol error: Discovered response has 65437 `linkedCollections`, which exceeds the limit of 65436",
+            "connector protocol error: recommended name of 385 bytes exceeds the limit of 384",
+            "connector protocol error: key of discovered collection one has 33 components, which exceeds the limit of 32",
+            "connector protocol error: key of discovered collection one has a location of 129 bytes, which exceeds the limit of 128",
+            "connector protocol error: document schema of discovered collection one is 1048580 bytes, which exceeds the limit of 1048576",
         ]
         "#);
     }

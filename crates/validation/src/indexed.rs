@@ -30,6 +30,26 @@ pub fn walk_name(
     }
 }
 
+/// Check a catalog name or prefix: as `walk_name`, and also its length.
+pub fn walk_catalog_name(
+    scope: Scope,
+    entity: &'static str,
+    name: &str,
+    re: &Regex,
+    errors: &mut tables::Errors,
+) {
+    walk_name(scope, entity, name, re, errors);
+
+    if name.len() > crate::MAX_CATALOG_NAME_LEN {
+        Error::NameTooLong {
+            entity,
+            len: name.len(),
+            limit: crate::MAX_CATALOG_NAME_LEN,
+        }
+        .push(scope, errors);
+    }
+}
+
 /// Check that a user-provided `ptr` is a well-formed JSON pointer: empty, or
 /// `/`-prefixed tokens matching the `models::JsonPointer` pattern.
 pub fn walk_ptr(ptr: &str) -> Result<(), Error> {

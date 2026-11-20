@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/key,
+        error: collection testing/int-string key has 33 components, which exceeds the limit of 32,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/1,
+        error: collection testing/int-string-rw key location is 129 bytes, which exceeds the limit of 128,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/1,
+        error: location /pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp is unknown in schema test://example/int-string.schema,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1long-schema/writeSchema,
+        error: collection testing/long-schema schema is 1048753 bytes, which exceeds the limit of 1048576,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn,
+        error: collection name is 385 bytes, which exceeds the limit of 384,
+    },
+]

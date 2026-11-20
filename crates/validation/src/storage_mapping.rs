@@ -29,7 +29,7 @@ pub fn walk_all_storage_mappings(
             // walk_name will otherwise produce an error.
             continue;
         }
-        indexed::walk_name(
+        indexed::walk_catalog_name(
             scope,
             "storageMapping",
             m.catalog_prefix.as_ref(),

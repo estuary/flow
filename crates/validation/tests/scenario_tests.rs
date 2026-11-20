@@ -898,6 +898,43 @@ test://example/int-string:
 }
 
 #[test]
+fn test_collection_limits() {
+    let long_name = format!(
+        "testing/{}",
+        "n".repeat(validation::MAX_CATALOG_NAME_LEN - "testing/".len() + 1)
+    );
+    let long_key = vec!["/int"; validation::MAX_KEY_COMPONENTS + 1].join(", ");
+    let long_ptr = format!("/{}", "p".repeat(validation::MAX_KEY_PTR_LEN));
+    let long_description = "d".repeat(validation::MAX_SCHEMA_LEN);
+
+    let errors = common::run_errors(
+        &MODEL_YAML,
+        &format!(
+            r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      key: [{long_key}]
+    testing/int-string-rw:
+      key: [/int, {long_ptr}]
+    {long_name}:
+      schema: test://example/int-string.schema
+      key: [/int]
+    testing/long-schema:
+      writeSchema:
+        description: {long_description}
+        type: object
+        properties: {{ int: {{ type: integer }} }}
+        required: [int]
+      readSchema: test://example/int-string.schema
+      key: [/int]
+"#
+        ),
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_shuffle_key_empty() {
     let errors = common::run_errors(
         &MODEL_YAML,
