@@ -1072,7 +1072,7 @@ mod tests {
                 "tenant": "acmeCo/",
                 "month": "January 2024",
                 "threshold_usd_cents": 100_000,
-                "subtotal_usd_cents": 123_456_789,
+                "charges_usd_cents": 123_456_789,
             }),
             State::Fired,
         );
@@ -1096,7 +1096,7 @@ mod tests {
                 "tenant": "acmeCo/",
                 "month": "January 2024",
                 "threshold_usd_cents": 100_000,
-                "subtotal_usd_cents": 123_456,
+                "charges_usd_cents": 123_456,
             }),
             State::Resolved,
         );

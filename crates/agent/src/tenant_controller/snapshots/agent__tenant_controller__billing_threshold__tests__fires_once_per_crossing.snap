@@ -62,8 +62,8 @@ expression: results
   },
   {
     "lastArguments": {
+      "charges_usd_cents": 1000,
       "month": "June 2026",
-      "subtotal_usd_cents": 1000,
       "tenant": "billingThreshold/",
       "threshold_usd_cents": 1000
     }

@@ -35,8 +35,8 @@ pub struct BillingThresholdExceededConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BillingThresholdExceededCondition {
-    /// The alert fires when the tenant's month-to-date invoice subtotal
-    /// reaches this amount, in US cents.
+    /// The alert fires when the tenant's month-to-date charges reach this
+    /// amount, in US cents.
     pub usd_cents: std::num::NonZeroU32,
 }
 

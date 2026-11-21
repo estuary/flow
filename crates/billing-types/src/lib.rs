@@ -4,11 +4,13 @@ use std::collections::HashMap;
 mod calculate;
 mod db;
 pub mod invoices;
+mod month_to_date;
 mod provider;
 mod stripe_impl;
 pub(crate) use calculate::{Adjustment, BillingTerms, DailyUsage, calculate};
 pub use calculate::{Invoice, InvoiceUsage, LineItem};
 pub use db::record_customer_id;
+pub use month_to_date::{DayCharges, MonthToDate};
 pub use provider::{BillingProvider, default_payment_method_id};
 pub use stripe_impl::StripeBillingProvider;
 
