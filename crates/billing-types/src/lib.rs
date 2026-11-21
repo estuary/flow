@@ -127,7 +127,9 @@ pub enum PlanKind {
 }
 
 /// How usage-based invoices are collected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type,
+)]
 #[cfg_attr(
     feature = "async-graphql",
     derive(async_graphql::Enum),
