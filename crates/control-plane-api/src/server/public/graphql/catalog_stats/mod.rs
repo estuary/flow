@@ -124,7 +124,7 @@ fn cursor_of(bucket: &types::CatalogStats) -> String {
 }
 
 /// The client is absent when the deployment has no BigTable configured.
-fn client(
+pub(super) fn client(
     ctx: &async_graphql::Context<'_>,
 ) -> async_graphql::Result<std::sync::Arc<catalog_stats::Client>> {
     ctx.data::<std::sync::Arc<catalog_stats::Client>>()

@@ -57,6 +57,15 @@ pub struct Invoice {
     pub trial_start: Option<chrono::NaiveDate>,
 }
 
+impl Invoice {
+    /// Charges that the `billing_threshold_exceeded` alert compares with a
+    /// tenant's configured amount. The billing page shows the same amount
+    /// through GraphQL, so this decides what both of them count.
+    pub fn threshold_charges(&self) -> i64 {
+        self.subtotal
+    }
+}
+
 struct PricedDay {
     date: chrono::NaiveDate,
     bytes: u128,

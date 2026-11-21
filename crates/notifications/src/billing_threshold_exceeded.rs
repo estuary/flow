@@ -17,7 +17,7 @@ pub fn register_templates<'a>(registry: &mut handlebars::Handlebars<'a>) -> anyh
     registry
         .register_template_string(
             &fired_body,
-            r#"<p class="body-text">Month-to-date charges for <span class="identifier">{{arguments.tenant}}</span> in {{arguments.month}} are <strong>{{usd arguments.subtotal_usd_cents}}</strong>, which is at or above its billing alert threshold of <strong>{{usd arguments.threshold_usd_cents}}</strong>.</p>
+            r#"<p class="body-text">Month-to-date charges for <span class="identifier">{{arguments.tenant}}</span> in {{arguments.month}} are <strong>{{usd arguments.charges_usd_cents}}</strong>, which is at or above its billing alert threshold of <strong>{{usd arguments.threshold_usd_cents}}</strong>.</p>
 <p class="body-text">This amount covers charges so far, and the final invoice for {{arguments.month}} may differ.</p>
 <a href="{{> dashboard_billing_url}}" class="button">📈 See your bill</a>"#,
         )
