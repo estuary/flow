@@ -14,7 +14,7 @@ approving collection.
   It replaces the operator's `internal.freeze_billing_month(...)` call.
 - `publish.rs` classifies bills and creates or refreshes draft invoices. `--dry-run`
   performs read-only classification against Stripe. Manual bills always use
-  `send_invoice`. `--recreate-existing` (alias `--recreate-finalized`) replaces
+  `send_invoice`, and usage invoices use the tenant's `collection_method`. `--recreate-existing` (alias `--recreate-finalized`) replaces
   eligible usage invoices; it does not reissue manual bills.
   A bill's invoice and a tenant's customer are retrieved by the IDs recorded in `stripe_invoice_id` (of `internal.billing_historicals` and `internal.manual_bills`) and `tenants.stripe_customer_id`. Without a recorded ID, execution creates the customer or invoice and records its ID. A manual bill keeps one invoice across the months it spans and across edits to its dates; each publish refreshes its draft.
 - `send.rs` checks current Stripe state before approval and again before
