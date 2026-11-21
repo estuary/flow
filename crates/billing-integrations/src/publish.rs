@@ -13,13 +13,6 @@ use std::collections::HashMap;
 
 const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-#[clap(rename_all = "kebab_case")]
-enum ChargeType {
-    AutoCharge,
-    SendInvoice,
-}
-
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 /// Publish bills from the control-plane database as Stripe invoices.
@@ -46,12 +39,6 @@ pub struct PublishInvoice {
     /// Stop execution after first failure
     #[clap(long)]
     fail_fast: bool,
-    /// Whether to attempt to automatically charge the invoice or send it to be paid manually.
-    ///
-    /// NOTE: Invoices are still created as drafts and require approval, this setting only
-    /// changes what happens once the invoice is approved.
-    #[clap(long, value_enum, default_value_t = ChargeType::AutoCharge)]
-    charge_type: ChargeType,
     /// Number of invoices to publish concurrently
     #[clap(long, default_value_t = 2)]
     pub concurrency: usize,
@@ -201,6 +188,7 @@ pub(crate) struct Invoice {
     has_full_pipeline: bool,
     payment_provider: PaymentProvider,
     plan_kind: PlanKind,
+    collection_method: billing_types::CollectionMethod,
     tenant_trial_start: Option<NaiveDate>,
     pub(crate) stripe_invoice_id: Option<String>,
     stripe_customer_id: Option<String>,
@@ -285,6 +273,20 @@ impl Invoice {
             invoice_type: self.invoice_type,
             period_start: self.date_start.format("%F").to_string(),
             period_end: self.date_end.format("%F").to_string(),
+        }
+    }
+
+    /// How Stripe collects this bill's invoice. Manual bills are always sent.
+    /// Usage invoices follow the tenant's collection method. `send-invoices`
+    /// switches a `charge_automatically` draft to `send_invoice` when the
+    /// customer has no default payment method.
+    fn stripe_collection_method(&self) -> stripe::CollectionMethod {
+        if self.invoice_type == InvoiceType::Manual
+            || self.collection_method == billing_types::CollectionMethod::SendInvoice
+        {
+            stripe::CollectionMethod::SendInvoice
+        } else {
+            stripe::CollectionMethod::ChargeAutomatically
         }
     }
 
@@ -519,7 +521,6 @@ impl Invoice {
         client: &stripe::Client,
         db_client: &Pool<Postgres>,
         action: InvoiceAction,
-        mode: ChargeType,
     ) -> anyhow::Result<InvoiceResult> {
         let (replace, existing_invoice_id, found_customer) = match action {
             InvoiceAction::Skip { .. } => {
@@ -610,22 +611,10 @@ impl Invoice {
             }
         }
 
-        // Manual invoices should always be sent as invoices rather than
-        // charged to the customer's payment method.
-        let mode = if self.invoice_type == InvoiceType::Manual {
-            ChargeType::SendInvoice
-        } else {
-            mode
-        };
-        let collection_method = match mode {
-            ChargeType::AutoCharge => stripe::CollectionMethod::ChargeAutomatically,
-            ChargeType::SendInvoice => stripe::CollectionMethod::SendInvoice,
-        };
+        let collection_method = self.stripe_collection_method();
         // `send_invoice` requires a due date; `charge_automatically` must not carry one.
-        let due_date = match mode {
-            ChargeType::SendInvoice => Some((Utc::now() + Duration::days(30)).timestamp()),
-            ChargeType::AutoCharge => None,
-        };
+        let due_date = (collection_method == stripe::CollectionMethod::SendInvoice)
+            .then(|| (Utc::now() + Duration::days(30)).timestamp());
 
         let invoice = if let Some(existing_id) = existing_invoice_id {
             tracing::debug!(
@@ -676,13 +665,13 @@ impl Invoice {
                 metadata: &metadata,
             };
 
-            // The create path sets the collection method from `mode`, but the update
-            // path reuses whatever the invoice was originally created with. Reconcile
-            // toward `send_invoice` only, so a manual invoice previously stored as
-            // `charge_automatically` stops silently auto-charging the card. The
-            // reverse direction is deliberately not applied: it would undo the send
-            // workflow's switch to `send_invoice` for tenants without a payment
-            // method on file.
+            // The create path sets the collection method from the bill and its tenant,
+            // but the update path reuses whatever the invoice was originally created
+            // with. Reconcile toward `send_invoice` only, so a `charge_automatically`
+            // draft stops charging the card once its bill or tenant calls for
+            // `send_invoice`. The reverse direction is deliberately not applied: it
+            // would undo the send workflow's switch to `send_invoice` for tenants
+            // without a payment method on file.
             if collection_method == stripe::CollectionMethod::SendInvoice
                 && existing.collection_method != Some(collection_method)
             {
@@ -691,7 +680,7 @@ impl Invoice {
                     id = existing_id.to_string()
                 );
                 update.collection_method = Some(collection_method);
-                update.due_date = Some(due_date.expect("send_invoice mode always sets a due date"));
+                update.due_date = Some(due_date.expect("send_invoice always sets a due date"));
             }
 
             client
@@ -818,6 +807,7 @@ pub(crate) async fn load_invoices(
             coalesce(dataflow.has_full_pipeline, false) as has_full_pipeline,
             tenants.payment_provider,
             tenants.plan_kind,
+            tenants.collection_method,
             tenants.trial_start as tenant_trial_start,
             invoices_ext.stripe_invoice_id,
             tenants.stripe_customer_id
@@ -1047,7 +1037,7 @@ async fn process_invoice(
         (InvoiceAction::Create { .. }, true) => InvoiceResult::Created(invoice.payment_provider),
         (InvoiceAction::Update { .. }, true) => InvoiceResult::Updated,
         (action, false) => invoice
-            .execute(provider, client, db_pool, action, cmd.charge_type)
+            .execute(provider, client, db_pool, action)
             .await
             .with_context(|| {
                 format!(
@@ -1310,6 +1300,7 @@ mod tests {
             has_full_pipeline: true,
             payment_provider: PaymentProvider::Stripe,
             plan_kind: PlanKind::SelfServe,
+            collection_method: billing_types::CollectionMethod::ChargeDefaultPaymentMethod,
             tenant_trial_start: Some("2020-01-01".parse().unwrap()),
             stripe_invoice_id: recorded.map(str::to_string),
             stripe_customer_id: Some(CUSTOMER_ID.to_string()),
@@ -1472,6 +1463,40 @@ mod tests {
         "#);
     }
 
+    #[test]
+    fn collection_follows_bill_and_tenant() {
+        use billing_types::CollectionMethod;
+
+        let outcomes = [
+            (
+                InvoiceType::Final,
+                CollectionMethod::ChargeDefaultPaymentMethod,
+            ),
+            (InvoiceType::Final, CollectionMethod::SendInvoice),
+            (
+                InvoiceType::Manual,
+                CollectionMethod::ChargeDefaultPaymentMethod,
+            ),
+            (InvoiceType::Manual, CollectionMethod::SendInvoice),
+        ]
+        .map(|(invoice_type, collection_method)| {
+            let bill = Invoice {
+                collection_method,
+                ..bill(invoice_type, None)
+            };
+            format!(
+                "{invoice_type:?} {collection_method:?}: {:?}",
+                bill.stripe_collection_method()
+            )
+        });
+        insta::assert_snapshot!(outcomes.join("\n"), @r"
+        Final ChargeDefaultPaymentMethod: ChargeAutomatically
+        Final SendInvoice: SendInvoice
+        Manual ChargeDefaultPaymentMethod: SendInvoice
+        Manual SendInvoice: SendInvoice
+        ");
+    }
+
     #[sqlx::test(migrations = "../../supabase/migrations")]
     async fn created_customer_is_recorded_before_missing_email_fails(pool: sqlx::PgPool) {
         sqlx::query("insert into tenants (id, tenant) values (internal.id_generator(), $1)")
@@ -1541,7 +1566,6 @@ mod tests {
             month: "2026-08-01".parse().unwrap(),
             recreate_existing: false,
             fail_fast: false,
-            charge_type: ChargeType::AutoCharge,
             concurrency: 1,
             clean_up: false,
             dry_run: true,
@@ -1675,9 +1699,9 @@ mod tests {
     async fn loads_month_bills_from_db_with_tenant_filters(pool: sqlx::PgPool) {
         sqlx::raw_sql(
             r#"
-            insert into tenants (id, tenant, created_at) values
-                (internal.id_generator(), 'acmeCo/', '2020-01-01'),
-                (internal.id_generator(), 'otherCo/', '2020-01-01');
+            insert into tenants (id, tenant, created_at, collection_method) values
+                (internal.id_generator(), 'acmeCo/', '2020-01-01', 'send_invoice'),
+                (internal.id_generator(), 'otherCo/', '2020-01-01', 'charge_default_payment_method');
             insert into internal.billing_historicals (tenant, billed_month, report, stripe_invoice_id) values
                 ('acmeCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', 'in_acme'),
                 ('otherCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', null);
@@ -1710,6 +1734,9 @@ mod tests {
             })
             .collect();
         selected.sort_by_key(|row| row.1);
+        assert!(invoices.iter().all(
+            |invoice| invoice.collection_method == billing_types::CollectionMethod::SendInvoice
+        ));
 
         assert_eq!(
             selected,
@@ -1854,7 +1881,6 @@ mod tests {
                 &client,
                 &pool,
                 action,
-                ChargeType::SendInvoice,
             )
             .await
             .unwrap();
