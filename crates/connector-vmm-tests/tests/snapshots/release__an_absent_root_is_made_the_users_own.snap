@@ -1,0 +1,10 @@
+---
+source: crates/connector-vmm-tests/tests/release.rs
+expression: "redact(&setup, report)"
+---
+status: 0
+--- stderr
+--- made
+<tmp>/root: directory of UID <uid>, mode 711
+<tmp>/root/lock: empty file of UID <uid>, mode 600
+<tmp>/root/resources: empty file of UID <uid>, mode 600

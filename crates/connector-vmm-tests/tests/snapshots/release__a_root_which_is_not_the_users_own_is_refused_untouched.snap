@@ -1,0 +1,53 @@
+---
+source: crates/connector-vmm-tests/tests/release.rs
+expression: "reports.join(\"\")"
+---
+=== a parent which others can write
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>: others can write it (mode 777)
+--- calls
+lock: not made
+=== a root which others can write
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root: it is UID <uid>'s with mode 771, and must be yours (UID <uid>) and writable by no one else
+--- calls
+lock: not made
+=== a root which is a link
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root: it is a link, or not a directory
+--- calls
+lock: not made
+=== lock which is a link
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root/lock: it is a link, or not a regular file
+--- calls
+lock: not made
+=== run.json which is a link
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root/run.json: it is a link, or not a regular file
+--- calls
+lock: made
+=== a list which others can write
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root/resources: it is UID <uid>'s with mode 646, and must be yours (UID <uid>) and writable by no one else
+--- calls
+lock: made
+=== platform.json which is a directory
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root/platform.json: it is a link, or not a regular file
+--- calls
+lock: made
