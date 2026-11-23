@@ -12,6 +12,7 @@ mod disk;
 mod image;
 mod ingress;
 mod krun;
+mod landlock;
 mod launch;
 mod net;
 mod policy;

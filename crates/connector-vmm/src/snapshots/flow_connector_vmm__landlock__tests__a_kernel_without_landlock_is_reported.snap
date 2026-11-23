@@ -1,0 +1,9 @@
+---
+source: crates/connector-vmm/src/landlock.rs
+expression: "table.join(\"\\n\")"
+---
+Some("querying its ABI: Function not implemented (os error 38)")
+Some("querying its ABI: Operation not supported (os error 95)")
+Some("the kernel has ABI 2, not 3")
+None
+None

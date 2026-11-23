@@ -6,6 +6,7 @@
 
 use crate::image;
 use crate::krun::{self, Krun};
+use crate::landlock::{Access, Rule};
 use crate::net;
 use anyhow::Context;
 use std::convert::Infallible;
@@ -40,6 +41,7 @@ pub const PERSISTENT_DISK_MOUNT_POINT: &str = "persist";
 const ROOTFS: &str = "/rootfs";
 const SCRATCH_BACKING: &str = "/scratch-backing";
 const PERSISTENT_DISK_SOURCE: &str = "/persistent-disk";
+const SOCK: &str = "/sock";
 const INIT_SOCK: &str = "/sock/init.sock";
 const RESOLVER_SOCK: &str = "/sock/resolver.sock";
 
@@ -51,6 +53,8 @@ const VSOCK_PORT: u32 = 49092;
 const RESOLVER_VSOCK_PORT: u32 = 49093;
 
 const KVM: &str = "/dev/kvm";
+/// libkrun opens this itself, to attach `net::TAP`.
+const TUN: &str = "/dev/net/tun";
 /// `KVM_GET_API_VERSION`, `_IO(KVMIO, 0x00)`, and the one version KVM has.
 const KVM_GET_API_VERSION: libc::Ioctl = 0xAE00;
 const KVM_API_VERSION: libc::c_int = 12;
@@ -261,7 +265,7 @@ pub fn enter(krun: &dyn Krun, machine: &Machine) -> anyhow::Result<Infallible> {
     let ctx = krun.create_ctx()?;
     krun.set_vm_config(ctx, machine.vcpus, machine.memory_mib)?;
 
-    // Enforce read-only access outside the guest, even if its kernel is compromised.
+    // The container mounts also enforce read-only access (see `check_read_only`).
     krun.add_virtiofs3(ctx, krun::ROOT_TAG, ROOTFS, true)?;
     krun.add_virtiofs3(ctx, CONNECTOR_MOUNT_TAG, &machine.connector_mount, true)?;
 
@@ -305,7 +309,28 @@ pub fn enter(krun: &dyn Krun, machine: &Machine) -> anyhow::Result<Infallible> {
         machine.console.error,
     )?;
 
+    // create_ctx must load libkrunfw before Landlock restricts file opens.
+    krun.restrict_self(&landlock_rules(machine))?;
     krun.start_enter(ctx)
+}
+
+fn landlock_rules(machine: &Machine) -> Vec<Rule> {
+    let rule = |path: &str, access| Rule {
+        path: path.to_string(),
+        access,
+    };
+    let mut rules = vec![
+        rule(KVM, Access::ReadWriteFile),
+        rule(TUN, Access::ReadWriteFile),
+        rule(SCRATCH_BACKING, Access::ReadWriteFile),
+        rule(SOCK, Access::BindSocket),
+        rule(ROOTFS, Access::ReadTree),
+        rule(&machine.connector_mount, Access::ReadTree),
+    ];
+    if machine.persistent_disk {
+        rules.push(rule(PERSISTENT_DISK_SOURCE, Access::WriteTree));
+    }
+    rules
 }
 
 /// Move the scratch disk to a known descriptor and close everything above it.
@@ -739,6 +764,13 @@ mod tests {
             self.record(format!(
                 "add_console(ctx={ctx}, input={input}, output={output}, error={error})"
             ))
+        }
+
+        fn restrict_self(&self, rules: &[crate::landlock::Rule]) -> anyhow::Result<()> {
+            for rule in rules {
+                self.record(format!("restrict_self: {:?} {:?}", rule.access, rule.path))?;
+            }
+            Ok(())
         }
 
         fn start_enter(&self, ctx: u32) -> anyhow::Result<Infallible> {

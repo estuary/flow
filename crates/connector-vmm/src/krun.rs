@@ -59,6 +59,8 @@ pub trait Krun {
         output: RawFd,
         error: RawFd,
     ) -> anyhow::Result<()>;
+    /// Call on the thread that will enter libkrun so its workers inherit the rules.
+    fn restrict_self(&self, rules: &[crate::landlock::Rule]) -> anyhow::Result<()>;
     /// Only returns on failure: otherwise libkrun takes over the process and
     /// exits with the guest workload's code.
     fn start_enter(&self, ctx: u32) -> anyhow::Result<Infallible>;
@@ -295,6 +297,19 @@ impl Krun for Dynamic {
         check("krun_add_virtio_console_default", unsafe {
             (self.add_console)(ctx, input, output, error)
         })?;
+        Ok(())
+    }
+
+    fn restrict_self(&self, rules: &[crate::landlock::Rule]) -> anyhow::Result<()> {
+        if let Err(why) = crate::landlock::restrict_self(rules)? {
+            eprint!(
+                "{}",
+                crate::framed(&format!(
+                    "warning: Landlock is unavailable to this VMM ({why}), \
+                     so libkrun's virtiofs server can open files outside its shares"
+                ))
+            );
+        }
         Ok(())
     }
 

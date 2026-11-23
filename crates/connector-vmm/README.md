@@ -29,6 +29,8 @@ integration suite.
 - `src/image.rs`: the image's OCI config, the guest argv and
   `.krun_config.json`.
 - `src/disk.rs`: the `O_TMPFILE` scratch disk and its `mkfs.ext4`.
+- `src/landlock.rs`: the Landlock ruleset applied before libkrun starts,
+  which bounds the files its virtiofs server opens.
 - `src/net.rs`: the addresses the tap, the ruleset and the resolver are pinned
   to, plus the tap, the ruleset apply and the upstream nameserver.
 - `src/console.rs`: the console descriptors and the `--debug` tee.
@@ -85,6 +87,27 @@ guest's file operations itself.
 | `CAP_FOWNER` | the server's chmod and times on such a user's files |
 | `CAP_FSETID` | its chmod keeps a setgid bit such a user sets |
 | `CAP_CHOWN` | its chown, for a guest's |
+
+libkrun's server does not check the names a guest sends. A guest with a
+compromised kernel can look up `..` or an absolute path, and so name any
+file in this container. `launch::landlock_rules` is the Landlock ruleset
+`enter` applies before libkrun starts:
+
+| path | the server may |
+|---|---|
+| `/rootfs`, connector mount | read files and list directories |
+| `/persistent-disk` | everything but execute, only with `--persistent-disk` |
+| `/scratch-backing` | read and write the scratch file |
+| `/sock` | bind a socket |
+| `/dev/kvm`, `/dev/net/tun` | read and write, for libkrun's own opens |
+
+The server can open the contents of nothing else, `/proc/self/mem`
+included. The ruleset does not hide names or attributes, and does not
+govern chmod, chown, times or extended attributes.
+
+Landlock needs Linux 6.2 (ABI 3), enabled among the kernel's LSMs and
+permitted by the container's seccomp profile. Without it the VMM writes a
+`warning:` line to stderr and runs unrestricted.
 
 ## What the launcher provides
 
