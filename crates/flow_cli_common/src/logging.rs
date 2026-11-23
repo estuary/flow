@@ -1,5 +1,7 @@
 //! Common logging setup code, which can be shared by all rust-based CLIs.
 
+use std::io::IsTerminal;
+
 /// Configures logging for all Flow subcommands. These arguments match those that are used by
 /// Gazette and the go-based flowctl, so that there's consistency across all our CLIs.
 #[derive(Debug, clap::Args)]
@@ -55,7 +57,7 @@ pub enum LogFormat {
 }
 
 fn default_log_format() -> LogFormat {
-    if atty::is(atty::Stream::Stderr) {
+    if std::io::stderr().is_terminal() {
         LogFormat::Color
     } else {
         // If running non-interactively, default to JSON so that programatic users don't have to
