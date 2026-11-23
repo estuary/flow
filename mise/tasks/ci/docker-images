@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Build and optionally push multi-arch Docker images"
+#MISE description="Build Docker images locally or publish them and gate the pushed VMM image"
 
 PACKAGE_DIR="${PACKAGE_DIR:-${HOME}/flow-package}"
 TAGS_FILE="${PACKAGE_DIR}/tags"
@@ -64,8 +64,7 @@ fi
 
 # Generate bake JSON dynamically from Dockerfiles
 BAKE_FILE=$(mktemp)
-METADATA_FILE=$(mktemp)
-trap "rm -f ${BAKE_FILE} ${METADATA_FILE}" EXIT
+trap "rm -f ${BAKE_FILE}" EXIT
 
 # Build the targets object by iterating over Dockerfiles
 TARGETS_JSON="{}"
@@ -79,15 +78,6 @@ for DOCKERFILE in docker/*.Dockerfile; do
     connector-vmm) IMAGE_SUPPORTED='["linux/amd64"]' ;;
     *) IMAGE_SUPPORTED="${PLATFORMS}" ;;
     esac
-    # The VMM image is loaded, never pushed, by the bake: it is gated below,
-    # and only the image which passed is published.
-    IMAGE_OUTPUT="${OUTPUT}"
-    IMAGE_ATTEST="${ATTEST}"
-    if [[ "${IMAGE_NAME}" == connector-vmm ]]; then
-        IMAGE_OUTPUT='["type=docker"]'
-        # A loaded image can't carry attestations (see ATTEST above).
-        IMAGE_ATTEST='[]'
-    fi
     IMAGE_PLATFORMS=$(echo "${PLATFORMS}" | jq -c --argjson supported "${IMAGE_SUPPORTED}" \
         '[.[] | select(. as $platform | $supported | index($platform))]')
     if [[ "${IMAGE_PLATFORMS}" == "[]" ]]; then
@@ -119,8 +109,8 @@ for DOCKERFILE in docker/*.Dockerfile; do
         --arg context "${PACKAGE_DIR}" \
         --argjson tags "${IMAGE_TAGS}" \
         --argjson platforms "${IMAGE_PLATFORMS}" \
-        --argjson output "${IMAGE_OUTPUT}" \
-        --argjson attest "${IMAGE_ATTEST}" \
+        --argjson output "${OUTPUT}" \
+        --argjson attest "${ATTEST}" \
         '.[$name] = {
             "dockerfile": $dockerfile,
             "context": $context,
@@ -150,39 +140,14 @@ cat "${BAKE_FILE}"
 echo ""
 
 echo "=== Building images in parallel ==="
-docker buildx bake --allow=fs.read=${PACKAGE_DIR} --metadata-file "${METADATA_FILE}" -f "${BAKE_FILE}" "$@"
+docker buildx bake --allow=fs.read=${PACKAGE_DIR} -f "${BAKE_FILE}" "$@"
 
-# Image stores identify loaded images by config or manifest digest.
-# Full builds and publications require VMM metadata; custom local bakes may omit it.
-VMM_BUILT=$(jq -r '."connector-vmm" // empty | [."containerimage.config.digest", ."containerimage.digest"] | map(select(.)) | join(" ")' "${METADATA_FILE}")
-if [[ -z "${VMM_BUILT}" ]]; then
-    if [[ "${PUSH}" == "true" || ($# -eq 0 && " ${TARGET_NAMES[*]} " == *" connector-vmm "*) ]]; then
-        echo "Error: the bake's metadata names no connector-vmm image, so none can be gated" >&2
-        exit 1
-    fi
-    if [[ $# -gt 0 ]]; then
-        echo "This bake built no connector-vmm image, so none was gated"
-    fi
-else
-    VMM_ID=$(docker image inspect --format '{{.Id}}' "ghcr.io/estuary/connector-vmm:${TAGS[0]}")
-    [[ " ${VMM_BUILT} " == *" ${VMM_ID} "* ]] \
-        || { echo "Error: ghcr.io/estuary/connector-vmm:${TAGS[0]} is not the image the bake built" >&2; exit 1; }
-    "$(dirname "$0")/connector-vmm-gate" "${VMM_ID}"
-    # Every tag names the gated image before any is pushed, and again as it is.
-    require_gated() {
-        [[ "$(docker image inspect --format '{{.Id}}' "$1")" == "${VMM_ID}" ]] \
-            || { echo "Error: $1 is not the gated image ${VMM_ID}" >&2; exit 1; }
-    }
-    VMM_TAGS=("${TAGS[@]/#/ghcr.io/estuary/connector-vmm:}")
-    for VMM_TAG in "${VMM_TAGS[@]}"; do
-        require_gated "${VMM_TAG}"
-    done
-    if [[ "${PUSH}" == "true" ]]; then
-        for VMM_TAG in "${VMM_TAGS[@]}"; do
-            require_gated "${VMM_TAG}"
-            docker push --quiet "${VMM_TAG}"
-        done
-    fi
+# A registry build can leave a stale tag in the gate engine's local store.
+if [[ "${PUSH}" == "true" ]]; then
+    VMM_IMAGE="ghcr.io/estuary/connector-vmm:${TAGS[0]}"
+    read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
+    "${ENGINE[@]}" pull "${VMM_IMAGE}"
+    "$(dirname "$0")/connector-vmm-gate" "${VMM_IMAGE}"
 fi
 
 echo ""

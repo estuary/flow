@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Verify boundary installation and drift detection in the candidate VMM image's network namespace (needs no KVM)"
-#USAGE arg "<image>" help="The candidate VMM image, as the engine names it"
+#MISE description="Verify boundary installation and drift detection in a VMM image's network namespace (needs no KVM)"
+#USAGE arg "<image>" help="The VMM image, as the engine names it"
 
-# ci:docker-images runs this on the image it then publishes. The engine is
-# docker unless CONNECTOR_VMM_GATE_ENGINE names another, such as `sudo -n podman`.
+# CONNECTOR_VMM_GATE_ENGINE can also name a command such as `sudo -n podman`.
 IMAGE="${usage_image:-${1:?usage: connector-vmm-gate IMAGE}}"
 read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
 
-# The candidate's own nft must list what its binary installed. Drift is
+# The image's own nft must list what its binary installed. Drift is
 # defined here independently of the binary.
 # shellcheck disable=SC2016
 GATE='
@@ -67,9 +66,9 @@ refused "verify after remove" "table is absent" "${vmm}" boundary verify
 exit "${failed}"
 '
 
-# A killed engine client may leave its container running. Use an exact name
-# for cleanup here and by the workflow if this script is killed outright.
-NAME="${CONNECTOR_VMM_GATE_NAME:-connector-vmm-gate-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')}"
+# A killed engine client may leave its container running. An exact name lets
+# cleanup remove that container and no other.
+NAME="connector-vmm-gate-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 TIMEOUT="${CONNECTOR_VMM_GATE_TIMEOUT:-300}"
 
 # Whether the engine has a container of exactly NAME: status 0 if it does,

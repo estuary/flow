@@ -47,8 +47,6 @@ loads through `bootstrap:vsock-loopback`.
   restarts, teardown and pruning.
 - `tests/release.rs`: the task's claim of its root and its resource
   cleanup, against stand-in commands and inert temporary fixtures.
-- `tests/publish.rs`: `ci:docker-images` never pushes a VMM image which did
-  not pass `ci:connector-vmm-gate`, against a stand-in docker.
 
 Unit tests own what needs no VM: `connector`'s `readiness_tests.rs`
 (readiness, cancellation and refused launches against a scripted engine)

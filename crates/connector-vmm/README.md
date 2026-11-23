@@ -201,8 +201,10 @@ because IANA marks them globally reachable.
 
 `docker/connector-vmm.Dockerfile` is Fedora 43 with libkrun built from
 source, Fedora's `libkrunfw` guest kernel, and `ip`, `nft` and `mkfs.ext4`.
-`ci:docker-images` builds it for `linux/amd64`, runs `ci:connector-vmm-gate`
-on it, and pushes it only if the gate passes.
+`ci:docker-images` builds it with the other images, for `linux/amd64` only.
+A publication (`PUSH=true`) pushes it, pulls its first version tag, and runs
+`ci:connector-vmm-gate` on that. A failed gate fails Platform Build, though
+the image is already published. A local build loads the image ungated.
 
 - Fedora's updates repository keeps only the newest `libkrunfw`, so the
   build stops once it moves past the pin. Moving the pin changes the guest
