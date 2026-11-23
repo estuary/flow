@@ -105,9 +105,10 @@ The server can open the contents of nothing else, `/proc/self/mem`
 included. The ruleset does not hide names or attributes, and does not
 govern chmod, chown, times or extended attributes.
 
-Landlock needs Linux 6.2 (ABI 3), enabled among the kernel's LSMs and
-permitted by the container's seccomp profile. Without it the VMM writes a
-`warning:` line to stderr and runs unrestricted.
+The VMM requires at least Landlock ABI 3 (Linux 6.2), enabled among the kernel's LSMs
+and permitted by the container's seccomp profile. `enter` calls
+`krun_start_enter` only after the kernel applies every rule. Any Landlock
+failure ends the launch before the VM starts, and its cause reaches stderr.
 
 ## What the launcher provides
 

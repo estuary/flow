@@ -492,14 +492,15 @@ mod tests {
     fn libkrun_call_sequence() {
         let mut table = String::new();
 
-        for (name, machine) in [
-            ("base", base()),
+        for (name, machine, refuse_landlock) in [
+            ("base", base(), false),
             (
                 "with a persistent disk",
                 Machine {
                     persistent_disk: true,
                     ..base()
                 },
+                false,
             ),
             (
                 "--debug",
@@ -513,9 +514,14 @@ mod tests {
                     },
                     ..base()
                 },
+                false,
             ),
+            ("a refused Landlock ruleset", base(), true),
         ] {
-            let recorder = Recording::default();
+            let recorder = Recording {
+                refuse_landlock,
+                ..Default::default()
+            };
             let error = super::enter(&recorder, &machine)
                 .expect_err("the recording implementation never starts a VM");
 
@@ -645,6 +651,7 @@ mod tests {
     #[derive(Default)]
     struct Recording {
         calls: Mutex<Vec<String>>,
+        refuse_landlock: bool,
     }
 
     impl Recording {
@@ -769,6 +776,9 @@ mod tests {
         fn restrict_self(&self, rules: &[crate::landlock::Rule]) -> anyhow::Result<()> {
             for rule in rules {
                 self.record(format!("restrict_self: {:?} {:?}", rule.access, rule.path))?;
+            }
+            if self.refuse_landlock {
+                anyhow::bail!("the recording implementation refuses the Landlock ruleset");
             }
             Ok(())
         }

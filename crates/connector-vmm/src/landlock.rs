@@ -66,20 +66,18 @@ pub struct Rule {
     pub access: Access,
 }
 
-/// Why this kernel cannot apply a ruleset, from its answer to the ABI query.
-/// ENOSYS is a kernel built without Landlock, or a seccomp profile which
-/// refuses the call. EOPNOTSUPP is Landlock left out of the boot's LSMs.
-fn unavailable(abi: std::io::Result<libc::c_long>) -> Option<String> {
-    match abi {
-        Err(error) => Some(format!("querying its ABI: {error}")),
-        Ok(abi) if abi < ABI => Some(format!("the kernel has ABI {abi}, not {ABI}")),
-        Ok(_) => None,
+fn check_abi(abi: std::io::Result<libc::c_long>) -> anyhow::Result<()> {
+    let abi =
+        abi.with_context(|| format!("querying the Landlock ABI, which must be at least {ABI}"))?;
+    if abi < ABI {
+        anyhow::bail!("the Landlock ABI is {abi}, and must be at least {ABI}");
     }
+    Ok(())
 }
 
 /// Permanently restrict the calling thread and its future children.
-/// `Ok(Err(reason))` means Landlock is unavailable. Setup failures propagate.
-pub fn restrict_self(rules: &[Rule]) -> anyhow::Result<Result<(), String>> {
+/// Returns `Ok` only once the kernel has applied every rule.
+pub fn restrict_self(rules: &[Rule]) -> anyhow::Result<()> {
     // SAFETY: a version query, which takes no attribute.
     let abi = unsafe {
         libc::syscall(
@@ -89,14 +87,11 @@ pub fn restrict_self(rules: &[Rule]) -> anyhow::Result<Result<(), String>> {
             CREATE_RULESET_VERSION,
         )
     };
-    let abi = if abi < 0 {
+    check_abi(if abi < 0 {
         Err(std::io::Error::last_os_error())
     } else {
         Ok(abi)
-    };
-    if let Some(why) = unavailable(abi) {
-        return Ok(Err(why));
-    }
+    })?;
 
     let attr = RulesetAttr {
         handled_access_fs: HANDLED,
@@ -153,7 +148,7 @@ pub fn restrict_self(rules: &[Rule]) -> anyhow::Result<Result<(), String>> {
     if unsafe { libc::syscall(libc::SYS_landlock_restrict_self, ruleset.as_raw_fd(), 0u32) } < 0 {
         return Err(std::io::Error::last_os_error()).context("applying the Landlock ruleset");
     }
-    Ok(Ok(()))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -218,8 +213,7 @@ mod tests {
                 rule(&writable, Access::WriteTree),
                 rule(&backing, Access::ReadWriteFile),
             ])
-            .expect("a ruleset this kernel accepts")
-            .expect("a kernel with Landlock");
+            .expect("a kernel which applies the ruleset");
 
             let root = |path: &std::path::Path| -> OwnedFd {
                 rustix::fs::open(
@@ -302,7 +296,10 @@ mod tests {
         let os = |code| Err(std::io::Error::from_raw_os_error(code));
         let table: Vec<String> = [os(libc::ENOSYS), os(libc::EOPNOTSUPP), Ok(2), Ok(3), Ok(7)]
             .into_iter()
-            .map(|abi| format!("{:?}", super::unavailable(abi)))
+            .map(|abi| match super::check_abi(abi) {
+                Ok(()) => "supported".to_string(),
+                Err(error) => format!("{error:#}"),
+            })
             .collect();
         insta::assert_snapshot!(table.join("\n"));
     }

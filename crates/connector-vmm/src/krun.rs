@@ -301,16 +301,7 @@ impl Krun for Dynamic {
     }
 
     fn restrict_self(&self, rules: &[crate::landlock::Rule]) -> anyhow::Result<()> {
-        if let Err(why) = crate::landlock::restrict_self(rules)? {
-            eprint!(
-                "{}",
-                crate::framed(&format!(
-                    "warning: Landlock is unavailable to this VMM ({why}), \
-                     so libkrun's virtiofs server can open files outside its shares"
-                ))
-            );
-        }
-        Ok(())
+        crate::landlock::restrict_self(rules)
     }
 
     fn start_enter(&self, ctx: u32) -> anyhow::Result<Infallible> {

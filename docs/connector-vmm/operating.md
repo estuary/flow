@@ -38,6 +38,9 @@ Tested on x86_64 Ubuntu 24.04 with rootful Podman 4.9.3. Required:
 - **`openat2`** (Linux 5.6), allowed by the engine's seccomp profile, as
   Podman 4.9.3's default allows it. `flow-connector-vmm` reads a connector
   image's account files through it, and fails the launch without it.
+- **Landlock ABI 3 or newer**, enabled among the kernel's LSMs and
+  allowed by the engine's seccomp profile. `flow-connector-vmm` confines
+  libkrun's file access with it, and fails the launch without it.
 
 ## Images and binaries
 
