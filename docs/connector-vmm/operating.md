@@ -144,16 +144,20 @@ explicit internal routes.
 Each VMM's nameserver is podman's resolver on its own bridge's gateway, the only
 guest-initiated destination on the host the boundary admits (UDP/53).
 Replies to host-authorized container networking connections are also allowed.
+Podman's resolver forwards queries from the host to the host's own
+nameservers. A host configured with Azure-provided DNS at `168.63.129.16`
+therefore still resolves VMM queries, though no VMM reaches that address.
 
 ## The host boundary
 
 `flow-connector-vmm boundary` maintains two host nftables tables,
 `inet flow_vmm_boundary` and `bridge flow_vmm_boundary`. Keyed on the `fvm*`
 interfaces rather than addresses, they keep every VMM from the host, private,
-link-local and other special-purpose addresses, Azure's platform address
+link-local and other special-purpose addresses, the metadata addresses
+`100.100.100.200` and `192.0.0.192`, Azure's host platform address
 `168.63.129.16`, sibling VMMs, IPv6, TCP/25 and inbound connections, even
 after a VMM has removed its own rules. Declared CIDRs can authorize private
-and Azure platform destinations. The rules are in [`crates/connector-vmm`](../../crates/connector-vmm/README.md#the-host-boundary).
+destinations, but never link-local or those addresses. The rules are in [`crates/connector-vmm`](../../crates/connector-vmm/README.md#the-host-boundary).
 
 Run it from the VMM image of the launchers' configuration, as root, in the
 host's network namespace:

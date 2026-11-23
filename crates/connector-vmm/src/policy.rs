@@ -24,14 +24,15 @@ const BASELINE: &[&str] = &[
     "240.0.0.0/4",
 ];
 
-/// The part of `BASELINE` no declared CIDR reaches either. Each is not a
-/// destination a network routes to, or holds one that must stay unreachable:
-/// link-local holds every cloud's instance metadata service, and
-/// `192.0.2.0/24` holds the tap.
+/// Prefixes within `BASELINE` that no declared CIDR reaches: non-destinations,
+/// link-local, the exact cloud metadata and platform endpoints, and the tap.
 const EXCLUDED: &[&str] = &[
     "0.0.0.0/8",
+    "100.100.100.200/32",
     "127.0.0.0/8",
+    "168.63.129.16/32",
     "169.254.0.0/16",
+    "192.0.0.192/32",
     "192.0.2.0/24",
     "224.0.0.0/4",
     "240.0.0.0/4",
@@ -195,7 +196,12 @@ pub mod tests {
         let excluded = super::excluded(&vmm_subnets());
 
         for prefix in &excluded {
-            assert!(baseline.contains(prefix), "{prefix} is not in the baseline");
+            assert!(
+                baseline
+                    .iter()
+                    .any(|covering| prefix.is_subnet_of(*covering)),
+                "{prefix} is not within the baseline"
+            );
         }
         for subnet in vmm_subnets() {
             let subnet = super::canonical(subnet);

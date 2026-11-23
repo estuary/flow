@@ -955,28 +955,54 @@ mod tests {
         (address, received)
     }
 
+    /// A listed name answered with a cloud metadata or platform address is
+    /// refused alone, within the address's /32, a range around it, and
+    /// `0.0.0.0/0`. Neighbors and private destinations resolve as permitted.
     #[test]
-    fn azure_platform_address() {
-        let address = Ipv4Addr::new(168, 63, 129, 16);
-        let upstream = upstream(vec![(
-            ("pypi.org", dns::TYPE_A),
-            vec![Rr::A("pypi.org", address, 300)],
-        )]);
-        let mut table = String::new();
-        for cidrs in [vec![], vec!["168.63.129.16/32"], vec!["0.0.0.0/0"]] {
-            for named in [false, true] {
-                let names: &[&str] = if named { &["pypi.org"] } else { &[] };
-                let policy = crate::policy::tests::policy(names, &cidrs, None);
-                let recorder = Recorder::default();
-                let mut resolver = resolver_under(policy, upstream, recorder.clone());
-                let handled = resolver
-                    .handle(&query(1, "pypi.org", dns::TYPE_A), Instant::now())
-                    .unwrap();
-                writeln!(table, "cidrs={cidrs:?} named={named}: {}", handled.decision).unwrap();
-                assert!(recorder.calls().is_empty());
+    fn cloud_platform_addresses() {
+        const NAME: &str = "platform.acmeco.example";
+        let cases: [(&str, &[&str], u16); 18] = [
+            ("100.100.100.200", &[], dns::RCODE_REFUSED),
+            (
+                "100.100.100.200",
+                &["100.100.100.200/32"],
+                dns::RCODE_REFUSED,
+            ),
+            ("100.100.100.200", &["100.64.0.0/10"], dns::RCODE_REFUSED),
+            ("100.100.100.200", &["0.0.0.0/0"], dns::RCODE_REFUSED),
+            ("168.63.129.16", &[], dns::RCODE_REFUSED),
+            ("168.63.129.16", &["168.63.129.16/32"], dns::RCODE_REFUSED),
+            ("168.63.129.16", &["168.63.0.0/16"], dns::RCODE_REFUSED),
+            ("168.63.129.16", &["0.0.0.0/0"], dns::RCODE_REFUSED),
+            ("192.0.0.192", &[], dns::RCODE_REFUSED),
+            ("192.0.0.192", &["192.0.0.192/32"], dns::RCODE_REFUSED),
+            ("192.0.0.192", &["192.0.0.0/24"], dns::RCODE_REFUSED),
+            ("192.0.0.192", &["0.0.0.0/0"], dns::RCODE_REFUSED),
+            ("168.63.129.17", &[], dns::RCODE_NOERROR),
+            ("100.100.100.201", &["100.64.0.0/10"], dns::RCODE_NOERROR),
+            ("168.63.129.17", &["168.63.0.0/16"], dns::RCODE_NOERROR),
+            ("192.0.0.193", &["192.0.0.0/24"], dns::RCODE_NOERROR),
+            ("10.1.2.3", &["10.0.0.0/8"], dns::RCODE_NOERROR),
+            ("10.1.2.3", &["0.0.0.0/0"], dns::RCODE_NOERROR),
+        ];
+
+        for (address, cidrs, expected) in cases {
+            let upstream = upstream(vec![(
+                (NAME, dns::TYPE_A),
+                vec![Rr::A(NAME, address.parse().expect("test constant"), 300)],
+            )]);
+            let recorder = Recorder::default();
+            let policy = crate::policy::tests::policy(&[NAME], cidrs, None);
+            let mut resolver = resolver_under(policy, upstream, recorder.clone());
+
+            let handled = resolver
+                .handle(&query(1, NAME, dns::TYPE_A), Instant::now())
+                .unwrap();
+            assert_eq!(rcode(&handled), expected, "{address} under {cidrs:?}");
+            if expected == dns::RCODE_REFUSED {
+                assert!(recorder.calls().is_empty(), "{address} under {cidrs:?}");
             }
         }
-        insta::assert_snapshot!(table);
     }
 
     #[test]

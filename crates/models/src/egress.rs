@@ -23,8 +23,8 @@ pub struct Egress {
     ///
     /// A permitted name is reachable on any port, but only at public
     /// addresses, or at addresses within `cidrs`. Loopback, link-local and
-    /// other addresses which are not destinations, and TCP port 25, are never
-    /// reachable.
+    /// other addresses which are not destinations, designated cloud metadata
+    /// and host-platform addresses, and TCP port 25, are never reachable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<String>,
     /// # IPv4 address ranges the connector may reach.
@@ -34,8 +34,9 @@ pub struct Egress {
     /// included, both directly and by any name which resolves only into
     /// declared ranges. Ranges may overlap, and `0.0.0.0/0` covers every
     /// address. Loopback, link-local and other addresses which are not
-    /// destinations, the machine running the connector, and TCP port 25,
-    /// remain unreachable.
+    /// destinations, designated cloud metadata and host-platform addresses,
+    /// the machine running the connector, and TCP port 25, remain unreachable
+    /// even within a range.
     ///
     /// Only private and local data planes accept address ranges.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -166,11 +166,13 @@ where they meet, except for `policy::excluded`.
 | `0.0.0.0/8` | "this network"; `0.0.0.0/32` is this host | excluded |
 | `10.0.0.0/8` | private use (RFC 1918) | reachable |
 | `100.64.0.0/10` | shared address space, carrier NAT (RFC 6598) | reachable |
+| `100.100.100.200/32` | [Alibaba Cloud instance metadata](https://www.alibabacloud.com/help/en/ecs/user-guide/view-instance-metadata) | excluded |
 | `127.0.0.0/8` | loopback | excluded |
-| `168.63.129.16/32` | [Azure platform virtual IP](https://learn.microsoft.com/en-us/azure/virtual-network/what-is-ip-address-168-63-129-16) (WireServer, DNS, DHCP, health probes) | reachable |
-| `169.254.0.0/16` | link local, and every cloud's instance metadata service | excluded |
+| `168.63.129.16/32` | [Azure platform virtual IP](https://learn.microsoft.com/en-us/azure/virtual-network/what-is-ip-address-168-63-129-16) (WireServer, DNS, DHCP, health probes) | excluded |
+| `169.254.0.0/16` | link local, including [OCI instance metadata](https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/gettingmetadata.htm) at `169.254.169.254` | excluded |
 | `172.16.0.0/12` | private use (RFC 1918) | reachable |
 | `192.0.0.0/24` | IETF protocol assignments: DS-Lite, NAT64/DNS64 discovery | reachable |
+| `192.0.0.192/32` | [Oracle Compute Classic instance metadata](https://docs.oracle.com/en/cloud/iaas-classic/compute-iaas-cloud/stcsg/retrieving-instance-metadata.html) | excluded |
 | `192.0.2.0/24` | documentation (TEST-NET-1), and the tap `192.0.2.0/30` | excluded |
 | `192.88.99.0/24` | deprecated 6to4 relay anycast | reachable |
 | `192.168.0.0/16` | private use (RFC 1918) | reachable |

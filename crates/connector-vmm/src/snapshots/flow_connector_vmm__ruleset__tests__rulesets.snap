@@ -19,7 +19,7 @@ table inet flow_egress {
 		type ipv4_addr
 		flags interval
 		auto-merge
-		elements = { 0.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
+		elements = { 0.0.0.0/8, 100.100.100.200/32, 127.0.0.0/8, 168.63.129.16/32, 169.254.0.0/16, 192.0.0.192/32, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
 	}
 
 	set resolved {
@@ -75,7 +75,7 @@ table inet flow_egress {
 # empty
 - # flow-connector-vmm egress ruleset: allowedNames=1 declaredCidrs=3 ttlFloorSecs=90 ttlCapSecs=3600
 - 	set excluded {
-- 		elements = { 0.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
+- 		elements = { 0.0.0.0/8, 100.100.100.200/32, 127.0.0.0/8, 168.63.129.16/32, 169.254.0.0/16, 192.0.0.192/32, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
 - 	set declared {
 - 		elements = { 10.0.0.0/8, 93.184.216.0/24, 192.168.4.7/32 }
 - 		ip daddr @excluded counter drop comment "excluded"
@@ -93,7 +93,7 @@ table inet flow_egress {
 # allowed names
 - # flow-connector-vmm egress ruleset: allowedNames=1 declaredCidrs=3 ttlFloorSecs=90 ttlCapSecs=3600
 - 	set excluded {
-- 		elements = { 0.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
+- 		elements = { 0.0.0.0/8, 100.100.100.200/32, 127.0.0.0/8, 168.63.129.16/32, 169.254.0.0/16, 192.0.0.192/32, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
 - 	set declared {
 - 		elements = { 10.0.0.0/8, 93.184.216.0/24, 192.168.4.7/32 }
 - 		ip daddr @excluded counter drop comment "excluded"
@@ -105,7 +105,7 @@ table inet flow_egress {
 # empty, with ingress
 - # flow-connector-vmm egress ruleset: allowedNames=1 declaredCidrs=3 ttlFloorSecs=90 ttlCapSecs=3600
 - 	set excluded {
-- 		elements = { 0.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
+- 		elements = { 0.0.0.0/8, 100.100.100.200/32, 127.0.0.0/8, 168.63.129.16/32, 169.254.0.0/16, 192.0.0.192/32, 192.0.2.0/24, 224.0.0.0/4, 240.0.0.0/4, 10.89.0.0/24, 192.0.2.0/30 }
 - 	set declared {
 - 		elements = { 10.0.0.0/8, 93.184.216.0/24, 192.168.4.7/32 }
 - 		ip daddr @excluded counter drop comment "excluded"

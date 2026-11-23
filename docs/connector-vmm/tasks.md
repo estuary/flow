@@ -154,13 +154,18 @@ The declaration alone decides, on every plane:
 | any other | the names in `egress.hosts`, and any address within `egress.cidrs` |
 
 On every plane, nothing a task declares lifts the platform's exclusions.
-Loopback, link-local (including every cloud's instance metadata service),
-multicast and other addresses which are not destinations, the host running
-the connector, other VMMs, IPv6 and TCP port 25 are never reachable. Private
-and other special-purpose IPv4 addresses are reachable only within
+Loopback, link-local (including the metadata address `169.254.169.254`),
+multicast and other addresses which are not destinations, the metadata
+addresses `100.100.100.200` (Alibaba Cloud) and `192.0.0.192` (Oracle Compute
+Classic), Azure's host platform address `168.63.129.16`, the host running the
+connector, other VMMs, IPv6 and TCP port 25 are never reachable. Private and
+other special-purpose IPv4 addresses are reachable only within
 `egress.cidrs`. A permitted name which resolves to an unreachable address is
 refused. These exclusions are enforced twice: inside the VMM, and on the host
 outside the VMM's authority.
+
+Obtaining the host instance's credentials through cloud metadata is
+unsupported.
 
 There are no settings for ports, rates, DNS TTLs, allow-all or deny-all. A
 permitted name, and an address within a declared range, is reachable on any
@@ -205,14 +210,12 @@ the connector.
 - Each is an IPv4 address and a prefix length, such as `10.20.0.0/16`, or
   `10.20.3.4/32` for one address. IPv6 ranges, bare addresses, netmasks and
   addresses with bits set below the prefix (`10.20.3.4/16`) are refused.
-- Every address within a range is reachable on any TCP or UDP port, except
-  TCP port 25, whether the connector uses the address directly or a name
-  resolving to it. A name need not be listed in `hosts` when every address it
-  resolves to lies within the declared ranges.
+- An address within a range is reachable unless it is excluded above, on
+  any TCP or UDP port except TCP port 25, whether the connector uses the
+  address directly or a name resolving to it. A name need not be listed in
+  `hosts` when every address it resolves to lies within the declared ranges.
 - Broad ranges, including `10.0.0.0/8` and `0.0.0.0/0`, are accepted. The
-  exclusions above still apply within them: `0.0.0.0/0` reaches every public
-  and private address, but not the metadata service, loopback, the host or
-  other VMMs.
+  same exclusions apply to them as to an exact `/32`.
 - Only private data planes accept a range, as do the local data planes of
   development stacks. A public data plane refuses any nonempty `cidrs` when the connector starts,
   including at publication: "the task declares egress.cidrs, which only
