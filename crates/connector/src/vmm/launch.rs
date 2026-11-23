@@ -8,11 +8,12 @@
 //! One spawned task owns everything a launch creates, from its claim to its
 //! release, and holds the record's lock throughout (see `record`). Network,
 //! grant, volume and container creates await `release::command` before
-//! teardown, even when abandoned. It bounds command and client reaping waits.
+//! teardown, even when abandoned. It kills a client which outlasts
+//! `release::COMMAND_TIMEOUT`.
 //! Pulls and image inspections are cancellable; the attached `start` runs
 //! with the VMM.
 //!
-//! Podman may finish a create after its client exits or its reap wait fails.
+//! Podman may finish a create after `release::command` returns.
 //! Resources carry labels which `release::recover` inventories after record
 //! removal. A late grant's container is recorded before its grant is revoked.
 //! The task holds a clone of the session's log sink, so the session
@@ -223,10 +224,8 @@ async fn launch(
         declarations.declared_usage_rate,
     )?;
 
-    let connector_init = locate_bin::locate_static("flow-connector-init")
-        .context(
-            "VMM execution runs a static flow-connector-init beside this program or on its PATH",
-        )
+    let connector_init = locate_bin::locate("flow-connector-init")
+        .context("VMM execution runs a flow-connector-init beside this program or on its PATH")
         .map_err(precondition)?;
     let connector_mounts = connector_mounts(&std::env::temp_dir()).map_err(precondition)?;
     let vmm_image = unless_abandoned(launched_tx, async {

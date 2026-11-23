@@ -104,10 +104,9 @@ status 1 and reports its cause.
 `src/vsock_test.rs` serves a `connector.Connector` stream over AF_VSOCK
 against an in-process server. It's a unit test because an integration test
 would make Cargo build a glibc `flow-connector-init` into `target/debug`,
-which launchers pass over (`locate_bin::locate_static`) but plain `PATH`
-lookups find ahead of the musl build connector containers need.
+which `locate_bin::locate` and `PATH` lookups find ahead of the musl build
+connector containers need.
 
 It dials CID 1, which needs the `vsock_loopback` kernel module. Without it
-the test skips, unless `CONNECTOR_VMM_KVM` is set, in which case a missing
-loopback is a failure; `mise run ci:connector-vmm-kvm` sets it.
-`sudo modprobe vsock_loopback` enables it.
+the test fails. `mise run bootstrap:vsock-loopback` loads it, and
+`ci:nextest-run` and `ci:connector-vmm-kvm` depend on that task.

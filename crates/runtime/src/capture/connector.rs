@@ -252,7 +252,7 @@ mod test {
 
     #[tokio::test]
     async fn test_http_ingest_spec() {
-        if let Err(_) = locate_bin::locate_static("flow-connector-init") {
+        if let Err(_) = locate_bin::locate("flow-connector-init") {
             // Skip if `flow-connector-init` isn't available (yet). We're probably on CI.
             // This test is useful as a sanity check for local development
             // and we have plenty of other coverage during CI.

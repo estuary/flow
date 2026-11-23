@@ -2,9 +2,10 @@
 set -euo pipefail
 
 #MISE description="Run the Rust test suite under nextest"
-#MISE depends=["bootstrap:submodules", "ci:musl-dev", "build:gazette", "local:supabase", "local:bigtable"]
+#MISE depends=["bootstrap:submodules", "bootstrap:vsock-loopback", "ci:musl-dev", "build:gazette", "local:supabase", "local:bigtable"]
 
 # Prerequisites, all declared above:
+#  * vsock-loopback -- connector-init's vsock test, on Linux
 #  * musl-dev     -- flow-connector-init, found on PATH by runtime container tests
 #  * build:gazette -- crates/e2e-support spawns a real broker from ${GOBIN}
 #                     (shuffle, runtime-next split_e2e)

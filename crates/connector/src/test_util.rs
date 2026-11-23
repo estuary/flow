@@ -7,7 +7,7 @@ fn shard_template() -> serde_json::Value {
 /// Every first-request shape of every protocol, as a connector whose endpoint
 /// is `connector_type` and `config_json`. Requests which embed the task's
 /// built spec (Apply and Open) carry `spec_execution` within it.
-pub(crate) fn every_first_request(
+pub fn every_first_request(
     connector_type: fn(ops::TaskType) -> i32,
     config_json: &bytes::Bytes,
     spec_execution: Option<flow::ConnectorExecution>,
@@ -212,7 +212,7 @@ pub(crate) fn every_first_request(
     ]
 }
 
-pub(crate) fn image_connector_type(task_type: ops::TaskType) -> i32 {
+pub fn image_connector_type(task_type: ops::TaskType) -> i32 {
     match task_type {
         ops::TaskType::Capture => flow::capture_spec::ConnectorType::Image as i32,
         ops::TaskType::Derivation => flow::collection_spec::derivation::ConnectorType::Image as i32,

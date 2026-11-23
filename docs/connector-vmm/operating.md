@@ -242,7 +242,7 @@ mechanism. What an operator needs:
 | A `CONNECTOR_VMM_*` variable named with its value | Configuration refused at service construction. |
 | "CONNECTOR_VMM_STATE_DIR ..." (FailedPrecondition) | The state directory is missing, a link, owned by another UID, or not mode 0700. |
 | "opening an O_TMPFILE scratch disk in ..." or "sizing a scratch disk in ..." | The state directory's filesystem cannot hold the scratch disk. |
-| "VMM execution runs a static flow-connector-init beside this program or on its PATH" | No `flow-connector-init` found, or only dynamically linked ones, which the message lists. |
+| "VMM execution runs a flow-connector-init beside this program or on its PATH" | No `flow-connector-init` found. |
 | "the host's VMM network boundary did not verify, ..." | Tables absent, or from another build; the verifier's lines name each difference. |
 | "pulling VMM image ..." or "inspecting VMM image ..." (FailedPrecondition) | The engine lacks this build's VMM image and cannot pull it, or cannot name its ID. |
 | "this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT ..." | The memory limit cannot size a VMM's guest (see [Configuration](#configuration)). Ordinary tasks are unaffected. |

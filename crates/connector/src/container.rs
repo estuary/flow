@@ -582,7 +582,7 @@ async fn inspect_container_network(
 async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Result<()> {
     // If we can locate an installed flow-connector-init, use that.
     // This is common when developing or within a container workspace.
-    if let Ok(connector_init) = locate_bin::locate_static("flow-connector-init") {
+    if let Ok(connector_init) = locate_bin::locate("flow-connector-init") {
         tokio::fs::copy(connector_init, tmp_path).await?;
         return Ok(());
     }

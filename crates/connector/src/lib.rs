@@ -33,9 +33,8 @@ mod serve;
 mod service;
 mod vmm;
 
-#[cfg(test)]
-#[path = "../tests/fixtures/execution.rs"]
-mod execution_fixture;
+#[cfg(feature = "test_util")]
+pub mod test_util;
 
 pub(crate) use proto_grpc::connector::SPEC_TASK_NAME;
 pub(crate) use proto_grpc::{status_to_anyhow, verify, verify_connector};

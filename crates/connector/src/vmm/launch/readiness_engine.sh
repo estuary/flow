@@ -11,7 +11,6 @@ if [ -e "$dir/hang" ]; then
     case "$*" in
     $(cat "$dir/hang"))
         printf '%s\n' "$@" >"$dir/hung-args"
-        echo $$ >"$dir/hung-pid"
         exec 3<>"$dir/hung"
         echo hung >>"$dir/events"
         read -r _ <&3
@@ -112,14 +111,6 @@ case "$1 ${2:-}" in
     done
     ;;
 "ps --all")
-    # Whether a hung command's client was reaped before teardown first looked.
-    if [ -e "$dir/hung-pid" ] && [ ! -e "$dir/hung-reaped" ]; then
-        if kill -0 "$(cat "$dir/hung-pid")" 2>/dev/null; then
-            echo false >"$dir/hung-reaped"
-        else
-            echo true >"$dir/hung-reaped"
-        fi
-    fi
     case "$*" in
     *'{{.Names}}'*)
         if [ -e "$dir/container" ]; then cat "$dir/container-name"; fi

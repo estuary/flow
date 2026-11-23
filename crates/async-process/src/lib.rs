@@ -93,16 +93,6 @@ impl Child {
         }
     }
 
-    /// SIGKILL the child unless already reaped, then await reaping and
-    /// return its exit status.
-    pub async fn kill_and_wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
-        self.try_resolve();
-        if let Status::Reaping(_) = self.status {
-            self.kill();
-        }
-        self.wait().await
-    }
-
     /// Reports whether the child process has been reaped (its exit status
     /// collected). A `false` result means the child may still be running, or
     /// has exited but not yet been reaped.
@@ -241,26 +231,6 @@ mod test {
         // Sleep for six hours.
         let child: Child = Command::new("sleep").arg("21600").spawn().unwrap().into();
         std::mem::drop(child); // Doesn't block for six hours.
-    }
-
-    #[tokio::test]
-    async fn test_kill_and_wait() {
-        use std::os::unix::process::ExitStatusExt;
-
-        // ECHILD distinguishes reaping from termination alone.
-        let mut child: Child = Command::new("sleep").arg("21600").spawn().unwrap().into();
-        let status = child.kill_and_wait().await.unwrap();
-        assert_eq!(status.signal(), Some(libc::SIGKILL));
-        assert!(child.is_finished());
-        let reaped = unsafe { libc::waitpid(child.pid, std::ptr::null_mut(), libc::WNOHANG) };
-        assert_eq!(
-            (reaped, std::io::Error::last_os_error().raw_os_error()),
-            (-1, Some(libc::ECHILD))
-        );
-
-        let mut child: Child = Command::new("true").spawn().unwrap().into();
-        assert!(child.wait().await.unwrap().success());
-        assert!(child.kill_and_wait().await.unwrap().success());
     }
 
     // Regression test: if the reaping `spawn_blocking` task doesn't complete —

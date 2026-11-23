@@ -354,12 +354,7 @@ fn hung_commands_time_out_and_late_creates_are_recovered() {
             ] {
                 h.ports = ports;
                 let (outcome, args) = timed_out(&mut h, hang).await;
-                let reaped = std::fs::read_to_string(h.dir.join("hung-reaped")).unwrap();
                 rows.push(format!("{hang} => {outcome}"));
-                rows.push(format!(
-                    "  client reaped before teardown looked: {}",
-                    reaped.trim()
-                ));
 
                 let arg = |prefix: &str| {
                     args.iter()
@@ -412,24 +407,19 @@ fn hung_commands_time_out_and_late_creates_are_recovered() {
                         "  late {late}: recovery left problems {problems:?}, resources {left:?}"
                     ));
                 }
-                for file in ["calls", "hung-args", "hung-pid", "hung-reaped"] {
+                for file in ["calls", "hung-args"] {
                     std::fs::remove_file(h.dir.join(file)).unwrap();
                 }
             }
             insta::assert_snapshot!(rows.join("\n"), @r#"
             * boundary verify => failed (FailedPrecondition): the host's VMM network boundary did not verify, so this data plane cannot run VMM connectors: <dir>/engine command [..] did not finish within 60s
-              client reaped before teardown looked: true
             network create * => failed: creating the VMM network fv_<id> on bridge fvm<id>: <dir>/engine command [..] did not finish within 60s
-              client reaped before teardown looked: true
               late network: recovery left problems [], resources []
             * boundary grant * => failed: installing the VMM host permissions: <dir>/engine command [..] did not finish within 60s
-              client reaped before teardown looked: true
               late grant: recovery left problems [], resources []
             volume create * => failed: creating the VMM's private rootfs volume: <dir>/engine command [..] did not finish within 60s
-              client reaped before teardown looked: true
               late volume: recovery left problems [], resources []
             create --rm * => failed: creating the VMM's container: <dir>/engine command [..] did not finish within 60s
-              client reaped before teardown looked: true
               late container: recovery left problems [], resources []
             "#);
         },
@@ -456,10 +446,6 @@ fn a_hung_address_inspection_times_out() {
             ) && report.outcome.ends_with("] did not finish within 60s"),
             "{}",
             report.outcome
-        );
-        assert_eq!(
-            std::fs::read_to_string(h.dir.join("hung-reaped")).unwrap(),
-            "true\n"
         );
         assert_eq!(report.ended, "rm");
         assert!(report.left.is_empty(), "{:?}", report.left);
@@ -684,8 +670,8 @@ fn a_public_vmm_start_has_only_its_launch_mount() {
                 .to_string()
                 .into();
             let Some((.., proto_flow::connector::request::Kind::Derive(open))) =
-                crate::execution_fixture::every_first_request(
-                    crate::execution_fixture::image_connector_type,
+                crate::test_util::every_first_request(
+                    crate::test_util::image_connector_type,
                     &endpoint,
                     Some(execution.clone()),
                 )

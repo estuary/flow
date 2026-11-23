@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Gate a built VMM image before it is published: its boundary installs, verifies, and refuses each tampering, in a container's own network namespace (needs no KVM, and never touches the host's tables)"
+#MISE description="Verify boundary installation and drift detection in the candidate VMM image's network namespace (needs no KVM)"
 #USAGE arg "<image>" help="The candidate VMM image, as the engine names it"
 
 # ci:docker-images runs this on the image it then publishes. The engine is
@@ -9,7 +9,7 @@ set -euo pipefail
 IMAGE="${usage_image:-${1:?usage: connector-vmm-gate IMAGE}}"
 read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
 
-# The candidate's own nft must list what its binary installed. Tampering is
+# The candidate's own nft must list what its binary installed. Drift is
 # defined here independently of the binary.
 # shellcheck disable=SC2016
 GATE='
@@ -117,7 +117,7 @@ case "${found}" in
 2) echo "ci:connector-vmm-gate: could not list containers" >&2 && exit 1 ;;
 esac
 
-echo "=== Gating VMM image ${IMAGE}: boundary install, verify and tampering ==="
+echo "=== Gating VMM image ${IMAGE}: boundary install, verify and drift detection ==="
 CLIENT=
 trap release EXIT
 trap 'exit 130' INT

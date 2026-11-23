@@ -2,18 +2,17 @@
 //! over AF_VSOCK, the transport libkrun maps to a host Unix socket.
 //!
 //! The test binds and dials CID 1 (VMADDR_CID_LOCAL), which requires the
-//! `vsock_loopback` module. Where it isn't loaded the test skips rather than
-//! fails, because the transport is unreachable from userspace at all. The
-//! opt-in KVM suite sets `CONNECTOR_VMM_KVM` and then a missing loopback is a
-//! failure: that job exists to prove the transport, not to skip it.
+//! `vsock_loopback` module. Where it isn't loaded the test fails, naming
+//! `mise run bootstrap:vsock-loopback`, which loads it.
 //!
 //! A unit test rather than an integration test under `tests/`: Cargo builds a
 //! package's binaries for its integration tests, which would put a glibc
-//! `flow-connector-init` in `$CARGO_TARGET_DIR/debug`. Launchers pass it over
-//! (`locate_bin::locate_static`), but plain $PATH lookups prefer it over the
-//! musl build that connector containers need.
+//! `flow-connector-init` in `$CARGO_TARGET_DIR/debug`. `locate_bin::locate`
+//! and $PATH lookups would find it ahead of the musl build that connector
+//! containers need.
 
 use crate::serve::test::{SPEC, first};
+use anyhow::Context;
 use proto_flow::connector;
 
 // Guest AF_VSOCK port the connector VMM maps to its host-side Unix socket.
@@ -21,15 +20,12 @@ const VSOCK_PORT: u32 = 49092;
 
 #[tokio::test]
 async fn connector_over_vsock() {
-    let Some(probe) = bind_probe().await else {
-        let strict = std::env::var_os("CONNECTOR_VMM_KVM").is_some_and(|v| !v.is_empty());
-        assert!(
-            !strict,
-            "AF_VSOCK loopback is unavailable and CONNECTOR_VMM_KVM is set; run `sudo modprobe vsock_loopback`"
-        );
-        eprintln!("skipping: AF_VSOCK loopback is unavailable (vsock_loopback not loaded)");
-        return;
-    };
+    let probe = bind_probe().await.unwrap_or_else(|err| {
+        panic!(
+            "AF_VSOCK loopback failed its probe ({err:#}); \
+             `mise run bootstrap:vsock-loopback` loads the vsock_loopback module it needs"
+        )
+    });
 
     let dir = tempfile::tempdir().unwrap();
     let inspect_path = dir.path().join("image-inspect.json");
@@ -103,15 +99,14 @@ async fn dial() -> std::io::Result<tokio_vsock::VsockStream> {
 
 /// Learn whether AF_VSOCK loopback works here, by binding the test's port and
 /// then dialing it at CID 1. Binding alone is not enough: a host with some
-/// other vsock transport binds fine and only fails the connect, which is the
-/// case that must skip rather than fail. Returns the listener so the caller can
-/// hold the port until it starts the server.
-async fn bind_probe() -> Option<tokio_vsock::VsockListener> {
+/// other vsock transport binds fine and only fails the connect. Returns the
+/// listener so the caller can hold the port until it starts the server.
+async fn bind_probe() -> anyhow::Result<tokio_vsock::VsockListener> {
     let listener = tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(
         tokio_vsock::VMADDR_CID_ANY,
         VSOCK_PORT,
     ))
-    .ok()?;
+    .context("binding the test's vsock port")?;
 
     // Only the handshake matters; the connected stream is dropped immediately.
     tokio_vsock::VsockStream::connect(tokio_vsock::VsockAddr::new(
@@ -119,7 +114,7 @@ async fn bind_probe() -> Option<tokio_vsock::VsockListener> {
         VSOCK_PORT,
     ))
     .await
-    .ok()?;
+    .context("dialing it at CID 1")?;
 
-    Some(listener)
+    Ok(listener)
 }

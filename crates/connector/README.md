@@ -215,10 +215,10 @@ src/
 ├── vmm/launch.rs # Claimed launch and credential lifecycle
 ├── vmm/record.rs # Durable ownership and locks
 ├── vmm/release.rs# Resource release, and one recovery pass
-└── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
+├── container.rs  # Docker/Podman pull, inspect/run capabilities, dial
+└── test_util.rs  # `test_util` feature: request shapes shared by unit tests and e2e.rs
 tests/
-├── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
-└── fixtures/execution.rs # request shapes shared with the engine and VMM unit tests
+└── e2e.rs        # served streams: loopback gRPC, EndpointRouter, in-process
 ```
 
 ## Non-obvious details

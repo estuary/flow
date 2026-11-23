@@ -23,8 +23,6 @@ use std::time::Duration;
 
 /// Bounds short engine commands so a wedged client cannot hold the record.
 pub(crate) const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
-/// A client stuck in kernel IO must not keep the record locked.
-const KILLED_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How far a release has got with one kind of resource.
 #[derive(Clone, Debug, PartialEq)]
@@ -615,61 +613,29 @@ fn remove_dir(path: &str) -> anyhow::Result<()> {
     }
 }
 
-/// Bound an engine command and kill its client at `COMMAND_TIMEOUT`.
-/// Await reaping for at most `KILLED_TIMEOUT`, reporting failure or expiry.
-/// A client still unreaped remains with `async_process::Child`'s reaper.
-/// Service-side creates may finish later; `recover` finds their labels.
+/// Dropping `async_process::output` kills the timed-out client. Podman may
+/// still finish a create, so `recover` inventories resource labels.
 pub(crate) async fn command<S>(podman: &str, args: &[S]) -> anyhow::Result<Vec<u8>>
 where
     S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
 {
-    let mut child: async_process::Child = async_process::Command::new(podman)
-        .args(args)
-        .stdin(async_process::Stdio::null())
-        .stdout(async_process::Stdio::piped())
-        .stderr(async_process::Stdio::piped())
-        .spawn()
-        .with_context(|| format!("failed to run {podman} command {args:?}"))?
-        .into();
-    let mut stdout_pipe = child.stdout.take().expect("stdout is piped");
-    let mut stderr_pipe = child.stderr.take().expect("stderr is piped");
-    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let output = tokio::time::timeout(
+        COMMAND_TIMEOUT,
+        async_process::output(async_process::Command::new(podman).args(args)),
+    )
+    .await
+    .map_err(|_elapsed| {
+        anyhow::anyhow!("{podman} command {args:?} did not finish within {COMMAND_TIMEOUT:?}")
+    })?
+    .with_context(|| format!("failed to run {podman} command {args:?}"))?;
 
-    let finished = tokio::time::timeout(COMMAND_TIMEOUT, async {
-        let (read_stdout, read_stderr, exited) = tokio::join!(
-            tokio::io::AsyncReadExt::read_to_end(&mut stdout_pipe, &mut stdout),
-            tokio::io::AsyncReadExt::read_to_end(&mut stderr_pipe, &mut stderr),
-            child.wait(),
-        );
-        read_stdout.and(read_stderr).and(exited)
-    })
-    .await;
-
-    let status = match finished {
-        Ok(status) => status.with_context(|| format!("failed to run {podman} command {args:?}"))?,
-        Err(_elapsed) => {
-            let timed_out =
-                format!("{podman} command {args:?} did not finish within {COMMAND_TIMEOUT:?}");
-            match tokio::time::timeout(KILLED_TIMEOUT, child.kill_and_wait()).await {
-                Ok(Ok(_killed)) => anyhow::bail!("{timed_out}"),
-                Ok(Err(err)) => {
-                    return Err(err).with_context(|| {
-                        format!("{timed_out}, and reaping its killed client failed")
-                    });
-                }
-                Err(_elapsed) => anyhow::bail!(
-                    "{timed_out}, and its killed client was not reaped within {KILLED_TIMEOUT:?}"
-                ),
-            }
-        }
-    };
-    if !status.success() {
+    if !output.status.success() {
         anyhow::bail!(
             "{podman} command {args:?} failed: {}",
-            String::from_utf8_lossy(&stderr),
+            String::from_utf8_lossy(&output.stderr),
         );
     }
-    Ok(stdout)
+    Ok(output.stdout)
 }
 
 #[cfg(test)]

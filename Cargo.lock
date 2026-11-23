@@ -2075,6 +2075,7 @@ dependencies = [
  "async-process",
  "bytes",
  "clap",
+ "connector",
  "connector-init",
  "dekaf-connector",
  "derive-sqlite",

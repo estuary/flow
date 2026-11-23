@@ -545,7 +545,7 @@ pub fn remove_container(name: &str) {
 }
 
 /// `boundary ACTION` as a launcher runs it, but in the network namespace
-/// `network` names: `host`, or `ns:<path>` for the tamper test.
+/// `network` names: `host` or `ns:<path>`.
 pub fn boundary(run: &Run, network: &str, action: &str) -> std::process::Output {
     let mut argv = vec!["podman".to_string()];
     argv.extend(connector::vmm_argv::host_boundary(

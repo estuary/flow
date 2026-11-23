@@ -189,8 +189,8 @@ fn engine_environment_child() {
             .to_string()
             .into();
         let Some((.., proto_flow::connector::request::Kind::Derive(open))) =
-            crate::execution_fixture::every_first_request(
-                crate::execution_fixture::image_connector_type,
+            crate::test_util::every_first_request(
+                crate::test_util::image_connector_type,
                 &config,
                 None,
             )

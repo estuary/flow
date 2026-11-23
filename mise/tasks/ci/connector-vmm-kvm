@@ -2,8 +2,8 @@
 set -euo pipefail
 
 #MISE description="Run the connector VMM's KVM integration suite, or with --platform its local platform integration test (needs /dev/kvm, passwordless sudo, rootful podman and docker buildx)"
+#MISE depends=["bootstrap:vsock-loopback"]
 #USAGE arg "[filter]" help="Run only tests whose names match, of the suite or, with --platform, of the platform tests. The run is then partial; for the suite, connector-init's vsock test is skipped."
-#USAGE flag "--allow-missing-vsock-loopback" help="Let connector-init's vsock test skip where vsock_loopback cannot load. The suite's own guest still proves connector-init serving over vsock."
 #USAGE flag "--platform" help="Instead of the suite, start this checkout's stack with its reactor launching VMMs, discover, dry-run, publish and run Python captures, derivations and materializations through the control plane and the reactor, and stop the stack. Refused while the stack is running."
 
 # Must match `run::ROOT` in crates/connector-vmm-tests/src/run.rs.
@@ -39,7 +39,6 @@ DECOY_FENCE=198.18.255.240/28
 DECOYS=(198.18.255.241 198.18.255.242)
 
 FILTER="${usage_filter:-}"
-ALLOW_MISSING_VSOCK="${usage_allow_missing_vsock_loopback:-false}"
 PLATFORM="${usage_platform:-false}"
 # The checkout whose stack alone a release may stop.
 CHECKOUT=$(git rev-parse --show-toplevel)
@@ -383,11 +382,8 @@ jq -n \
 status=0
 if [ -n "${FILTER}" ]; then
     echo "=== Partial run: suite tests matching '${FILTER}' only; connector-init's vsock test is skipped ==="
-elif [ "${ALLOW_MISSING_VSOCK}" = true ]; then
-    echo "=== connector-init's vsock test may skip (--allow-missing-vsock-loopback); the suite's guest still proves vsock serving ==="
-    nextest --locked -p connector-init --lib -E 'test(=vsock_test::connector_over_vsock)' || status=$?
 else
-    CONNECTOR_VMM_KVM=1 nextest --locked -p connector-init --lib -E 'test(=vsock_test::connector_over_vsock)' || status=$?
+    nextest --locked -p connector-init --lib -E 'test(=vsock_test::connector_over_vsock)' || status=$?
 fi
 
 echo "=== The KVM suite ==="

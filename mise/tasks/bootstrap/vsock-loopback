@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Load the vsock_loopback kernel module"
+
+if [[ "$(uname -s)" != Linux || -e /sys/module/vsock_loopback ]]; then
+    exit 0
+fi
+
+sudo modprobe vsock_loopback

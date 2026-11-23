@@ -26,10 +26,8 @@ network access. These integration tests are opt-in and developer-run;
 GitHub Actions and `ci:platform-test` do not run them, and nothing requires
 their results. Missing prerequisites fail the task. The task builds its own
 images from this checkout, so it does not test a published image.
-
-`--allow-missing-vsock-loopback` permits connector-init's separate vsock test
-to skip when its kernel module cannot load. The KVM suite still exercises
-connector-init over a guest's vsock connection.
+connector-init's separate vsock test needs `vsock_loopback`, which the task
+loads through `bootstrap:vsock-loopback`.
 
 ## Tests
 

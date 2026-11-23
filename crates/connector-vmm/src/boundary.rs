@@ -692,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn tampering_is_detected() {
+    fn drift_is_detected() {
         type Edit = fn(&mut Vec<serde_json::Value>);
         let edits: &[(&str, Edit)] =
             &[

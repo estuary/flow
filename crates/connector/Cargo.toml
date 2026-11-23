@@ -8,6 +8,11 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+# Exposes `connector::test_util`, request fixtures shared by unit tests and
+# `tests/e2e.rs`.
+test_util = []
+
 [dependencies]
 async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
@@ -53,6 +58,7 @@ validator = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+connector = { path = ".", features = ["test_util"] }
 insta = { workspace = true }
 rustls = { workspace = true }
 tokio = { workspace = true, features = ["macros", "test-util"] }

@@ -5,9 +5,6 @@
 //! Every connector started here is either in-process (derive-sqlite, Dekaf) or
 //! a `/bin/sh` subprocess, so nothing needs Docker.
 
-#[path = "fixtures/execution.rs"]
-mod execution_fixture;
-
 use connector::proto;
 use futures::StreamExt;
 use proto_grpc::connector::{Router as _, SPEC_TASK_NAME};
@@ -1029,8 +1026,8 @@ fn task_update_router(refresh_interval: std::time::Duration) -> connector::Servi
 }
 
 mod execution {
-    use super::execution_fixture::*;
     use super::*;
+    use connector::test_util::*;
     use proto_flow::{derive, flow};
 
     const PYTHON_IMAGE: &str = "ghcr.io/estuary/derive-python:stable";
