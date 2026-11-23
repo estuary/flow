@@ -12,12 +12,14 @@
 //! and every owner of such a network installs the same tables.
 //!
 //! Drops in these base chains cannot be undone by another table's accepts.
-//! Podman's resolver on the arrival bridge is the guest's DNS exception.
-//! Host ingress, and forwarded egress to a task's declared CIDRs, use a
-//! reserved packet mark cleared at priority -12 and set by launch-owned chains
-//! at priority -11. Permissions are checked on every packet, so stale
-//! conntrack state cannot authorize a replacement launch. Forwarded ingress
-//! and guest-originated host connections remain blocked.
+//! A launch's grant makes the only exceptions: UDP/53 to its nameserver from
+//! its own bridge, host ingress to its declared ports, and forwarded egress to
+//! its task's declared CIDRs. Each is a reserved packet mark, cleared at
+//! priority -12 and set by launch-owned chains at priority -11. DNS has a mark
+//! of its own, so neither other grant authorizes it. Permissions are checked
+//! on every packet, so stale conntrack state cannot authorize a replacement
+//! launch. Forwarded ingress and other guest-originated host traffic remain
+//! blocked.
 
 use anyhow::Context;
 use std::collections::BTreeMap;
@@ -51,8 +53,9 @@ pub enum Action {
     Verify,
     /// Delete both tables. Refused while any VMM bridge exists.
     Remove,
-    /// Permit host-originated TCP connections to one launch's declared ports,
-    /// and its forwarded traffic to its task's declared CIDRs.
+    /// Permit one launch's UDP/53 queries to its nameserver from its bridge,
+    /// host-originated TCP connections to its declared ports, and its
+    /// forwarded traffic to its task's declared CIDRs.
     Grant {
         #[arg(long, value_parser = crate::ingress::token)]
         owner: String,
@@ -60,12 +63,14 @@ pub enum Action {
         bridge: String,
         #[arg(
             long,
-            required_unless_present = "cidr",
+            required_unless_present_any = ["cidr", "nameserver"],
             value_parser = clap::value_parser!(u16).range(1..)
         )]
         port: Vec<u16>,
         #[arg(long, value_parser = crate::ingress::cidr)]
         cidr: Vec<String>,
+        #[arg(long, value_parser = crate::ingress::nameserver)]
+        nameserver: Option<std::net::Ipv4Addr>,
     },
     /// Remove only the permissions belonging to this owner token.
     Revoke {
@@ -84,7 +89,8 @@ pub fn run(action: &Action) -> anyhow::Result<()> {
             bridge,
             port,
             cidr,
-        } => crate::ingress::grant(owner, bridge, port, cidr),
+            nameserver,
+        } => crate::ingress::grant(owner, bridge, port, cidr, *nameserver),
         Action::Revoke { owner } => crate::ingress::revoke(owner),
     }
 }
@@ -317,9 +323,30 @@ fn expected() -> Vec<serde_json::Value> {
         mark_chain("ingress_input", "input"),
         mark_chain("ingress_output", "output"),
         mark_chain("egress_forward", "forward"),
-        clear_mark("ingress_input", "iifname", "clear-ingress-mark"),
-        clear_mark("ingress_output", "oifname", "clear-ingress-mark"),
-        clear_mark("egress_forward", "iifname", "clear-egress-mark"),
+        clear_mark(
+            "ingress_input",
+            "iifname",
+            crate::ingress::MARK,
+            "clear-ingress-mark",
+        ),
+        clear_mark(
+            "ingress_input",
+            "iifname",
+            crate::ingress::DNS_MARK,
+            "clear-dns-mark",
+        ),
+        clear_mark(
+            "ingress_output",
+            "oifname",
+            crate::ingress::MARK,
+            "clear-ingress-mark",
+        ),
+        clear_mark(
+            "egress_forward",
+            "iifname",
+            crate::ingress::MARK,
+            "clear-egress-mark",
+        ),
         // IPv6 is dropped rather than filtered: nothing here would bound it.
         rule(
             "inet",
@@ -352,12 +379,15 @@ fn expected() -> Vec<serde_json::Value> {
             ],
             "drop",
         ),
+        // A launch's grant marks its queries to its own nameserver. Whatever a
+        // grant names, the address must also be one of the arrival bridge's.
         rule(
             "inet",
             "input",
             "gateway-dns",
             vec![
                 from(),
+                meta("mark", crate::ingress::DNS_MARK.into()),
                 fib("type", &["daddr", "iif"], "local".into()),
                 payload("==", "udp", "dport", 53.into()),
             ],
@@ -496,10 +526,10 @@ fn mark_chain(name: &str, hook: &str) -> serde_json::Value {
     chain
 }
 
-fn clear_mark(chain: &str, interface: &str, comment: &str) -> serde_json::Value {
+fn clear_mark(chain: &str, interface: &str, mark: u32, comment: &str) -> serde_json::Value {
     serde_json::json!({ "rule": {
         "family": "inet", "table": TABLE, "chain": chain, "comment": comment,
-        "expr": [meta(interface, format!("{BRIDGE_PREFIX}*").into()), meta("mark", crate::ingress::MARK.into()),
+        "expr": [meta(interface, format!("{BRIDGE_PREFIX}*").into()), meta("mark", mark.into()),
             { "counter": null }, { "mangle": { "key": { "meta": { "key": "mark" } }, "value": 0 } }],
     } })
 }
@@ -722,6 +752,10 @@ mod tests {
                     let at = position(items, "input", "host");
                     items.remove(at);
                 }),
+                ("the DNS accept without its grant's mark", |items| {
+                    let at = position(items, "input", "gateway-dns");
+                    items[at]["rule"]["expr"].as_array_mut().unwrap().remove(1);
+                }),
                 ("a rule's match rewritten under the same comment", |items| {
                     let at = position(items, "forward", "baseline");
                     items[at]["rule"]["expr"][0]["match"]["right"] = serde_json::json!("fvx*");
@@ -777,7 +811,7 @@ mod tests {
             let verdict = expr.last().expect("a verdict");
             if verdict.get("accept").is_some() {
                 accepts.push(format!("{}/{}", rule["chain"], rule["comment"]));
-            } else if ["clear-ingress-mark", "clear-egress-mark"]
+            } else if ["clear-ingress-mark", "clear-dns-mark", "clear-egress-mark"]
                 .iter()
                 .any(|comment| rule["comment"] == *comment)
             {
@@ -800,6 +834,37 @@ mod tests {
                 r#""output"/"ingress""#
             ]
         );
+    }
+
+    #[test]
+    fn dns_has_a_mark_of_its_own() {
+        let mut marks = Vec::new();
+        for object in super::expected() {
+            let Some(rule) = object.get("rule") else {
+                continue;
+            };
+            for expr in rule["expr"].as_array().expect("an expression list") {
+                if expr["match"]["left"] == serde_json::json!({ "meta": { "key": "mark" } }) {
+                    marks.push(format!(
+                        "{}/{} {} {}",
+                        rule["chain"].as_str().unwrap(),
+                        rule["comment"].as_str().unwrap(),
+                        expr["match"]["op"].as_str().unwrap(),
+                        expr["match"]["right"],
+                    ));
+                }
+            }
+        }
+        insta::assert_snapshot!(marks.join("\n"), @r"
+        ingress_input/clear-ingress-mark == 1180061001
+        ingress_input/clear-dns-mark == 1180060996
+        ingress_output/clear-ingress-mark == 1180061001
+        egress_forward/clear-egress-mark == 1180061001
+        input/gateway-dns == 1180060996
+        input/ingress-replies == 1180061001
+        forward/baseline != 1180061001
+        output/ingress == 1180061001
+        ");
     }
 
     fn position(items: &[serde_json::Value], chain: &str, comment: &str) -> usize {

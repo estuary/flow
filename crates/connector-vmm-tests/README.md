@@ -34,8 +34,10 @@ loads through `bootstrap:vsock-loopback`.
 - `tests/kvm.rs`: one VMM per test, launched on the launcher's lines
   (`connector::vmm_argv`): guest boot, users, mounts and storage, RPC over
   `init.sock`, egress allowlists, CIDRs and TTL expiry against the real
-  kernel, host ingress, and host isolation after a VMM removes its own
-  rules.
+  kernel, host ingress, host DNS grants, and host isolation after a VMM
+  removes its own rules. `run::start` reads the VMM's nameserver from podman
+  and grants its DNS as a launch does, unless the test routes its upstream
+  elsewhere with `--resolver-upstream`.
 - `tests/launcher.rs`: launches through `connector::Service` against real
   podman: socket and credential access by UID, task egress, Spec of each
   Python connector, ownership records, and recovery after killed owners,
@@ -63,7 +65,10 @@ and `connector-vmm`'s resolver, ruleset and boundary tests.
 - `src/run.rs` owns test VMMs and their resources.
 - `src/launcher.rs` and `fixtures/podman.sh` wrap podman for the launcher
   tests: recorded calls, holds, faults, and `launcher::Api`, a test-owned
-  podman API service.
+  podman API service. `launcher::network_dns` makes a test's nameserver, on
+  port 53, the upstream of each launch network's resolver
+  (`network create --dns`), so the VMM resolves through the gateway its launch
+  granted. This needs an aardvark-dns which honors a network's DNS servers.
 - `src/host.rs` reads kernel state. `src/guest.rs` talks to the probe server
   in `fixtures/probes.py`.
 - `src/dns.rs`, `src/endpoint.rs`, `src/netns.rs` and `fixtures/bind.py`

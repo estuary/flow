@@ -56,6 +56,9 @@ case "${1:-} ${2:-}" in
     record network "${!#}"
     step=network-create
     ;;
+"network inspect")
+    step=network-inspect
+    ;;
 "network ls")
     step=network-ls
     ;;
@@ -132,6 +135,12 @@ if [[ -n "${step}" && -e "${TEST}/stall-${step}" ]]; then
             sleep 0.05
         done
     fi
+fi
+
+# A test's nameserver becomes the upstream of the network's own resolver, so
+# that the VMM forwards to the gateway its launch granted, and on from there.
+if [[ "${step}" == network-create && -e "${TEST}/network-dns" ]]; then
+    set -- "${@:1:$#-1}" "--dns=$(<"${TEST}/network-dns")" "${!#}"
 fi
 
 # Test-only VMM flags, one per line, follow the launcher's own arguments to

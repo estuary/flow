@@ -141,9 +141,14 @@ masqueraded to its VMM container's bridge address before host policy routing.
 That address must select the plane's designated NAT path while preserving
 explicit internal routes.
 
-Each VMM's nameserver is podman's resolver on its own bridge's gateway, the only
-guest-initiated destination on the host the boundary admits (UDP/53).
-Replies to host-authorized container networking connections are also allowed.
+Each VMM's nameserver is podman's resolver on its own bridge's gateway. The
+launcher reads that gateway from podman once it has created the network, and
+refuses the launch unless the network has its resolver enabled and one IPv4
+gateway. It passes the address to the VMM, which does not read its
+container's `resolv.conf`, and grants that address alone on the host
+(UDP/53). That is the only guest-initiated destination on the host the
+boundary admits, and only while the launch's grant stands. Replies to
+host-authorized container networking connections are also allowed.
 Podman's resolver forwards queries from the host to the host's own
 nameservers. A host configured with Azure-provided DNS at `168.63.129.16`
 therefore still resolves VMM queries, though no VMM reaches that address.
@@ -190,9 +195,17 @@ podman run --rm --network=host --log-driver=none --read-only \
 ### Upgrading the boundary and image
 
 `verify` from an image passes only against tables identical to what that
-image installs. When a build changes the tables, change the host's tables
-with the reactors: in between, a launch whose
-image disagrees with the host's tables is refused rather than run.
+image installs, so a host's reactors and its boundary move to a build
+together. A launch whose image disagrees with the host's tables is refused
+rather than run. A running VMM is held to whatever tables are installed,
+under the grants its launch made, which a build's tables may not honor.
+
+When a build changes the tables, drain the host first:
+
+1. Stop VMM work on the host: stop its reactors, and confirm that their VMMs
+   are released, running the prune command for any that remain.
+2. Reinstall the boundary from the new build's image.
+3. Start the reactors of that same build.
 
 Every reactor upgrade is a VMM image upgrade too: a reactor launches the
 image of its own build.
@@ -223,8 +236,9 @@ mechanism. What an operator needs:
   A pass skips live owners and releases abandoned records. It scans labeled
   resources even when the directory is empty because Podman can finish a
   create after teardown. Leftovers persist until another invocation.
-- **Keep exited `fv_<id>-ingress` containers for the Flow prune command.** Until a pass records
-  one, its labels may be the only record of a host grant. If one is removed
+- **Keep exited `fv_<id>-ingress` containers for the Flow prune command.**
+  Every launch has one, since every launch grants at least its DNS. Until a
+  pass records one, its labels may be the only record of a host grant. If one is removed
   unrecorded, its grant stays installed as the nftables table
   `flow_vmm_ingress_<token>`, which `boundary revoke --owner=<token>` from
   any VMM image removes.
@@ -250,6 +264,7 @@ mechanism. What an operator needs:
 | "opening an O_TMPFILE scratch disk in ..." or "sizing a scratch disk in ..." | The state directory's filesystem cannot hold the scratch disk. |
 | "VMM execution runs a flow-connector-init beside this program or on its PATH" | No `flow-connector-init` found. |
 | "the host's VMM network boundary did not verify, ..." | Tables absent, or from another build; the verifier's lines name each difference. |
+| "the VMM network fv_..., as podman made it: ..." (FailedPrecondition) | Podman made the network without its resolver, on another interface, or without exactly one IPv4 gateway. Check the engine's network configuration, such as `containers.conf`. |
 | "pulling VMM image ..." or "inspecting VMM image ..." (FailedPrecondition) | The engine lacks this build's VMM image and cannot pull it, or cannot name its ID. |
 | "this data plane cannot size a VMM: CONNECTOR_MEMORY_LIMIT ..." | The memory limit cannot size a VMM's guest (see [Configuration](#configuration)). Ordinary tasks are unaffected. |
 | "flow-connector-vmm: KVM is unavailable to this VMM: ..." then "the VMM exited (exit status: 2) before flow-connector-init was ready" | `/dev/kvm` missing or unusable in the VMM container. |

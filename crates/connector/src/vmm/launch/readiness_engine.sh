@@ -61,6 +61,10 @@ case "$1 ${2:-}" in
     fi
     if [ -e "$dir/network-error" ]; then cat "$dir/network-error" >&2; exit 125; fi
     ;;
+"network inspect")
+    if [ -e "$dir/network-inspection" ]; then cat "$dir/network-inspection"; exit 0; fi
+    printf '[{"network_interface":"fvm%.12s","dns_enabled":true,"subnets":[{"gateway":"10.89.0.1"}]}]\n' "${3#fv_}"
+    ;;
 "network ls")
     if [ -e "$dir/network" ]; then cat "$dir/network"; fi
     ;;

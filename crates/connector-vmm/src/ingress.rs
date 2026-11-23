@@ -1,10 +1,11 @@
-//! Launch-owned host permissions, checked on every packet: ingress to declared
-//! TCP ports, and forwarded egress to a task's declared CIDRs. The shared
-//! boundary clears the reserved packet mark before these chains run, so an
-//! authorization cannot be supplied by a VMM or outlive its launch in
-//! conntrack.
+//! Launch-owned host permissions, checked on every packet: DNS to the launch's
+//! nameserver, ingress to declared TCP ports, and forwarded egress to a task's
+//! declared CIDRs. The shared boundary clears the reserved packet marks before
+//! these chains run, so an authorization cannot be supplied by a VMM or
+//! outlive its launch in conntrack.
 
 pub const MARK: u32 = 0x46564d49;
+pub const DNS_MARK: u32 = 0x46564d44;
 
 pub fn token(value: &str) -> Result<String, String> {
     if value.len() == 32
@@ -37,13 +38,33 @@ pub fn cidr(value: &str) -> Result<String, String> {
         .map_err(|error| format!("{error:#}"))
 }
 
-pub fn grant(owner: &str, bridge: &str, ports: &[u16], cidrs: &[String]) -> anyhow::Result<()> {
+pub fn nameserver(value: &str) -> Result<std::net::Ipv4Addr, String> {
+    let address: std::net::Ipv4Addr = value
+        .parse()
+        .map_err(|_| "expected an IPv4 address".to_string())?;
+    if address.is_unspecified()
+        || address.is_loopback()
+        || address.is_multicast()
+        || address.is_broadcast()
+    {
+        return Err(format!("{address} is not a unicast address"));
+    }
+    Ok(address)
+}
+
+pub fn grant(
+    owner: &str,
+    bridge: &str,
+    ports: &[u16],
+    cidrs: &[String],
+    nameserver: Option<std::net::Ipv4Addr>,
+) -> anyhow::Result<()> {
     let cidrs = models::egress::cidrs("--cidr", cidrs)?;
     crate::boundary::run(&crate::boundary::Action::Verify)?;
     crate::sys::run(
         "nft",
         &["-f", "-"],
-        Some(document(owner, bridge, ports, &cidrs).as_bytes()),
+        Some(document(owner, bridge, ports, &cidrs, nameserver).as_bytes()),
     )
 }
 
@@ -58,7 +79,13 @@ pub fn revoke(owner: &str) -> anyhow::Result<()> {
     )
 }
 
-fn document(owner: &str, bridge: &str, ports: &[u16], cidrs: &[ipnetwork::Ipv4Network]) -> String {
+fn document(
+    owner: &str,
+    bridge: &str,
+    ports: &[u16],
+    cidrs: &[ipnetwork::Ipv4Network],
+    nameserver: Option<std::net::Ipv4Addr>,
+) -> String {
     let mut out = format!("add table inet flow_vmm_ingress_{owner} {{\n");
     if !ports.is_empty() {
         let ports = ports
@@ -90,6 +117,14 @@ fn document(owner: &str, bridge: &str, ports: &[u16], cidrs: &[ipnetwork::Ipv4Ne
              }}\n"
         ));
     }
+    if let Some(nameserver) = nameserver {
+        out.push_str(&format!(
+            "chain dns {{\n\
+             type filter hook input priority -11; policy accept;\n\
+             iifname \"{bridge}\" meta nfproto ipv4 ip daddr {nameserver} udp dport 53 meta mark set {DNS_MARK}\n\
+             }}\n"
+        ));
+    }
     out.push_str("}\n");
     out
 }
@@ -102,7 +137,8 @@ mod tests {
             "00112233445566778899aabbccddeeff",
             "fvm0123456789ab",
             &[8080, 9000],
-            &[]
+            &[],
+            None,
         ));
     }
 
@@ -118,6 +154,7 @@ mod tests {
             "fvm0123456789ab",
             &[8080],
             &cidrs,
+            None,
         );
         table.push('\n');
         table.push_str(&super::document(
@@ -125,7 +162,19 @@ mod tests {
             "fvm0123456789ab",
             &[],
             &models::egress::cidrs("--cidr", &["0.0.0.0/0".to_string()]).unwrap(),
+            None,
         ));
         insta::assert_snapshot!(table);
+    }
+
+    #[test]
+    fn host_permissions_with_a_nameserver() {
+        insta::assert_snapshot!(super::document(
+            "00112233445566778899aabbccddeeff",
+            "fvm0123456789ab",
+            &[8080],
+            &models::egress::cidrs("--cidr", &["0.0.0.0/0".to_string()]).unwrap(),
+            Some(std::net::Ipv4Addr::new(10, 89, 0, 1)),
+        ));
     }
 }

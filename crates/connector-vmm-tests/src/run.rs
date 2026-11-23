@@ -136,6 +136,8 @@ pub struct Captured {
 pub struct Vmm {
     pub name: String,
     pub network: String,
+    /// The network's gateway as podman reports it, which the VMM is told.
+    pub nameserver: Ipv4Addr,
     pub state_dir: String,
     pub connector_mount: String,
     pub persistent_dir: Option<String>,
@@ -144,6 +146,8 @@ pub struct Vmm {
     pub stderr: Arc<Mutex<Captured>>,
     pub stdout: Arc<Mutex<Captured>>,
     child: std::process::Child,
+    /// Its DNS grant, unless a test routed its upstream elsewhere.
+    _dns: Option<Ingress>,
 }
 
 pub fn load() -> Run {
@@ -355,13 +359,17 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
 
     // The bridge's name puts it behind the host boundary. Twelve of the id's
     // sixteen digits, because an interface name holds fifteen bytes.
+    let bridge = format!("{}{}", connector::vmm_argv::BRIDGE_PREFIX, &name[3..15]);
     record("network", &name);
-    let network = connector::vmm_argv::network(
-        &name,
-        &format!("{}{}", connector::vmm_argv::BRIDGE_PREFIX, &name[3..15]),
-        &[],
-    );
+    let network = connector::vmm_argv::network(&name, &bridge, &[]);
     podman(&network.iter().map(String::as_str).collect::<Vec<_>>());
+    let nameserver = nameserver(&name, &bridge);
+    // A launch grants its VMM's DNS to the nameserver it tells the VMM. A
+    // test's upstream routed elsewhere needs no exception on the host, so
+    // it gets none.
+    let dns = (resolver_upstream(&spec.flags, nameserver)
+        == std::net::SocketAddr::from((nameserver, 53)))
+    .then(|| grant(run, &name, &[format!("--nameserver={nameserver}")]));
 
     record("volume", &name);
     let inspected: serde_json::Value = serde_json::from_str(&inspect).unwrap();
@@ -400,6 +408,8 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
     if !spec.rm {
         argv.retain(|argument| argument != "--rm");
     }
+    // As a launch appends it, once podman has made the network.
+    argv.push(format!("--nameserver={nameserver}"));
     (spec.edit)(&mut argv);
     argv.extend(spec.policy.iter().map(ToString::to_string));
     argv.extend(spec.flags);
@@ -432,6 +442,7 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
     Vmm {
         network: name.clone(),
         name,
+        nameserver,
         state_dir,
         connector_mount,
         persistent_dir,
@@ -440,7 +451,33 @@ pub fn start(run: &Run, spec: Spec) -> Vmm {
         stderr,
         stdout,
         child,
+        _dns: dns,
     }
+}
+
+/// The VMM's nameserver on network `name`, read from podman as a launch
+/// reads it.
+fn nameserver(name: &str, bridge: &str) -> Ipv4Addr {
+    let inspection = podman(&["network", "inspect", name]);
+    connector::vmm_argv::nameserver(bridge, inspection.as_bytes())
+        .unwrap_or_else(|e| panic!("the nameserver of network {name}: {e:#}"))
+}
+
+/// Where a VMM run with `flags` forwards its guest's queries: a test's
+/// `--resolver-upstream`, or else `nameserver`.
+fn resolver_upstream(flags: &[String], nameserver: Ipv4Addr) -> std::net::SocketAddr {
+    let mut flags = flags.iter();
+    while let Some(flag) = flags.next() {
+        let value = match flag.strip_prefix("--resolver-upstream") {
+            Some("") => flags.next().map(String::as_str),
+            Some(value) => value.strip_prefix('='),
+            None => continue,
+        };
+        return value
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("--resolver-upstream takes IP:PORT: {flag:?}"));
+    }
+    (nameserver, 53).into()
 }
 
 /// The runtime's protocol for a credential refresh: stage beside it, then
@@ -745,14 +782,23 @@ pub fn random_hex() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Host permissions for a test guest: ingress to `ports`, and egress to
-/// `cidrs`. Recorded before creation for task cleanup, and revoked on drop.
+/// Host permissions for a test guest. Recorded before creation for task
+/// cleanup, and revoked on drop.
 pub struct Ingress {
     image: String,
     owner: String,
 }
 
+/// Ingress to `ports`, and egress to `cidrs`.
 pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16], cidrs: &[&str]) -> Ingress {
+    let mut flags: Vec<String> = ports.iter().map(|port| format!("--port={port}")).collect();
+    flags.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
+    grant(run, &vmm.name, &flags)
+}
+
+/// `boundary grant` of `flags` for network `name`'s bridge, under an owner of
+/// its own.
+fn grant(run: &Run, name: &str, flags: &[String]) -> Ingress {
     let owner = format!("{}{}", random_hex(), random_hex());
     record("ingress", &format!("{} {owner}", run.vmm_image));
     let mut args = connector::vmm_argv::host_boundary(
@@ -763,10 +809,9 @@ pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16], cidrs: &[&str]) -> Ingress {
     );
     args.extend([
         format!("--owner={owner}"),
-        format!("--bridge=fvm{}", &vmm.name[3..15]),
+        format!("--bridge=fvm{}", &name[3..15]),
     ]);
-    args.extend(ports.iter().map(|port| format!("--port={port}")));
-    args.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
+    args.extend_from_slice(flags);
     podman(&args.iter().map(String::as_str).collect::<Vec<_>>());
     Ingress {
         image: run.vmm_image.clone(),
@@ -785,5 +830,28 @@ impl Drop for Ingress {
         ));
         args.push(format!("--owner={}", self.owner));
         let _ = sudo_output(&args.iter().map(String::as_str).collect::<Vec<_>>(), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Only an upstream of the gateway's own port 53 is granted.
+    #[test]
+    fn resolver_upstream() {
+        let gateway = std::net::Ipv4Addr::new(10, 89, 0, 1);
+        for (flags, want) in [
+            (&[][..], "10.89.0.1:53"),
+            (
+                &["--resolver-upstream", "192.31.196.241:40053"][..],
+                "192.31.196.241:40053",
+            ),
+            (
+                &["--resolver-upstream=10.89.0.1:5353"][..],
+                "10.89.0.1:5353",
+            ),
+        ] {
+            let flags: Vec<String> = flags.iter().map(ToString::to_string).collect();
+            assert_eq!(super::resolver_upstream(&flags, gateway).to_string(), want);
+        }
     }
 }

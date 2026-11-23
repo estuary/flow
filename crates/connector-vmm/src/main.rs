@@ -252,6 +252,7 @@ mod tests {
             with("--memory-mib", "4294967296"),
             with("--disk-mib", "-1"),
             run(&["--vcpus", "4"]),
+            with("--nameserver", "fd00::1"),
             vec!["flow-connector-vmm", "run"],
             vec!["flow-connector-vmm"],
             vec!["flow-connector-vmm", "boundary", "install"],
@@ -265,6 +266,8 @@ mod tests {
             grant(&[]),
             grant(&["--cidr", "fd00::/8"]),
             grant(&["--cidr", "10.1.2.3/8"]),
+            grant(&["--nameserver", "10.89.0.1"]),
+            grant(&["--nameserver", "255.255.255.255"]),
         ]
     }
 
@@ -293,6 +296,8 @@ mod tests {
             "2",
             "--disk-mib",
             "512",
+            "--nameserver",
+            "10.89.0.1",
         ];
         [REQUIRED, extra].concat()
     }
@@ -338,13 +343,14 @@ mod tests {
     fn describe_launch(command: &str, args: &crate::launch::Args) -> String {
         format!(
             "ok: {command} {} connector_mount={} memory_mib={} vcpus={} disk_mib={} \
-             persistent_disk={:?} debug={} resolver_upstream={:?} exec={:?}\n",
+             persistent_disk={:?} nameserver={} debug={} resolver_upstream={:?} exec={:?}\n",
             describe_policy(&args.policy),
             args.connector_mount,
             args.memory_mib,
             args.vcpus,
             args.disk_mib,
             args.persistent_disk,
+            args.nameserver,
             args.debug,
             args.resolver_upstream.map(|u| u.to_string()),
             args.exec,

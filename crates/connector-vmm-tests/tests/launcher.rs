@@ -469,9 +469,36 @@ fn hold_rpc(
     )
 }
 
-fn removed(root: &launcher::Root, id: &str) -> bool {
-    let removal = format!("rm --force --time=0 --ignore {id}");
-    launcher::calls(root).contains(&removal)
+/// Each `rm` by `root`'s podman of the VMM's or the grant's container of
+/// launch `footprint`, as `sorted_ids` gives it.
+fn removals(root: &launcher::Root, footprint: &launcher::Footprint) -> Vec<String> {
+    launcher::calls(root)
+        .into_iter()
+        .map(sorted_ids)
+        .filter(|call| {
+            call.starts_with("rm ")
+                && (call.contains(&footprint.id) || call.contains(&footprint.grant))
+        })
+        .collect()
+}
+
+/// A release's one removal of launch `footprint`'s containers.
+fn removal(footprint: &launcher::Footprint) -> String {
+    sorted_ids(format!(
+        "rm --force --time=0 --ignore {} {}",
+        footprint.id, footprint.grant
+    ))
+}
+
+/// `call`, with the IDs of a container removal sorted: they come from `ps`,
+/// whose order podman does not fix.
+fn sorted_ids(call: String) -> String {
+    let Some(ids) = call.strip_prefix("rm --force --time=0 --ignore ") else {
+        return call;
+    };
+    let mut ids: Vec<&str> = ids.split(' ').collect();
+    ids.sort_unstable();
+    format!("rm --force --time=0 --ignore {}", ids.join(" "))
 }
 
 #[test]
@@ -769,7 +796,8 @@ fn spec_through_the_vmm() {
         launcher::leftovers(&root, Some(&name)),
         Vec::<String>::new()
     );
-    let commands: Vec<String> = launcher::calls(&root)
+    let calls = launcher::calls(&root);
+    let commands: Vec<String> = calls
         .iter()
         .map(|call| call.split(' ').take(2).collect::<Vec<_>>().join(" "))
         .collect();
@@ -782,17 +810,33 @@ fn spec_through_the_vmm() {
             "image inspect",
             "run --rm",
             "network create",
+            "network inspect",
+            // Its grant, of DNS alone, whose container is kept once it exits.
+            "run --network=host",
             "volume create",
             "create --rm",
             "start --attach",
             "rm --force",
             "ps --all",
+            // The grant's container, then its revoke.
+            "rm --force",
+            "run --rm",
             "network ls",
             "network rm",
             "volume ls",
             "volume rm",
         ]
     );
+
+    let token = calls
+        .iter()
+        .filter(|call| call.contains(" boundary grant "))
+        .find_map(|call| {
+            call.split(' ')
+                .find_map(|word| word.strip_prefix("--owner="))
+        })
+        .expect("every launch grants");
+    assert!(!granted(&run.vmm_image, token), "teardown revoked {token}");
 }
 
 /// Exercise stderr readiness through the API attachment used by reactors.
@@ -960,7 +1004,7 @@ fn destinations(run: &run::Run) -> Destinations {
     };
     let nameserver = dns::serve(netns::udp(
         netns::Namespace::Named(&run.endpoint_netns),
-        (a, 0).into(),
+        (a, 53).into(),
     ));
     for (name, ip) in [
         ("pypi.org", pypi),
@@ -994,9 +1038,10 @@ struct Probed {
 
 /// Launch derive-python's Spec on a `plane` service, as a task whose egress is
 /// `egress`, with the guest probing `cases` before connector-init starts. The
-/// launcher plans and passes the policy; this test's podman only appends the
-/// VMM's test controls, for the nameserver and the probe. The probe writes its
-/// results to the VMM's stderr, which the service emits as warnings.
+/// launcher plans and passes the policy, and grants its VMM's nameserver.
+/// This test's podman makes the test's nameserver that resolver's upstream,
+/// and appends the probe. The probe writes its results to the VMM's stderr,
+/// which the service emits as warnings.
 fn probe_egress(
     (run, root, runtime): &(run::Run, launcher::Root, tokio::runtime::Runtime),
     plane: connector::Plane,
@@ -1014,15 +1059,14 @@ fn probe_egress(
         &serde_json::to_string(&cases).expect("a string serializes"),
     );
     let encoded = base64::engine::general_purpose::STANDARD.encode(script);
-    let mut flags = vec![
-        "--resolver-upstream".to_string(),
-        destinations.nameserver.addr.to_string(),
-    ];
-    flags.extend(launcher::before_connector_init(&format!(
-        "{} -c \"import base64; exec(base64.b64decode('{encoded}'))\"",
-        run::PROBES[0]
-    )));
-    launcher::vmm_flags(root, &flags);
+    launcher::network_dns(root, destinations.nameserver.addr);
+    launcher::vmm_flags(
+        root,
+        &launcher::before_connector_init(&format!(
+            "{} -c \"import base64; exec(base64.b64decode('{encoded}'))\"",
+            run::PROBES[0]
+        )),
+    );
     let execution = flow::ConnectorExecution {
         vmm: true,
         egress: Some(flow::connector_execution::Egress {
@@ -1304,10 +1348,18 @@ fn a_destroyed_runtime_is_recovered_without_a_launch() {
         (!launcher::locked(&record)).then_some(())
     });
     launcher::assert_whole(&footprint);
-    assert!(!removed(&root, &footprint.id), "no teardown ran");
+    assert_eq!(
+        removals(&root, &footprint),
+        Vec::<String>::new(),
+        "no teardown ran"
+    );
 
     assert_pruned(&vmm);
-    assert!(removed(&root, &footprint.id), "recovery removed it");
+    assert_eq!(
+        removals(&root, &footprint),
+        [removal(&footprint)],
+        "recovery removed them"
+    );
     assert_eq!(
         launcher::leftovers(&root, Some(&name)),
         Vec::<String>::new()
@@ -1498,7 +1550,11 @@ fn a_kill_before_readiness() {
     owner.kill();
 
     assert_pruned(&successor);
-    assert!(removed(&other, &footprint.id), "recovery removed it");
+    assert_eq!(
+        removals(&other, &footprint),
+        [removal(&footprint)],
+        "recovery removed them"
+    );
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
 }
 
@@ -1533,7 +1589,11 @@ fn a_kill_while_serving_spares_live_owners() {
 
     owner.kill();
     assert_pruned(&successor);
-    assert!(removed(&other, &footprint.id), "recovery removed it");
+    assert_eq!(
+        removals(&other, &footprint),
+        [removal(&footprint)],
+        "recovery removed them"
+    );
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
 
     let socket = format!("{}/{name}/sock/init.sock", root.state_dir);
@@ -1572,7 +1632,11 @@ fn an_unknown_container_keeps_everything() {
     std::mem::drop(fault);
 
     assert_pruned(&successor);
-    assert!(removed(&other, &footprint.id), "recovery removed it");
+    assert_eq!(
+        removals(&other, &footprint),
+        [removal(&footprint)],
+        "recovery removed them"
+    );
     assert!(
         !launcher::calls(&other)
             .iter()
@@ -1953,6 +2017,26 @@ fn a_kill_of_recovery(gate: Gate) {
     let name = launcher::vmm_name(&root).expect("the launch named its network");
     let record = launcher::record(&root.state_dir, &name);
     let token = launcher::token(&record);
+    let claim: serde_json::Value = serde_json::from_str(
+        launcher::read_record(&record)
+            .lines()
+            .next()
+            .expect("a claim line"),
+    )
+    .expect("a claim");
+    let mut revoke = connector::vmm_argv::host_boundary(
+        claim["ingress_image"]
+            .as_str()
+            .expect("the image which granted"),
+        "revoke",
+        connector::vmm_argv::Exited::Removed,
+        &[
+            format!("--name={name}-revoke"),
+            format!("--label=dev.estuary.vmm-owner={token}"),
+            format!("--label=dev.estuary.vmm-state-dir={}", root.state_dir),
+        ],
+    );
+    revoke.push(format!("--owner={token}"));
     let footprint = launcher::footprint(&root.state_dir, &root.tmp_dir, &name);
     let _rpc = hold_rpc(&runtime, &root.state_dir, &name);
 
@@ -2011,16 +2095,20 @@ fn a_kill_of_recovery(gate: Gate) {
         format!(
             "ps --all --no-trunc --filter label=dev.estuary.vmm-owner={token} --format {{{{.ID}}}}"
         ),
-        format!("rm --force --time=0 --ignore {}", footprint.id),
+        removal(&footprint),
+        revoke.join(" "),
         format!("network ls --filter label=dev.estuary.vmm-owner={token} --format {{{{.Name}}}}"),
         format!("network rm {name}"),
     ];
     let reached = match gate {
         Gate::BeforeContainerRemoval | Gate::AfterContainerRemoval => 2,
-        _ => 4,
+        _ => 5,
     };
     assert_eq!(
-        launcher::calls(&recoverer),
+        launcher::calls(&recoverer)
+            .into_iter()
+            .map(sorted_ids)
+            .collect::<Vec<_>>(),
         removals[..reached],
         "the recovering process called nothing else, so far"
     );
@@ -2032,11 +2120,15 @@ fn a_kill_of_recovery(gate: Gate) {
     if gate == Gate::BeforeContainerRemoval {
         launcher::assert_whole(&footprint);
     } else {
-        assert!(
-            !launcher::container_exists(&footprint.id),
-            "the container is gone"
-        );
+        for id in [&footprint.id, &footprint.grant] {
+            assert!(!launcher::container_exists(id), "container {id} is gone");
+        }
     }
+    assert_eq!(
+        granted(&run.vmm_image, &token),
+        reached == 2,
+        "the grant stands until the revoke"
+    );
     assert_eq!(
         launcher::network_exists(&name),
         gate != Gate::AfterNetworkRemoval
@@ -2121,12 +2213,14 @@ fn a_kill_of_recovery(gate: Gate) {
 
     let successor_calls: Vec<String> = launcher::calls(&other)
         .into_iter()
+        .map(sorted_ids)
         .filter(|call| {
-            [&token, &name, &footprint.id]
+            [&token, &name, &footprint.id, &footprint.grant]
                 .iter()
                 .any(|of| call.contains(*of))
         })
         .collect();
+    // The record names the grant until it is removed, so each pass revokes.
     let mut looked = match gate {
         Gate::BeforeContainerRemoval => removals.clone(),
         Gate::AfterContainerRemoval | Gate::BeforeNetworkRemoval => {
@@ -2134,10 +2228,15 @@ fn a_kill_of_recovery(gate: Gate) {
                 removals[0].clone(),
                 removals[2].clone(),
                 removals[3].clone(),
+                removals[4].clone(),
             ]
         }
         Gate::BeforeNetworkRemovalRunFirst | Gate::AfterNetworkRemoval => {
-            vec![removals[0].clone(), removals[2].clone()]
+            vec![
+                removals[0].clone(),
+                removals[2].clone(),
+                removals[3].clone(),
+            ]
         }
     };
     looked.extend([
@@ -2145,6 +2244,7 @@ fn a_kill_of_recovery(gate: Gate) {
         format!("volume rm {name}"),
     ]);
     assert_eq!(successor_calls, looked, "the next pass's release");
+    assert!(!granted(&run.vmm_image, &token), "the grant is revoked");
     assert_eq!(launcher::remaining(&footprint), Vec::<String>::new());
     assert_eq!(
         launcher::left(&root.state_dir, &root.tmp_dir, &name),
@@ -2341,34 +2441,8 @@ impl LateGrant {
         launcher::container_exists(&self.id)
     }
 
-    /// Whether the host holds the grant's nftables table.
     fn granted(&self) -> bool {
-        let table = format!("flow_vmm_ingress_{}", self.token);
-        let listed = run::sudo_output(
-            &[
-                "podman",
-                "run",
-                "--rm",
-                "--network=host",
-                "--cap-drop=all",
-                "--cap-add=CAP_NET_ADMIN",
-                "--entrypoint=nft",
-                &self.vmm_image,
-                "list",
-                "table",
-                "inet",
-                &table,
-            ],
-            None,
-        );
-        match listed.status.code() {
-            Some(0) => true,
-            Some(1) => false,
-            _ => panic!(
-                "listing {table}: {}",
-                String::from_utf8_lossy(&listed.stderr)
-            ),
-        }
+        granted(&self.vmm_image, &self.token)
     }
 
     /// What the service did with the container, in its order.
@@ -2411,6 +2485,37 @@ impl LateGrant {
             !launcher::path_exists(&launcher::record(state_dir, &self.name)),
             "its record is removed"
         );
+    }
+}
+
+/// Whether the host holds the nftables table of grant owner `token`, as the
+/// `nft` of `vmm_image` lists it.
+fn granted(vmm_image: &str, token: &str) -> bool {
+    let table = format!("flow_vmm_ingress_{token}");
+    let listed = run::sudo_output(
+        &[
+            "podman",
+            "run",
+            "--rm",
+            "--network=host",
+            "--cap-drop=all",
+            "--cap-add=CAP_NET_ADMIN",
+            "--entrypoint=nft",
+            vmm_image,
+            "list",
+            "table",
+            "inet",
+            &table,
+        ],
+        None,
+    );
+    match listed.status.code() {
+        Some(0) => true,
+        Some(1) => false,
+        _ => panic!(
+            "listing {table}: {}",
+            String::from_utf8_lossy(&listed.stderr)
+        ),
     }
 }
 

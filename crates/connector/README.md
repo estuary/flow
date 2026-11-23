@@ -184,7 +184,7 @@ a defined file layout of resources handed to the connector for its use.
 | `Vmm`, `Vmm::from_env` | VMM capability and configuration from `CONNECTOR_VMM_*` |
 | `vmm::vmm_for` | Admission decision for requested execution |
 | `vmm::plan::plan` | Pure plan of a VMM launch |
-| `vmm_argv` (`vmm::argv`) | Pure podman lines of a VMM launch, shared with `crates/connector-vmm-tests` |
+| `vmm_argv` (`vmm::argv`) | Pure podman lines of a VMM launch, and the nameserver read back from its network, shared with `crates/connector-vmm-tests` |
 | `vmm::launch::start` | VMM lifecycle, image admission, and credential mount |
 | `flow-connector-vmm-prune` | Host command for one cleanup pass under a state-directory lock |
 | `vmm::release::recover` | One pass: releases resources whose durable owner is dead, and labeled resources whose record is gone |
@@ -308,7 +308,9 @@ each start as `FAILED_PRECONDITION` before it pulls or creates anything.
    `CONNECTOR_MEMORY_LIMIT` and `CONNECTOR_CPU_LIMIT` (`vmm::memory_bytes`).
 4. **Launch.** `vmm::launch::start` runs one task per launch. It claims
    `<STATE_DIR>/fv_<id>.owner`, resolves the VMM image to an ID, runs
-   `boundary verify`, creates the network, volume and container, waits for
+   `boundary verify`, and creates the network. It reads the network's
+   gateway back from podman (`vmm::argv::nameserver`) and grants the host
+   permissions. Then it creates the volume and container, waits for
    connector-init's readiness byte on stderr, and dials `init.sock`.
    `protocol::start` opens `connector.Connector` over it, as for an ordinary
    container. The VMM's stderr follows `container::pump_stderr`'s rule.
@@ -320,9 +322,11 @@ each start as `FAILED_PRECONDITION` before it pulls or creates anything.
 7. **Prune.** `flow-connector-vmm-prune` releases abandoned records and
    labeled resources whose record is gone.
 
-Ingress is the built spec's `network_ports`, granted on the host by the
-launch's token and revoked with the image its record names. The connector
-mount follows the contract above, at `/connector-mount` in the guest.
+Every launch's host grant admits its VMM's DNS to that gateway, which is
+also the VMM's `--nameserver`. The grant adds ingress to the built spec's
+`network_ports` and egress to the task's CIDRs. It is made by the launch's
+token and revoked with the image its record names. The connector mount
+follows the contract above, at `/connector-mount` in the guest.
 
 `vmm/launch/readiness_tests.rs` drives the launcher against a scripted
 engine without KVM, and `vmm/release.rs` tests release with a paused clock.

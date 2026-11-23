@@ -925,6 +925,71 @@ fn declared_ports_are_reported_and_permissions_released() {
     );
 }
 
+/// A launch with no port or CIDR grants its DNS alone, and its VMM forwards
+/// to the address granted.
+#[test]
+fn every_launch_grants_its_nameserver() {
+    in_child("every_launch_grants_its_nameserver", |mut h| async move {
+        let report = launch(
+            &mut h,
+            Launch {
+                stderr: " ",
+                peer: Peer::Serving,
+                then: Then::Await,
+            },
+        )
+        .await;
+        assert_eq!(render(&report), format!("{STARTED}\n"));
+
+        let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+        let grant: Vec<&str> = calls
+            .lines()
+            .find_map(|call| call.split_once(" boundary grant "))
+            .expect("every launch grants")
+            .1
+            .split(' ')
+            .collect();
+        let [owner, bridge, nameserver] = grant[..] else {
+            panic!("{grant:?}");
+        };
+        assert!(owner.starts_with("--owner=") && bridge.starts_with("--bridge=fvm"));
+        assert_eq!(nameserver, "--nameserver=10.89.0.1");
+        let create = calls
+            .lines()
+            .find(|call| call.starts_with("create --rm "))
+            .unwrap();
+        assert!(create.ends_with(&format!(" {nameserver}")), "{create}");
+    });
+}
+
+/// A network podman made without its resolver is refused before anything is
+/// granted on it or created in it, and teardown releases it.
+#[test]
+fn a_network_without_its_resolver_is_refused() {
+    in_child(
+        "a_network_without_its_resolver_is_refused",
+        |h| async move {
+            std::fs::write(
+            h.dir.join("network-inspection"),
+            r#"[{"network_interface":"fvm0","dns_enabled":false,"subnets":[{"gateway":"10.89.0.1"}]}]"#,
+        )
+        .unwrap();
+            let (outcome, _logs) = refused(&h).await;
+            assert!(
+                outcome.starts_with("failed (FailedPrecondition): the VMM network fv_")
+                    && outcome.ends_with(", as podman made it: has podman's resolver disabled"),
+                "{outcome}"
+            );
+            let calls = std::fs::read_to_string(h.dir.join("calls")).unwrap();
+            assert!(
+                !calls.contains(" boundary grant ") && !calls.contains("create --rm "),
+                "{calls}"
+            );
+            assert!(!h.dir.join("network").exists());
+        },
+    );
+}
+
 #[test]
 fn an_exit_while_waiting_ends_the_launch() {
     in_child(

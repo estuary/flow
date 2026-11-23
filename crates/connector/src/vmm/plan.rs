@@ -72,8 +72,10 @@ pub(crate) struct Plan {
     /// Arguments after `podman`, in the order they run. The container is
     /// started, once created, by its ID.
     pub verify: Vec<String>,
-    /// Host permissions, installed before the container starts: ingress to
-    /// `ports`, and egress to the task's CIDRs.
+    /// Host permissions, installed before the container starts: DNS to the
+    /// network's nameserver, ingress to `ports`, and egress to the task's
+    /// CIDRs. Podman picks the nameserver as it creates the network, so the
+    /// launch appends `--nameserver` here and to `create`.
     pub ingress: Vec<String>,
     pub network: Vec<String>,
     pub rootfs: Vec<String>,
@@ -192,27 +194,25 @@ pub(crate) fn plan(vmm: &Vmm, launch: &Launch) -> anyhow::Result<Plan> {
     {
         anyhow::bail!("the task's built spec declares invalid TCP port {port}");
     }
-    // The host boundary drops private destinations for every VMM, so the
-    // task's CIDRs need a grant of their own beside the guest's policy.
+    // Every launch grants, if only its DNS. The host boundary also drops
+    // private destinations for every VMM, so the task's CIDRs need the grant
+    // beside the guest's policy.
     let cidrs = egress.cidrs.as_slice();
-    let mut ingress = Vec::new();
-    if !ports.is_empty() || !cidrs.is_empty() {
-        // Kept once it exits: its labels may be the only record of a grant
-        // whose launch was released before podman created it.
-        ingress = argv::host_boundary(
-            vmm_image,
-            "grant",
-            Exited::Kept,
-            &[
-                format!("--name={name}{}", super::record::INGRESS_SUFFIX),
-                owner.clone(),
-                state_dir_label.clone(),
-            ],
-        );
-        ingress.extend([format!("--owner={token}"), format!("--bridge={interface}")]);
-        ingress.extend(ports.iter().map(|port| format!("--port={port}")));
-        ingress.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
-    }
+    // Kept once it exits: its labels may be the only record of a grant whose
+    // launch was released before podman created it.
+    let mut ingress = argv::host_boundary(
+        vmm_image,
+        "grant",
+        Exited::Kept,
+        &[
+            format!("--name={name}{}", super::record::INGRESS_SUFFIX),
+            owner.clone(),
+            state_dir_label.clone(),
+        ],
+    );
+    ingress.extend([format!("--owner={token}"), format!("--bridge={interface}")]);
+    ingress.extend(ports.iter().map(|port| format!("--port={port}")));
+    ingress.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
     create.extend(ports.iter().map(|port| format!("--ingress-port={port}")));
     create.extend(
         egress

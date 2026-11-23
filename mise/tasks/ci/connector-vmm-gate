@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Verify boundary installation and drift detection in a VMM image's network namespace (needs no KVM)"
+#MISE description="Verify boundary installation, drift detection and DNS-mark handling of synthetic traffic in a VMM image's network namespace (needs no KVM)"
 #USAGE arg "<image>" help="The VMM image, as the engine names it"
 
 # CONNECTOR_VMM_GATE_ENGINE can also name a command such as `sudo -n podman`.
@@ -43,6 +43,7 @@ edits=(
     "flush chain inet flow_vmm_boundary input|inet input, rule 0"
     "add table inet flow_vmm_boundary { flags dormant ; }|dormant"
     "delete element inet flow_vmm_boundary baseline { 169.254.0.0/16 }|unexpected: {\"set\""
+    "flush chain inet flow_vmm_boundary ingress_input|inet ingress_input, rule 0"
     "chain inet flow_vmm_boundary input { policy drop ; }|\"policy\":\"drop\""
     "delete table bridge flow_vmm_boundary|the bridge flow_vmm_boundary table is absent"
 )
@@ -53,7 +54,69 @@ for edit in "${edits[@]}"; do
     ok "verify after reinstalling over ${edit%%|*}" "${vmm}" boundary verify
 done
 
+# The fixed policy against synthetic UDP/53. Each datagram sent here to the
+# VMM link leaves peer0 as from VMM address 10.89.0.2 and arrives on the link,
+# where a trusted fixture sets the reserved DNS mark at input priority -13.
+# Each send names how far it moves the counters of clear-dns-mark, gateway-dns
+# and host, in that order.
 link=fvm0123456789ab
+fixture="table ip gate_fixture {
+    chain fixture_mark {
+        type filter hook input priority -13; policy accept;
+        iifname \"${link}\" udp dport 53 meta mark set 0x46564d44
+    }
+    chain fixture_snat {
+        type nat hook postrouting priority srcnat; policy accept;
+        oifname \"peer0\" snat to 10.89.0.2
+    }
+}"
+ok "a VMM link" ip link add peer0 type veth peer name "${link}"
+ok "its address" ip link set "${link}" address 02:f1:0f:00:00:01
+ok "its gateway" ip addr add 10.89.0.1/24 dev "${link}"
+ok "a second address on it" ip addr add 10.89.0.53/24 dev "${link}"
+ok "the link up" ip link set "${link}" up
+ok "its peer up" ip link set peer0 up
+for address in 10.89.0.1 10.89.0.53; do
+    ok "the neighbour ${address}" ip neigh add "${address}" lladdr 02:f1:0f:00:00:01 dev peer0 nud permanent
+done
+ok "a route by the peer" ip route add 10.89.0.0/24 dev peer0 table 100
+ok "local UDP/53 by that route" ip rule add pref 10 iif lo ipproto udp dport 53 lookup 100
+ok "local addresses after it" ip rule add pref 20 lookup local
+ok "and not before it" ip rule del pref 0 lookup local
+ok "the trusted fixture" nft -f - <<<"${fixture}"
+counts() {
+    local rule line
+    for rule in ingress_input/clear-dns-mark input/gateway-dns input/host; do
+        line=$(nft list chain inet flow_vmm_boundary "${rule%/*}" | grep -F "comment \"${rule#*/}\"")
+        [[ "${line}" =~ packets\ ([0-9]+) ]] || return 1
+        printf "%s " "${BASH_REMATCH[1]}"
+    done
+}
+datagram() {
+    local what=$1 to=$2 want=$3 before after moved
+    before=($(counts))
+    printf x >"/dev/udp/${to}/53"
+    sleep 0.2
+    after=($(counts))
+    moved="$((after[0] - before[0])) $((after[1] - before[1])) $((after[2] - before[2]))"
+    if [[ "${moved}" != "${want}" ]]; then
+        printf "FAILED %s: moved %s, not %s\n" "${what}" "${moved}" "${want}"
+        failed=1
+    fi
+}
+owner=00112233445566778899aabbccddeeff
+datagram "an ungranted gateway" 10.89.0.1 "1 0 1"
+ok "a grant of the gateway" "${vmm}" boundary grant --owner="${owner}" --bridge="${link}" --nameserver=10.89.0.1
+datagram "the granted gateway" 10.89.0.1 "1 1 0"
+datagram "another address on the granted link" 10.89.0.53 "1 0 1"
+ok "a revoke" "${vmm}" boundary revoke --owner="${owner}"
+datagram "the revoked gateway" 10.89.0.1 "1 0 1"
+ok "deleting the VMM link" ip link del peer0
+ok "deleting the fixture" nft delete table ip gate_fixture
+ok "local addresses first again" ip rule add pref 0 lookup local
+ok "removing the later lookup" ip rule del pref 20 lookup local
+ok "removing the route by the peer" ip rule del pref 10
+
 ok "adding VMM bridge ${link}" ip link add "${link}" type dummy
 refused "remove beside a VMM bridge" "${link}" "${vmm}" boundary remove
 ok "verify after a refused remove" "${vmm}" boundary verify

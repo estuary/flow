@@ -10,6 +10,7 @@ image inspect
 image inspect
 image inspect
 network create
+network inspect
 network ls
 network ls
 network rm
@@ -20,6 +21,8 @@ pull ghcr.io/estuary/derive-python:synthetic
 pull ghcr.io/estuary/derive-python:synthetic
 pull ghcr.io/estuary/derive-typescript:synthetic
 rm --force
+run --network=host
+run --rm
 run --rm
 run --rm
 run --rm

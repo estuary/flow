@@ -1,4 +1,6 @@
-//! Podman argument builders shared by VMM launch planning and the KVM harness.
+//! Podman commands and network inspection shared by VMM launches and the KVM harness.
+
+use anyhow::Context;
 
 /// Must match `boundary::BRIDGE_PREFIX` of `flow-connector-vmm`: a bridge so
 /// named is behind the host boundary, and nothing else puts it there.
@@ -130,7 +132,7 @@ pub fn container(command: &str, container: &Container) -> Vec<String> {
 
 /// The network one VMM container joins, alone, on bridge `interface`.
 /// Podman's resolver stays enabled on it: its gateway is the VMM's
-/// nameserver, the boundary's one exception.
+/// nameserver (see `nameserver`).
 pub fn network(name: &str, interface: &str, options: &[String]) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "network".to_string(),
@@ -141,6 +143,48 @@ pub fn network(name: &str, interface: &str, options: &[String]) -> Vec<String> {
     args.extend_from_slice(options);
     args.push(name.to_string());
     args
+}
+
+/// The VMM's nameserver: the one IPv4 gateway of the network on bridge
+/// `interface`, from its `podman network inspect`, where podman's resolver
+/// listens. The launch grants that address alone, so a network with its
+/// resolver disabled, on another bridge, or without exactly one IPv4 gateway
+/// is refused.
+pub fn nameserver(interface: &str, inspection: &[u8]) -> anyhow::Result<std::net::Ipv4Addr> {
+    #[derive(serde::Deserialize)]
+    struct Network {
+        network_interface: String,
+        dns_enabled: bool,
+        subnets: Vec<Subnet>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Subnet {
+        gateway: Option<std::net::IpAddr>,
+    }
+
+    let [network]: [Network; 1] =
+        serde_json::from_slice(inspection).context("parsing podman's network inspection")?;
+    if !network.dns_enabled {
+        anyhow::bail!("has podman's resolver disabled");
+    }
+    if network.network_interface != interface {
+        anyhow::bail!(
+            "is on interface {:?}, not {interface}",
+            network.network_interface
+        );
+    }
+    let gateways: Vec<std::net::Ipv4Addr> = network
+        .subnets
+        .iter()
+        .filter_map(|subnet| match subnet.gateway {
+            Some(std::net::IpAddr::V4(gateway)) => Some(gateway),
+            _ => None,
+        })
+        .collect();
+    let [gateway] = gateways[..] else {
+        anyhow::bail!("has {} IPv4 gateways, not one", gateways.len());
+    };
+    Ok(gateway)
 }
 
 /// The VMM's rootfs volume, of connector image `image`. type=image shares a
@@ -227,6 +271,49 @@ mod test {
         insta::assert_snapshot!(
             super::network("fv_0123456789abcdef", "fvm0123456789ab", &[]).join("\n")
         );
+    }
+
+    #[test]
+    fn nameservers() {
+        let network = |interface: &str, dns_enabled: bool, gateways: &[&str]| {
+            let subnets: Vec<serde_json::Value> = gateways
+                .iter()
+                .map(|gateway| serde_json::json!({ "gateway": gateway }))
+                .collect();
+            serde_json::to_vec(&serde_json::json!([{
+                "network_interface": interface,
+                "dns_enabled": dns_enabled,
+                "subnets": subnets,
+            }]))
+            .unwrap()
+        };
+        let mut table = String::new();
+        for (name, inspection) in [
+            (
+                "beside an IPv6 gateway",
+                network("fvm0123456789ab", true, &["10.89.0.1", "fd00:89::1"]),
+            ),
+            (
+                "its resolver disabled",
+                network("fvm0123456789ab", false, &["10.89.0.1"]),
+            ),
+            ("another bridge", network("podman1", true, &["10.89.0.1"])),
+            (
+                "no IPv4 gateway",
+                network("fvm0123456789ab", true, &["fd00:89::1"]),
+            ),
+            (
+                "two IPv4 gateways",
+                network("fvm0123456789ab", true, &["10.89.0.1", "10.89.1.1"]),
+            ),
+        ] {
+            let outcome = match super::nameserver("fvm0123456789ab", &inspection) {
+                Ok(nameserver) => nameserver.to_string(),
+                Err(error) => format!("refused: {error:#}"),
+            };
+            table.push_str(&format!("{name} => {outcome}\n"));
+        }
+        insta::assert_snapshot!(table);
     }
 
     #[test]

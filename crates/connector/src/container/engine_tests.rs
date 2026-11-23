@@ -28,6 +28,15 @@ case "$step" in
         for arg; do network=$arg; done
         printf '%s' "$network" >"$ENGINE_TEST_DIR/network"
         ;;
+    "network inspect")
+        printf '[{"network_interface":"fvm%.12s","dns_enabled":true,"subnets":[{"gateway":"10.89.0.1"}]}]\n' "${3#fv_}"
+        ;;
+    "run --network=host")
+        for arg; do
+            if [ "$arg" = boundary ]; then exit 0; fi
+        done
+        exit 43
+        ;;
     "create --rm")
         previous=
         for arg; do

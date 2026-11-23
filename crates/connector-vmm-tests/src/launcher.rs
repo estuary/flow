@@ -324,6 +324,14 @@ pub fn vmm_flags(root: &Root, flags: &[String]) {
     std::fs::write(&path, content).unwrap_or_else(|e| panic!("creating {path}: {e}"));
 }
 
+/// Set the upstream of Podman's resolver for this test's networks.
+pub fn network_dns(root: &Root, nameserver: std::net::SocketAddr) {
+    assert_eq!(nameserver.port(), 53, "{nameserver} is not on port 53");
+    let path = format!("{}/network-dns", root.dir);
+    std::fs::write(&path, nameserver.ip().to_string())
+        .unwrap_or_else(|e| panic!("creating {path}: {e}"));
+}
+
 /// `--exec` for a workload which runs `script` under `/bin/sh`, as the
 /// image's user, and then becomes connector-init as the default workload
 /// would, whatever the script's status. `script` is the shell's only
@@ -590,13 +598,16 @@ pub fn token(path: &str) -> String {
 }
 
 /// Everything the host holds for a running launch, beyond what `left` sees:
-/// the namespace, processes, cgroup, storage layer and links of its container.
-/// The VMM's scratch disk is an unnamed file it holds open, so it goes with
-/// the VMM's process; the guest's tap is in the container's namespace.
+/// the namespace, processes, cgroup, storage layer and links of its container,
+/// and its grant's exited container. The VMM's scratch disk is an unnamed file
+/// it holds open, so it goes with the VMM's process; the guest's tap is in the
+/// container's namespace.
 #[derive(Debug)]
 pub struct Footprint {
     pub name: String,
     pub id: String,
+    /// The ID of its grant's container, `<name>-ingress`.
+    pub grant: String,
     pub netns: String,
     /// The container's first process (the VMM) and its conmon, each with its
     /// start time, so that a reused PID isn't taken for the process.
@@ -634,6 +645,15 @@ pub fn footprint(state_dir: &str, tmp_dir: &str, name: &str) -> Footprint {
         .find_map(|line| line.strip_prefix("0::"))
         .unwrap_or_else(|| panic!("{name}'s VMM is in no unified cgroup: {cgroup:?}"));
 
+    let grant = run::podman(&[
+        "container",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        &format!("{name}-ingress"),
+    ])
+    .trim()
+    .to_string();
     let bridge = format!("fvm{}", &name[3..15]);
     let veths = links(&["-o", "link", "show", "master", &bridge])
         .into_iter()
@@ -650,6 +670,7 @@ pub fn footprint(state_dir: &str, tmp_dir: &str, name: &str) -> Footprint {
     let footprint = Footprint {
         name: name.to_string(),
         id: id.to_string(),
+        grant,
         netns: netns.to_string(),
         processes: vec![
             (
@@ -681,7 +702,7 @@ pub fn assert_whole(footprint: &Footprint) {
     let present = remaining(footprint);
     assert_eq!(
         present.len(),
-        9 + footprint.veths.len() + footprint.paths.len(),
+        10 + footprint.veths.len() + footprint.paths.len(),
         "all of {footprint:#?} remains, not just {present:#?}"
     );
 }
@@ -690,6 +711,7 @@ pub fn remaining(footprint: &Footprint) -> Vec<String> {
     let Footprint {
         name,
         id,
+        grant,
         netns,
         processes,
         cgroup,
@@ -702,6 +724,9 @@ pub fn remaining(footprint: &Footprint) -> Vec<String> {
 
     if container_exists(id) {
         remaining.push(format!("container {id}"));
+    }
+    if container_exists(grant) {
+        remaining.push(format!("grant container {grant}"));
     }
     if volume_exists(name) {
         remaining.push(format!("rootfs volume {name}"));

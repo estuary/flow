@@ -32,7 +32,7 @@ integration suite.
 - `src/landlock.rs`: the Landlock ruleset applied before libkrun starts,
   which bounds the files its virtiofs server opens.
 - `src/net.rs`: the addresses the tap, the ruleset and the resolver are pinned
-  to, plus the tap, the ruleset apply and the upstream nameserver.
+  to, plus the tap and the ruleset apply.
 - `src/console.rs`: the console descriptors and the `--debug` tee.
 - `src/policy.rs`: the `--egress-host` and `--egress-cidr` flags, the policy
   they validate into, and the `baseline` and `excluded` prefixes. Host-name
@@ -43,8 +43,9 @@ integration suite.
   as the nft JSON document `boundary install` applies and the comparison
   `boundary verify` makes. `src/boundary/listing.json` is the kernel's listing
   of them.
-- `src/ingress.rs`: launch-owned host input and output chains authorizing declared TCP
-  ports with a reserved packet mark.
+- `src/ingress.rs`: launch-owned host chains authorizing DNS to the launch's
+  nameserver, declared TCP ports and declared CIDRs, with reserved packet
+  marks.
 - `src/resolver/mod.rs`: the thread, the gate, the CNAME memory and the
   lifetime of an authorization, and the refusals it reports to the guest's
   connector-init.
@@ -120,6 +121,10 @@ failure ends the launch before the VM starts, and its cause reaches stderr.
 - `boundary verify` from the same VMM image, in the host's network
   namespace, before the network is created. Nothing is cached between
   launches.
+- `--nameserver`, the network's gateway as podman reports it, where
+  podman's resolver listens. The launch's `boundary grant --nameserver`
+  names the same address before the container starts. It is the host's
+  only exception for traffic the VMM starts.
 - An empty `/sock` which the launcher owns at mode 0700, whose host path
   fits a Unix socket address.
 - `--sysctl net.ipv6.conf.default.disable_ipv6=1`, which
@@ -131,13 +136,13 @@ failure ends the launch before the VM starts, and its cause reaches stderr.
 `bridge flow_vmm_boundary` in the host's network namespace. Rules match the
 `fvm*` interface a packet crosses and never an address, so one installation
 covers every VMM bridge. `src/boundary.rs` documents install, verify, remove
-and the packet mark by which `boundary grant` authorizes a launch's declared
-ingress ports and CIDRs.
+and the packet marks by which `boundary grant` authorizes a launch's DNS,
+declared ingress ports and CIDRs.
 
 | hook | drops, for traffic from or to an `fvm*` bridge |
 |---|---|
 | inet prerouting (raw) | IPv6; a source that does not route back out of the bridge it came in on; IP fragments (none arrive while conntrack reassembles) |
-| inet input | everything addressed to the host, except UDP/53 to the bridge gateway and TCP replies to authorized host ingress |
+| inet input | everything addressed to the host, except UDP/53 to the nameserver a launch's grant names, from that launch's bridge, and TCP replies to authorized host ingress |
 | inet forward | anything to another VMM bridge or back out of its own; `policy::excluded` destinations; `policy::baseline` destinations without a granted mark; TCP/25; IPv6 into a VMM; any packet into a VMM that is not a reply |
 | inet output | IPv6, and connections from the host into a VMM without a reply state or an ingress authorization |
 | bridge prerouting, output | frames that are neither IPv4 nor ARP |
@@ -218,4 +223,5 @@ the image is already published. A local build loads the image ungated.
 - `flow-connector-vmm` is built on the Ubuntu runner and runs against
   Fedora's glibc, which must be at least as new.
 - `--debug`, `--resolver-upstream` and `--exec` parse only with the
-  `test-controls` feature, which `ci:package` refuses.
+  `test-controls` feature, which `ci:package` refuses. A
+  `--resolver-upstream` replaces `--nameserver` as the resolver's upstream.

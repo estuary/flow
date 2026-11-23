@@ -1,5 +1,6 @@
-//! The scripted upstream nameserver a test's VMM forwards to through
-//! `--resolver-upstream`. It answers only what the test scripted and says
+//! The scripted upstream nameserver a test's VMM forwards to, through
+//! `--resolver-upstream` or podman's resolver (`launcher::network_dns`).
+//! It answers only what the test scripted and says
 //! NXDOMAIN to everything else: it never forwards, so no deterministic test
 //! depends on, or sends a query to, a real nameserver.
 

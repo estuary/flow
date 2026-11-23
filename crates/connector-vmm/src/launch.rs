@@ -94,6 +94,10 @@ pub struct Args {
     #[arg(long)]
     pub persistent_disk: bool,
 
+    /// The IPv4 gateway the launcher granted for upstream DNS on UDP/53.
+    #[arg(long, value_name = "IP", value_parser = crate::ingress::nameserver)]
+    pub nameserver: std::net::Ipv4Addr,
+
     // The test controls below parse only with the `test-controls` feature.
     // Without it they keep their defaults, so the same code runs with them off.
     /// libkrun debug logging, VMM stage lines, the console tee and the
@@ -102,8 +106,7 @@ pub struct Args {
     #[cfg_attr(not(feature = "test-controls"), arg(skip))]
     pub debug: bool,
 
-    /// The upstream the resolver forwards to, in place of the nameserver in
-    /// the VMM's own /etc/resolv.conf.
+    /// The upstream the resolver forwards to, in place of `--nameserver`.
     #[cfg_attr(feature = "test-controls", arg(long, value_name = "IP:PORT"))]
     #[cfg_attr(not(feature = "test-controls"), arg(skip))]
     pub resolver_upstream: Option<SocketAddr>,
@@ -222,10 +225,9 @@ pub fn run(args: &Args) -> anyhow::Result<Infallible> {
         error: libc::STDERR_FILENO,
     };
 
-    let upstream = match args.resolver_upstream {
-        Some(upstream) => upstream,
-        None => net::upstream_nameserver()?,
-    };
+    let upstream = args
+        .resolver_upstream
+        .unwrap_or_else(|| SocketAddr::from((args.nameserver, 53)));
     // Returns once the resolver is listening, so a failure here is still a
     // pre-VM failure. After it, the resolver ends the process itself.
     crate::resolver::start(

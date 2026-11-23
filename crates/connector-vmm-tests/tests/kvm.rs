@@ -129,6 +129,68 @@ fn counter(counters: &std::collections::BTreeMap<String, u64>, rule: &str) -> u6
         .unwrap_or_else(|| panic!("no counter for {rule} in {counters:?}"))
 }
 
+/// One A query over UDP. Prints `timeout` for a drop, `refused` for an ICMP
+/// refusal, or the reply's rcode and A records once its ID and QR bit show it
+/// answers the query.
+const HOST_QUERY: &str = r#"import os, socket, struct, sys
+addr, name, timeout = sys.argv[1], sys.argv[2], float(sys.argv[3])
+ident = struct.unpack("!H", os.urandom(2))[0]
+query = struct.pack("!HHHHHH", ident, 0x0100, 1, 0, 0, 0)
+for label in name.split("."):
+    query += bytes([len(label)]) + label.encode()
+query += b"\0" + struct.pack("!HH", 1, 1)
+
+def skip(message, at):
+    while message[at] and message[at] < 0xC0:
+        at += 1 + message[at]
+    return at + (2 if message[at] else 1)
+
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(timeout)
+s.connect((addr, 53))
+s.send(query)
+try:
+    reply = s.recv(4096)
+except socket.timeout:
+    print("timeout")
+except ConnectionRefusedError:
+    print("refused")
+else:
+    got, flags, questions, answers = struct.unpack("!HHHH", reply[:8])
+    if got != ident or not flags & 0x8000:
+        print("not a reply to the query")
+        sys.exit()
+    at = 12
+    for _ in range(questions):
+        at = skip(reply, at) + 4
+    addresses = []
+    for _ in range(answers):
+        at = skip(reply, at)
+        kind, _, _, length = struct.unpack("!HHIH", reply[at:at + 10])
+        at += 10
+        if kind == 1:
+            addresses.append(socket.inet_ntoa(reply[at:at + length]))
+        at += length
+    print("rcode=%d answers=%s" % (flags & 15, ",".join(addresses)))"#;
+
+/// `HOST_QUERY` for `name` to `addr` port 53 from the network namespace of
+/// process `pid`, where no VMM ruleset stands in its way.
+fn host_query(pid: u32, addr: Ipv4Addr, name: &str, timeout: f64) -> String {
+    run::nsenter(
+        pid,
+        &[
+            "python3",
+            "-c",
+            HOST_QUERY,
+            &addr.to_string(),
+            name,
+            &timeout.to_string(),
+        ],
+    )
+    .trim()
+    .to_string()
+}
+
 /// A probe result the guest wrote to its stderr, for the `once` probes a
 /// workload script runs before the control channel exists.
 fn stderr_probe(vmm: &run::Vmm, name: &str) -> serde_json::Value {
@@ -1028,6 +1090,8 @@ fn production_refuses_test_controls() {
             "2",
             "--disk-mib",
             "256",
+            "--nameserver",
+            "10.89.0.1",
         ];
         argv.extend(flags);
         let output = run::sudo_output(&argv, None);
@@ -2223,6 +2287,9 @@ fn egress_empty() {
 fn public_https_smoke() {
     let run = run::load();
     let (vmm, mut guest) = start(&run, run::Spec::probes(&run, run::policy::SMOKE));
+    // The nameserver read from the network, which the VMM forwards to and
+    // its launch granted, is the gateway the container is given.
+    assert_eq!(network_field(&vmm, "Gateway"), vmm.nameserver);
 
     let resolved = probe(
         &mut guest,
@@ -2467,6 +2534,7 @@ fn ingress_from_host() {
         );
         let permissions = run::ingress(&run, &vmm, &[8080], &[]);
         let ip = network_field(&vmm, "IPAddress");
+        let pid = run::pid(&vmm);
         assert_eq!(
             probe(
                 &mut guest,
@@ -2627,6 +2695,27 @@ fn ingress_from_host() {
             std::net::TcpStream::connect_timeout(&(ip, 8080).into(), Duration::from_millis(500))
                 .is_err(),
             "revoked ingress admitted a connection"
+        );
+        // Its DNS grant outlasts its ingress and its own rules, and podman's
+        // resolver answers it with its own address.
+        assert_eq!(
+            host_query(
+                pid,
+                vmm.nameserver,
+                &format!("{}.dns.podman", vmm.name),
+                5.0
+            ),
+            format!("rcode=0 answers={ip}")
+        );
+        // The sibling's grant admits the sibling alone.
+        let sibling_name = format!("{}.dns.podman", sibling.name);
+        assert_eq!(
+            host_query(pid, sibling.nameserver, &sibling_name, BLOCKED),
+            "timeout"
+        );
+        assert_eq!(
+            host_query(run::pid(&sibling), sibling.nameserver, &sibling_name, 5.0),
+            format!("rcode=0 answers={}", network_field(&sibling, "IPAddress"))
         );
         assert_eq!(
             probe(
@@ -2967,6 +3056,13 @@ fn egress_every_address() {
             assert_eq!(result, want, "{}", case(name));
         }
     }
+
+    // Its upstream is routed, so its launch granted no DNS, and a grant of
+    // every address does not open its gateway's resolver.
+    assert_eq!(
+        host_query(run::pid(&vmm), gateway, &vmm.name, BLOCKED),
+        "timeout"
+    );
     for endpoint in [&tcp_public, &tcp_decoy, &udp_decoy] {
         assert!(
             endpoint::accepted(endpoint).contains(&run.endpoint_peer),

@@ -2,7 +2,8 @@
 //! connector-init: pull and inspect the connector's image with the VMM's
 //! podman, claim the launch's ownership record, prepare its connector mount
 //! and `fv_<id>` state, verify the host boundary, create the VMM's network,
-//! volume and container, wait for connector-init's stderr readiness byte,
+//! read its nameserver back from podman, grant its host permissions, create
+//! its volume and container, wait for connector-init's stderr readiness byte,
 //! and dial `init.sock`. A launch recovers nothing of others': the host prune command does.
 //!
 //! One spawned task owns everything a launch creates, from its claim to its
@@ -262,11 +263,15 @@ async fn launch(
         ))
         .await;
 
-    let ingress_image = (!plan.ingress.is_empty()).then_some(vmm_image.as_str());
     let file = record::claim(
         &vmm.state_dir,
         &plan.name,
-        &record::claim_line(&plan.name, &plan.token, Some(&plan.mount), ingress_image),
+        &record::claim_line(
+            &plan.name,
+            &plan.token,
+            Some(&plan.mount),
+            Some(vmm_image.as_str()),
+        ),
     )
     .with_context(|| format!("claiming VMM ownership record {}", plan.record))
     .map_err(precondition)?;
@@ -280,7 +285,7 @@ async fn launch(
             state: plan.state.clone(),
             created_mount: false,
             created_state: false,
-            ingress_image: ingress_image.map(str::to_string),
+            ingress_image: Some(vmm_image.clone()),
         },
         container: None,
         attached: None,
@@ -331,7 +336,20 @@ async fn launch(
         return Err(abandoned());
     }
 
-    run_vmm(input, owner, launched_tx, &plan, &inspection).await
+    // Podman, which the VMM cannot reach, is the one source of the VMM's
+    // nameserver. The grant admits that address alone, and the VMM forwards
+    // there whatever its container's resolv.conf says.
+    let network = unless_abandoned(launched_tx, async {
+        release::command(podman, &["network", "inspect", plan.name.as_str()])
+            .await
+            .with_context(|| format!("inspecting the VMM network {}", plan.name))
+    })
+    .await?;
+    let nameserver = super::argv::nameserver(&plan.interface, &network)
+        .with_context(|| format!("the VMM network {}, as podman made it", plan.name))
+        .map_err(precondition)?;
+
+    run_vmm(input, owner, launched_tx, &plan, &inspection, nameserver).await
 }
 
 async fn run_vmm(
@@ -340,6 +358,7 @@ async fn run_vmm(
     launched_tx: &mut LaunchedTx,
     plan: &plan::Plan,
     inspection: &[u8],
+    nameserver: std::net::Ipv4Addr,
 ) -> anyhow::Result<Launched> {
     let Input {
         vmm,
@@ -347,12 +366,13 @@ async fn run_vmm(
         log_sink,
         ..
     } = input;
+    let nameserver = format!("--nameserver={nameserver}");
 
-    if !plan.ingress.is_empty() {
-        release::command(&vmm.podman, &plan.ingress)
-            .await
-            .context("installing the VMM host permissions")?;
-    }
+    let mut grant = plan.ingress.clone();
+    grant.push(nameserver.clone());
+    release::command(&vmm.podman, &grant)
+        .await
+        .context("installing the VMM host permissions")?;
 
     release::command(&vmm.podman, &plan.rootfs)
         .await
@@ -361,9 +381,11 @@ async fn run_vmm(
         return Err(abandoned());
     }
 
-    tracing::debug!(argv = ?plan.create, "creating a VMM's container");
+    let mut create = plan.create.clone();
+    create.push(nameserver);
+    tracing::debug!(argv = ?create, "creating a VMM's container");
 
-    let created = release::command(&vmm.podman, &plan.create)
+    let created = release::command(&vmm.podman, &create)
         .await
         .context("creating the VMM's container")?;
     let created = String::from_utf8_lossy(&created).trim().to_string();
