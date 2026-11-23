@@ -554,9 +554,6 @@ impl serde::Serialize for response::Started {
         if self.process.is_some() {
             len += 1;
         }
-        if self.execution.is_some() {
-            len += 1;
-        }
         if self.spec.is_some() {
             len += 1;
         }
@@ -575,9 +572,6 @@ impl serde::Serialize for response::Started {
         }
         if let Some(v) = self.process.as_ref() {
             struct_ser.serialize_field("process", v)?;
-        }
-        if let Some(v) = self.execution.as_ref() {
-            struct_ser.serialize_field("execution", v)?;
         }
         if let Some(v) = self.spec.as_ref() {
             match v {
@@ -607,7 +601,6 @@ impl<'de> serde::Deserialize<'de> for response::Started {
             "token_restart_at",
             "tokenRestartAt",
             "process",
-            "execution",
             "capture",
             "derive",
             "materialize",
@@ -619,7 +612,6 @@ impl<'de> serde::Deserialize<'de> for response::Started {
             Codec,
             TokenRestartAt,
             Process,
-            Execution,
             Capture,
             Derive,
             Materialize,
@@ -654,7 +646,6 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                                 Ok(GeneratedField::TokenRestartAt)
                             }
                             "process" => Ok(GeneratedField::Process),
-                            "execution" => Ok(GeneratedField::Execution),
                             "capture" => Ok(GeneratedField::Capture),
                             "derive" => Ok(GeneratedField::Derive),
                             "materialize" => Ok(GeneratedField::Materialize),
@@ -681,7 +672,6 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                 let mut codec__ = None;
                 let mut token_restart_at__ = None;
                 let mut process__ = None;
-                let mut execution__ = None;
                 let mut spec__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -708,12 +698,6 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                                 return Err(serde::de::Error::duplicate_field("process"));
                             }
                             process__ = map_.next_value()?;
-                        }
-                        GeneratedField::Execution => {
-                            if execution__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("execution"));
-                            }
-                            execution__ = map_.next_value()?;
                         }
                         GeneratedField::Capture => {
                             if let Some(v) = map_.next_value::<::std::option::Option<_>>()? {
@@ -749,7 +733,6 @@ impl<'de> serde::Deserialize<'de> for response::Started {
                     codec: codec__.unwrap_or_default(),
                     token_restart_at: token_restart_at__,
                     process: process__,
-                    execution: execution__,
                     spec: spec__,
                 })
             }

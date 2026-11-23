@@ -44,9 +44,7 @@ they're wrapped.
   are logs or protocol responses of the established type.
 - `Start.execution` is the connector's execution, unset for ordinary. Every
   request, first or later, which embeds the task's built spec (Apply, Open)
-  must match that spec's `execution`. `Started.execution` echoes it, unset
-  when ordinary, and `proto_grpc::connector::start` rejects a `Started` which
-  doesn't.
+  must match that spec's `execution`.
 - A failure before the connector runs ends the stream with a `Status` and no
   `Started`.
 - Clients close the request stream to abandon a session. Response sends are

@@ -241,7 +241,6 @@ mechanism. What an operator needs:
 | "task egress.hosts ..." or "declares an invalid egress host" | An invalid host name; the message names the rule. |
 | "task egress.cidrs ..." or "declares an invalid egress CIDR" | An invalid address range; the message names the rule. |
 | "the task declares egress.cidrs, which only private data planes accept" | `egress.cidrs` on a public data plane, which never accepts one. |
-| "connector Started with execution ..., but ... was requested" | The serving reactor ignored or changed the execution settings: it predates them. See [Rollout](#rollout). |
 | A `CONNECTOR_VMM_*` variable named with its value | Configuration refused at service construction. |
 | "CONNECTOR_VMM_STATE_DIR ..." (FailedPrecondition) | The state directory is missing, a link, owned by another UID, or not mode 0700. |
 | "opening an O_TMPFILE scratch disk in ..." or "sizing a scratch disk in ..." | The state directory's filesystem cannot hold the scratch disk. |
@@ -267,18 +266,11 @@ or unsupported record protects its resources until it can be inspected.
 
 ## Rollout
 
-**Upgrade every reactor before any VMM-selected request can reach it.** That
-means every reactor which could serve the plane's Spec, Validate, Discover,
-Apply or Open, not only the reactors running published shards. A reactor
-built before this support ignores the execution settings: it may start the
-connector ordinarily, and exchange Spec or Validate with it, before the
-client notices that `Started` lacks the requested execution and refuses it.
-Apply and Open of a published task on such a reactor run ordinarily, with no
-check at all. Execution settings travel as a whole, so the same holds for
-`egress`: a reactor which cannot read a declaration cannot enforce it.
-
-A control plane built before this support refuses drafts carrying `vmm` or
-`egress` as unknown fields, so publishing them waits for its upgrade too.
+**Upgrade every participating reactor and control-plane component before
+enabling VMM tasks.** Participating reactors include any which could serve the
+plane's Spec, Validate, Discover, Apply or Open. A reactor built before this
+support ignores a task's execution settings, including `egress`, and runs its
+connector ordinarily.
 
 Configure every reactor of a plane alike. Capability is the plane's: a VMM
 task whose request reaches a reactor without `CONNECTOR_VMM_STATE_DIR`, or whose

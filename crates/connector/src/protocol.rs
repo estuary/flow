@@ -345,10 +345,6 @@ pub(crate) async fn start<P: Protocol>(
                 token_restart_at,
                 process: ctx.process,
                 spec,
-                execution: ctx
-                    .start
-                    .execution
-                    .filter(|value| **value != default_execution),
             })),
             ..Default::default()
         },

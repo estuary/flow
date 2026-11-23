@@ -99,8 +99,8 @@ The policy is a split by lifecycle, not by size:
 - **`CollectionSpec.derivation` is boxed**, so that a collection which isn't
   a derivation isn't sized to hold one. So are the `connector_spec` fields
   of built specs, which only the control plane reads. The `execution` fields
-  of built specs and of connector `Start` and `Started` are boxed too, since
-  ordinary execution leaves them unset.
+  of built specs and of connector `Start` are boxed too, since ordinary
+  execution leaves them unset.
 
 Deliberately *not* boxed: `Spec` requests (40 bytes), `Projection.inference`,
 and the journal and shard templates.

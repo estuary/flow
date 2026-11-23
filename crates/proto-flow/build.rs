@@ -433,7 +433,6 @@ fn main() {
     // Ordinary execution, the common case, leaves `ConnectorExecution` unset.
     for path in [
         ".connector.Request.Start.execution",
-        ".connector.Response.Started.execution",
         ".flow.CaptureSpec.execution",
         ".flow.MaterializationSpec.execution",
         ".flow.CollectionSpec.Derivation.execution",

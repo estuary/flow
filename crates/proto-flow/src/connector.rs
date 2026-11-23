@@ -95,13 +95,6 @@ pub mod response {
         /// Absent in local contexts.
         #[prost(message, optional, tag = "4")]
         pub process: ::core::option::Option<::proto_gazette::broker::ProcessSpec>,
-        /// Execution with which the connector was started, echoing
-        /// `Start.execution`. Clients verify it, so that a service which predates
-        /// a requested execution cannot silently start the connector without it.
-        #[prost(message, optional, boxed, tag = "8")]
-        pub execution: ::core::option::Option<
-            ::prost::alloc::boxed::Box<super::super::flow::ConnectorExecution>,
-        >,
         /// The connector's response to a Spec request, which the service issues as
         /// part of starting it. Always set, of the stream's protocol.
         #[prost(oneof = "started::Spec", tags = "5, 6, 7")]

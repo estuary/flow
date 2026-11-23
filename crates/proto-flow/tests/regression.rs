@@ -418,7 +418,6 @@ fn ex_connector_response() -> connector::Response {
                 spec: Some(connector::response::started::Spec::Derive(Box::new(
                     derive::response::Spec::default(),
                 ))),
-                execution: ex_execution(&["api.acmeco.example"], &[]),
                 ..Default::default()
             },
         )),

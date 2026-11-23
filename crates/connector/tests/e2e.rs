@@ -1400,14 +1400,6 @@ mod execution {
         )
         .await;
 
-        let started = responses.iter().find_map(|response| match response {
-            Ok(proto::Response {
-                kind: Some(proto::response::Kind::Started(started)),
-                ..
-            }) => Some(started),
-            _ => None,
-        });
-        assert_eq!(started.expect("connector started").execution, None);
         insta::assert_debug_snapshot!(render_lines(responses), @r#"
     [
         "Started(codec=Proto, container=false, process=false, spec=derive)",

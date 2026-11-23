@@ -168,11 +168,6 @@ fn assert_pruned(vmm: &connector::Vmm) {
 }
 
 fn assert_started(started: &proto::response::Started) {
-    assert_eq!(
-        started.execution.as_deref(),
-        Some(&vmm_execution()),
-        "Started echoes VMM execution"
-    );
     let Some(proto::response::started::Spec::Derive(spec)) = &started.spec else {
         panic!("expected a derivation's Spec, got {:?}", started.spec);
     };
@@ -198,7 +193,7 @@ struct OwnerConfig {
     /// `waiting`; it then reports `go` with the time.
     #[serde(default)]
     barrier: Option<String>,
-    /// The task's declared egress hosts, which `Started` must echo.
+    /// The task's declared egress hosts.
     #[serde(default)]
     egress: Option<Vec<String>>,
 }
@@ -266,7 +261,7 @@ fn owner_process() {
             &router,
             &logger,
             proto_grpc::connector::SPEC_TASK_NAME,
-            spec_with(&image, execution.clone()),
+            spec_with(&image, execution),
         )) {
             Ok(session) => session,
             Err(err) => {
@@ -274,15 +269,7 @@ fn owner_process() {
                 return;
             }
         };
-    assert_eq!(
-        started.execution.as_deref(),
-        Some(&execution),
-        "Started echoes the task's egress"
-    );
-    assert_started(&proto::response::Started {
-        execution: Some(Box::new(vmm_execution())),
-        ..started
-    });
+    assert_started(&started);
     println!("owner: started");
 
     for _ in std::io::stdin().lines() {}
@@ -898,11 +885,6 @@ fn python_connectors_spec_through_the_vmm() {
         let logs = Logs::default();
         let started = unary(&runtime, &router, &logs, python_spec(task_type, image))
             .unwrap_or_else(|err| panic!("Spec of {image}: {err:#}\n{:#?}", logs.messages()));
-        assert_eq!(
-            started.execution.as_deref(),
-            Some(&vmm_execution()),
-            "{image}"
-        );
         let schema = match started.spec {
             Some(proto::response::started::Spec::Capture(spec)) => spec.config_schema_json,
             Some(proto::response::started::Spec::Derive(spec)) => spec.config_schema_json,
@@ -1054,7 +1036,7 @@ fn probe_egress(
     let logs = Logs::default();
     let task = {
         let (router, logs) = (router.clone(), logs.clone());
-        let request = spec_with(&run.derive_python_image, execution.clone());
+        let request = spec_with(&run.derive_python_image, execution);
         runtime.spawn(async move {
             let logger = move |log: &ops::Log| logs.push(log);
             proto_grpc::connector::unary(&router, &logger, request, STARTED, STARTED)
@@ -1067,15 +1049,10 @@ fn probe_egress(
     let policy = launcher::egress_flags(root, &name);
     std::mem::drop(hold);
 
-    let started = runtime
+    runtime
         .block_on(task)
         .expect("the launch task completes")
         .unwrap_or_else(|err| panic!("launching: {err:#}\n{:#?}", logs.messages()));
-    assert_eq!(
-        started.execution.as_deref(),
-        Some(&execution),
-        "Started echoes the task's egress"
-    );
     assert_eq!(launcher::leftovers(root, Some(&name)), Vec::<String>::new());
 
     let results = stderr

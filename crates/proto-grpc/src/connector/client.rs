@@ -42,11 +42,6 @@ pub async fn start(
         tonic::Status::invalid_argument("first Connector request must set a protocol request")
     })?;
     let task_type = super::task_type(kind);
-    let requested = first
-        .start
-        .as_ref()
-        .and_then(|start| start.execution.as_deref().cloned())
-        .unwrap_or_default();
     let (request_tx, request_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
     request_tx.try_send(first).expect("channel is empty");
     let mut response_rx = router.open(task_type, task_name, request_rx);
@@ -68,16 +63,6 @@ pub async fn start(
             },
         }
     };
-
-    // A service which predates a requested execution ignores it, and would
-    // start the connector ordinarily. Its `Started` doesn't echo the request.
-    let ordinary = proto_flow::flow::ConnectorExecution::default();
-    let reported = started.execution.as_deref().unwrap_or(&ordinary);
-    if *reported != requested {
-        anyhow::bail!(
-            "connector Started with execution {reported:?}, but {requested:?} was requested"
-        );
-    }
     Ok((request_tx, response_rx, started))
 }
 
@@ -311,19 +296,12 @@ mod test {
     }
 
     fn started() -> connector::Response {
-        started_with(None)
-    }
-
-    fn started_with(
-        execution: Option<proto_flow::flow::ConnectorExecution>,
-    ) -> connector::Response {
         connector::Response {
             kind: Some(connector::response::Kind::Started(
                 connector::response::Started {
                     spec: Some(connector::response::started::Spec::Capture(Box::new(
                         Default::default(),
                     ))),
-                    execution: execution.map(Box::new),
                     ..Default::default()
                 },
             )),
@@ -420,66 +398,30 @@ mod test {
     }
 
     #[tokio::test]
-    async fn start_requires_started_to_echo_the_requested_execution() {
-        use proto_flow::flow::{ConnectorExecution, connector_execution::Egress};
-        let with = |vmm: bool, hosts: Option<&[&str]>| {
-            Some(ConnectorExecution {
-                vmm,
-                egress: hosts.map(|hosts| Egress {
-                    hosts: hosts.iter().map(ToString::to_string).collect(),
-                    cidrs: Vec::new(),
-                }),
-            })
+    async fn start_returns_an_execution_refusal() {
+        let router = TestRouter::new(
+            [Err(super::refuse_execution(
+                tonic::Status::failed_precondition(
+                    "this data plane does not support VMM execution",
+                ),
+            ))],
+            false,
+        );
+        let vmm = proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(Default::default()),
         };
-        let vmm = with(true, None);
-        let ordinary = with(false, None);
-        let declared = with(true, Some(&["api.acmeco.example"]));
-        let other = with(true, Some(&["*.acmeco.example"]));
-        let empty = with(true, Some(&[]));
 
-        let mut rows = Vec::new();
-        for (requested, reported) in [
-            (None, None),
-            (ordinary.clone(), None),
-            (None, ordinary.clone()),
-            (vmm.clone(), vmm.clone()),
-            (vmm.clone(), None),
-            (None, vmm.clone()),
-            (declared.clone(), declared.clone()),
-            (empty.clone(), empty.clone()),
-            (declared.clone(), vmm.clone()),
-            (declared.clone(), other),
-            (empty, vmm.clone()),
-            (vmm, declared),
-        ] {
-            let router = TestRouter::new([Ok(started_with(reported.clone()))], false);
-            let outcome = match super::start(
-                &router,
-                &|_| {},
-                "acmeCo/capture",
-                request_with(requested.clone()),
-            )
+        let err = super::start(&router, &|_| {}, "acmeCo/capture", request_with(Some(vmm)))
             .await
-            {
-                Ok(_) => "started".to_string(),
-                Err(err) => format!("{err:#}"),
-            };
-            rows.push(format!("{requested:?} / {reported:?} => {outcome}"));
-        }
+            .unwrap_err();
 
-        insta::assert_snapshot!(rows.join("\n"), @r#"
-        None / None => started
-        Some(ConnectorExecution { vmm: false, egress: None }) / None => started
-        None / Some(ConnectorExecution { vmm: false, egress: None }) => started
-        Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: None }) => started
-        Some(ConnectorExecution { vmm: true, egress: None }) / None => connector Started with execution ConnectorExecution { vmm: false, egress: None }, but ConnectorExecution { vmm: true, egress: None } was requested
-        None / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: false, egress: None } was requested
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) => started
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) }) => started
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } was requested
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"], cidrs: [] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["*.acmeco.example"], cidrs: [] }) }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) } was requested
-        Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) }) / Some(ConnectorExecution { vmm: true, egress: None }) => connector Started with execution ConnectorExecution { vmm: true, egress: None }, but ConnectorExecution { vmm: true, egress: Some(Egress { hosts: [], cidrs: [] }) } was requested
-        Some(ConnectorExecution { vmm: true, egress: None }) / Some(ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }) => connector Started with execution ConnectorExecution { vmm: true, egress: Some(Egress { hosts: ["api.acmeco.example"], cidrs: [] }) }, but ConnectorExecution { vmm: true, egress: None } was requested
-        "#);
+        let status = err.downcast_ref::<crate::StatusError>().unwrap();
+        assert!(super::is_execution_refused(status));
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(
+            status.message(),
+            "this data plane does not support VMM execution"
+        );
     }
 }

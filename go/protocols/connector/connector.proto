@@ -95,10 +95,8 @@ message Response {
       derive.Response.Spec derive = 6;
       materialize.Response.Spec materialize = 7;
     }
-    // Execution with which the connector was started, echoing
-    // `Start.execution`. Clients verify it, so that a service which predates
-    // a requested execution cannot silently start the connector without it.
-    flow.ConnectorExecution execution = 8;
+
+    reserved 8;
   }
 
   oneof kind {

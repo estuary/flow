@@ -53,7 +53,6 @@ pub(crate) async fn start(
         token_restart_at,
         process,
         spec: _,
-        execution: _, // Verified by `proto_grpc::connector::start`.
     } = started;
 
     if let Some(process) = &process {
