@@ -14,10 +14,9 @@
 //!    tap, so an address that resolved would only be something the guest fails
 //!    to connect to, slowly. This precedes the name gate because the guest's
 //!    own resolver needs the empty answer to move on to its `A` query.
-//! 4. A name that is neither admitted by the policy's names nor an unexpired
-//!    remembered CNAME target: `REFUSED`, nothing sent upstream, nothing
-//!    added to the set. With declared CIDRs, such an unnamed question is
-//!    still forwarded if it is `A`: its answer decides.
+//! 4. A declared name admits any query type. An unexpired remembered CNAME
+//!    target admits only `A`. Other questions receive `REFUSED` unless
+//!    they ask for `A` with declared CIDRs, in which case the answer decides.
 //!    A truncated upstream answer returns `SERVFAIL` for every query type.
 //!    No partial answer authorizes addresses or remembers targets.
 //! 5. A type other than `A`, or an answer whose rcode is not `NOERROR`:
@@ -467,7 +466,7 @@ impl Resolver {
                 answer: Some(dns::respond(query, &question, dns::RCODE_NOERROR)),
             });
         }
-        let named = self.allowed(&question.name, arrived);
+        let named = self.allowed(&question.name, question.qtype, arrived);
         // Only an `A` answer carries addresses to hold an unnamed question to.
         if !named && (self.config.declared.is_empty() || question.qtype != dns::TYPE_A) {
             return Ok(Handled {
@@ -697,7 +696,7 @@ impl Resolver {
         Ok(response)
     }
 
-    fn allowed(&self, name: &str, now: Instant) -> bool {
+    fn allowed(&self, name: &str, qtype: u16, now: Instant) -> bool {
         if self
             .config
             .allowed_names
@@ -706,7 +705,7 @@ impl Resolver {
         {
             return true;
         }
-        self.targets.get(name).is_some_and(|expiry| *expiry > now)
+        qtype == dns::TYPE_A && self.targets.get(name).is_some_and(|expiry| *expiry > now)
     }
 
     /// Drop what the kernel can no longer be holding. Entries live past their
@@ -1232,6 +1231,27 @@ mod tests {
                 vec![Rr::A("pypi.org", public(10), 300)],
             ),
             (("assets.acmeco.example", TYPE_TXT), vec![]),
+            (
+                ("www.mirror.acmeco.example", dns::TYPE_A),
+                vec![
+                    Rr::Cname("www.mirror.acmeco.example", "eu.mirror.acmeco.example", 300),
+                    Rr::Cname("eu.mirror.acmeco.example", "pypi.org", 300),
+                    Rr::A("pypi.org", public(83), 300),
+                ],
+            ),
+            (("eu.mirror.acmeco.example", TYPE_TXT), vec![]),
+            (
+                ("inward.mirror.acmeco.example", dns::TYPE_A),
+                vec![Rr::Cname(
+                    "inward.mirror.acmeco.example",
+                    "loopback.cdn.example",
+                    300,
+                )],
+            ),
+            (
+                ("loopback.cdn.example", dns::TYPE_A),
+                vec![Rr::A("loopback.cdn.example", Ipv4Addr::LOCALHOST, 300)],
+            ),
         ]
     }
 
@@ -1422,6 +1442,8 @@ mod tests {
 
     #[test]
     fn decisions() {
+        const TYPE_SRV: u16 = 33;
+        const TYPE_ANY: u16 = 255;
         let recorder = Recorder::default();
         let (upstream, received) = recorded_upstream(script(), Duration::ZERO);
         let mut resolver = resolver(upstream, recorder.clone());
@@ -1589,6 +1611,31 @@ mod tests {
                 query(37, "assets.acmeco.example", TYPE_TXT),
             ),
             (
+                "CNAME for the remembered target",
+                23,
+                query(42, "assets.acmeco.example", dns::TYPE_CNAME),
+            ),
+            (
+                "MX for the remembered target",
+                23,
+                query(43, "assets.acmeco.example", TYPE_MX),
+            ),
+            (
+                "SRV for the remembered target",
+                23,
+                query(44, "assets.acmeco.example", TYPE_SRV),
+            ),
+            (
+                "ANY for the remembered target",
+                23,
+                query(45, "assets.acmeco.example", TYPE_ANY),
+            ),
+            (
+                "AAAA for the remembered target",
+                23,
+                query(38, "assets.acmeco.example", dns::TYPE_AAAA),
+            ),
+            (
                 "the remembered target, queried directly",
                 24,
                 query(25, "assets.acmeco.example", dns::TYPE_A),
@@ -1607,6 +1654,31 @@ mod tests {
                 "the target of that CNAME",
                 27,
                 query(28, "edge.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "a CNAME chain to a wildcard's subdomain, then an exact name",
+                28,
+                query(39, "www.mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "MX for a remembered target, also listed exactly",
+                28,
+                query(40, "pypi.org", TYPE_MX),
+            ),
+            (
+                "TXT for a remembered target, also below a wildcard",
+                28,
+                query(41, "eu.mirror.acmeco.example", TYPE_TXT),
+            ),
+            (
+                "a CNAME with no address, to a target at loopback",
+                28,
+                query(46, "inward.mirror.acmeco.example", dns::TYPE_A),
+            ),
+            (
+                "that remembered target, queried directly",
+                28,
+                query(47, "loopback.cdn.example", dns::TYPE_A),
             ),
             (
                 "the remembered target once it has expired",
@@ -2290,7 +2362,7 @@ mod tests {
                 "{label}: existing promises are unchanged"
             );
             assert!(recorder.calls().is_empty(), "{label}: no kernel update");
-            assert!(!resolver.allowed("bad.cdn.example", Instant::now()));
+            assert!(!resolver.allowed("bad.cdn.example", dns::TYPE_A, Instant::now()));
             log.push_str(&format!("{label}: {}\n", summarize(&handled)));
         }
         insta::assert_snapshot!(log);
@@ -2387,7 +2459,7 @@ mod tests {
             }
             if targets {
                 assert!(
-                    !resolver.allowed("held.cdn.example", expired),
+                    !resolver.allowed("held.cdn.example", dns::TYPE_A, expired),
                     "an expired target no longer admits a query"
                 );
             }

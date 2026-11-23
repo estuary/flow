@@ -1,6 +1,6 @@
 ---
 source: crates/connector-vmm/src/resolver/mod.rs
-expression: log
+expression: "log_steps(&mut resolver, &received, &recorder, steps)"
 ---
 # allowed name, TTL below the floor (t+0s)
 name=pypi.org qtype=1 outcome=resolved addresses=[93.184.216.10/90] targets=[] refreshed=[]
@@ -167,9 +167,34 @@ upstream: [artifacts.acmeco.example/1]
 set: delete [] add [93.184.216.40 timeout 200s]
 
 # TXT for the remembered target (t+23s)
-name=assets.acmeco.example qtype=16 outcome=forwarded addresses=[] targets=[] refreshed=[]
+name=assets.acmeco.example qtype=16 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: []
+
+# CNAME for the remembered target (t+23s)
+name=assets.acmeco.example qtype=5 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: []
+
+# MX for the remembered target (t+23s)
+name=assets.acmeco.example qtype=15 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: []
+
+# SRV for the remembered target (t+23s)
+name=assets.acmeco.example qtype=33 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: []
+
+# ANY for the remembered target (t+23s)
+name=assets.acmeco.example qtype=255 outcome=refused-name addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=39
+upstream: []
+
+# AAAA for the remembered target (t+23s)
+name=assets.acmeco.example qtype=28 outcome=aaaa-empty addresses=[] targets=[] refreshed=[]
 answer: rcode=0 ancount=0 bytes=39
-upstream: [assets.acmeco.example/16]
+upstream: []
 
 # the remembered target, queried directly (t+24s)
 name=assets.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.41/200] targets=[] refreshed=[]
@@ -192,6 +217,32 @@ name=edge.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.42/600] 
 answer: rcode=0 ancount=1 bytes=72
 upstream: [edge.acmeco.example/1]
 set: delete [] add [93.184.216.42 timeout 600s]
+
+# a CNAME chain to a wildcard's subdomain, then an exact name (t+28s)
+name=www.mirror.acmeco.example qtype=1 outcome=resolved addresses=[93.184.216.83/300] targets=[eu.mirror.acmeco.example/300,pypi.org/300] refreshed=[]
+answer: rcode=0 ancount=3 bytes=176
+upstream: [www.mirror.acmeco.example/1]
+set: delete [] add [93.184.216.83 timeout 300s]
+
+# MX for a remembered target, also listed exactly (t+28s)
+name=pypi.org qtype=15 outcome=forwarded addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=1 bytes=50
+upstream: [pypi.org/15]
+
+# TXT for a remembered target, also below a wildcard (t+28s)
+name=eu.mirror.acmeco.example qtype=16 outcome=forwarded addresses=[] targets=[] refreshed=[]
+answer: rcode=0 ancount=0 bytes=42
+upstream: [eu.mirror.acmeco.example/16]
+
+# a CNAME with no address, to a target at loopback (t+28s)
+name=inward.mirror.acmeco.example qtype=1 outcome=resolved addresses=[] targets=[loopback.cdn.example/300] refreshed=[]
+answer: rcode=0 ancount=1 bytes=108
+upstream: [inward.mirror.acmeco.example/1]
+
+# that remembered target, queried directly (t+28s)
+name=loopback.cdn.example qtype=1 outcome=refused-private=127.0.0.1 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=38
+upstream: [loopback.cdn.example/1]
 
 # the remembered target once it has expired (t+400s)
 name=assets.acmeco.example qtype=1 outcome=refused-name addresses=[] targets=[] refreshed=[]

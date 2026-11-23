@@ -232,8 +232,11 @@ above; other answers, such as TXT or SRV, are returned unfiltered. With
 `egress.cidrs`, any other name may be asked for its IPv4 address, and its
 answer is returned only if every address lies within the declared ranges. One
 address outside them refuses the whole answer, and so does an address a listed
-name resolves to that is neither public nor within the ranges. A record type
-other than an IPv4 address, such as SRV, needs the name in `hosts`.
+name resolves to that is neither public nor within the ranges.
+
+For a learned CNAME target outside the task's `hosts` patterns, the resolver
+forwards only IPv4 address (`A`) queries until the target's TTL expires.
+It answers `AAAA` locally with an empty answer for every name.
 Permitting a name trusts whoever controls it: its addresses, and the CNAME
 targets it points to. This makes a connector's intended destinations visible
 and reviewable. It is not an exfiltration control: data can leave through a
