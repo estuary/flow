@@ -375,8 +375,14 @@ impl Invoice {
                 .and_then(|i| i.default_payment_method.as_ref())
                 .is_some();
 
-            // Contracts are invoiced without a payment method on file.
-            if self.plan_kind == PlanKind::SelfServe && !has_payment_method {
+            let pays_by_card = self.collection_method
+                == billing_types::CollectionMethod::ChargeDefaultPaymentMethod;
+
+            // Without a card, we don't bill a tenant with `plan_kind='self_serve'` for a month in which
+            // it didn't move data through both a capture and a materialization. Tenants with
+            // `plan_kind='contract'` or `collection_method='send_invoice'` don't need a card, so
+            // neither skip applies to them.
+            if self.plan_kind == PlanKind::SelfServe && pays_by_card && !has_payment_method {
                 if unwrapped_extra.processed_data_gb.unwrap_or_default() == 0.0 {
                     return Ok(InvoiceAction::Skip {
                         result: InvoiceResult::NoDataMoved,
@@ -1432,6 +1438,10 @@ mod tests {
         let cases = [
             unpaid(PlanKind::SelfServe, None),
             unpaid(PlanKind::SelfServe, Some("2020-01-01".parse().unwrap())),
+            Invoice {
+                collection_method: billing_types::CollectionMethod::SendInvoice,
+                ..unpaid(PlanKind::SelfServe, Some("2020-01-01".parse().unwrap()))
+            },
             unpaid(PlanKind::Contract, None),
             unpaid(PlanKind::Internal, None),
             Invoice {
@@ -1446,8 +1456,9 @@ mod tests {
             let provider = StripeBillingProvider::from_client(client);
             let action = bill.classify(&provider, false).await.unwrap();
             outcomes.push(format!(
-                "{:?} {:?} trial={:?}: {} {:?}",
+                "{:?} {:?} {:?} trial={:?}: {} {:?}",
                 bill.plan_kind,
+                bill.collection_method,
                 bill.invoice_type,
                 bill.tenant_trial_start,
                 describe(&action),
@@ -1455,11 +1466,12 @@ mod tests {
             ));
         }
         insta::assert_snapshot!(outcomes.join("\n"), @r#"
-        SelfServe Final trial=None: skip: Skipping usage invoice for tenant in free tier []
-        SelfServe Final trial=Some(2020-01-01): skip: Skipping invoice for tenant without an active pipeline ["GET /v1/customers/cus_acme"]
-        Contract Final trial=None: create: replacing None; customer cus_acme ["GET /v1/customers/cus_acme"]
-        Internal Final trial=None: skip: Skipping invoice for internal tenant []
-        Internal Manual trial=Some(2020-01-01): skip: Skipping invoice for internal tenant []
+        SelfServe ChargeDefaultPaymentMethod Final trial=None: skip: Skipping usage invoice for tenant in free tier []
+        SelfServe ChargeDefaultPaymentMethod Final trial=Some(2020-01-01): skip: Skipping invoice for tenant without an active pipeline ["GET /v1/customers/cus_acme"]
+        SelfServe SendInvoice Final trial=Some(2020-01-01): create: replacing None; customer cus_acme ["GET /v1/customers/cus_acme"]
+        Contract ChargeDefaultPaymentMethod Final trial=None: create: replacing None; customer cus_acme ["GET /v1/customers/cus_acme"]
+        Internal ChargeDefaultPaymentMethod Final trial=None: skip: Skipping invoice for internal tenant []
+        Internal ChargeDefaultPaymentMethod Manual trial=Some(2020-01-01): skip: Skipping invoice for internal tenant []
         "#);
     }
 
