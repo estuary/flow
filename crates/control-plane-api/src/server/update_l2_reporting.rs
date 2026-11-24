@@ -266,6 +266,54 @@ export class Derivation extends Types.IDerivation {"#
         if !data_plane.enable_l2 {
             l2_stats_new_module.push_str("\n*/");
         }
+
+        // Keep reading from the "old" L1 stats derivation for one specific data
+        // plane, which now has a new L1 derivation for the runtime-v2 migration.
+        // Eventually this can be removed, once the old L1 has fully processed all
+        // documents that it ever will.
+        let old_l1_collection = "ops/rollups/L1/public/gcp-us-central1-c2/catalog-stats";
+        // c2's original transform name, which keeps L2's read progress of the old L1.
+        let old_l1_transform = "from.gcp-us-central1-c2.dp.estuary-data.com";
+        let new_l1_collection = "ops/rollups/L1/public/gcp-us-central1-c2/catalog-stats-v2";
+
+        if data_plane.ops_l1_stats_name.as_str() == new_l1_collection {
+            l2_stats_transforms.push(models::TransformDef {
+                name: models::Transform::new(old_l1_transform),
+                source: models::Source::Collection(models::Collection::new(old_l1_collection)),
+                disable: false,
+
+                backfill: 0,
+                lambda: models::RawValue::default(),
+                priority: 0,
+                read_delay: None,
+                shuffle: models::Shuffle::Any,
+            });
+
+            l2_stats_new_transforms.push(models::TransformDef {
+                name: models::Transform::new(old_l1_transform),
+                source: models::Source::Collection(models::Collection::new(old_l1_collection)),
+                disable: false,
+
+                backfill: 0,
+                lambda: models::RawValue::default(),
+                priority: 0,
+                read_delay: None,
+                shuffle: models::Shuffle::Key(models::CompositeKey::new([
+                    models::JsonPointer::new("/catalogName"),
+                ])),
+            });
+
+            let method = format!(
+                r#"
+    {method_name}(read: {{ doc: Types.{type_name}}}): Types.Document[] {{
+        return [read.doc]
+    }}"#,
+                method_name = camel_case(old_l1_transform, false),
+                type_name = format!("Source{}", camel_case(old_l1_transform, true))
+            );
+            l2_stats_module.push_str(&method);
+            l2_stats_new_module.push_str(&method);
+        }
     }
 
     l2_stats_module.push_str("\n}\n");
