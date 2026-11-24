@@ -118,12 +118,12 @@ begin
   select controller_task_id into v_task_id from tenants where tenant = 'acmeCo/';
   update internal.tasks set wake_at = null where task_id = v_task_id;
 
-  -- Setting the provider to 'external' wakes the controller and enqueues a wake
-  -- message on its task inbox.
-  update tenants set payment_provider = 'external' where tenant = 'acmeCo/';
+  -- Changing the provider wakes the controller and enqueues a wake message on
+  -- its task inbox.
+  update tenants set payment_provider = 'aws_marketplace' where tenant = 'acmeCo/';
   return query select ok(
     (select wake_at is not null from internal.tasks where task_id = v_task_id),
-    'setting payment_provider to external wakes the controller'
+    'changing payment_provider wakes the controller'
   );
   return query select ok(
     (select exists(
@@ -133,21 +133,19 @@ begin
     'a wake message is enqueued on the controller task inbox'
   );
 
-  -- A repeated no-op update (external -> external) must not re-wake the
-  -- controller: the IS DISTINCT FROM guard suppresses it.
+  -- A repeated no-op update must not re-wake the controller: the IS DISTINCT
+  -- FROM guard suppresses it.
   update internal.tasks set wake_at = null where task_id = v_task_id;
-  update tenants set payment_provider = 'external' where tenant = 'acmeCo/';
+  update tenants set payment_provider = 'aws_marketplace' where tenant = 'acmeCo/';
   return query select ok(
     (select wake_at is null from internal.tasks where task_id = v_task_id),
     'a no-op payment_provider update does not re-wake the controller'
   );
 
-  -- Leaving external means the tenant needs a payment method again, which its
-  -- controller's daily alert checks must resume for.
   update tenants set payment_provider = 'stripe' where tenant = 'acmeCo/';
   return query select ok(
     (select wake_at is not null from internal.tasks where task_id = v_task_id),
-    'changing payment_provider away from external wakes the controller'
+    'changing payment_provider back to stripe wakes the controller'
   );
 
   update internal.tasks set wake_at = null where task_id = v_task_id;

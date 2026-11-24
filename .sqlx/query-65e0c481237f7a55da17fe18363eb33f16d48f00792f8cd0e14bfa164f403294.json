@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT tenant as \"tenant!\", billing_emails, billing_name, billing_address, payment_provider as \"payment_provider: PaymentProvider\", plan_kind as \"plan_kind: PlanKind\", collection_method as \"collection_method: CollectionMethod\", trial_start\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
+  "query": "\n        SELECT tenant as \"tenant!\", billing_emails, billing_name, billing_address, plan_kind as \"plan_kind: PlanKind\", collection_method as \"collection_method: CollectionMethod\", trial_start\n        FROM tenants\n        WHERE controller_task_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -49,30 +49,6 @@
       },
       {
         "ordinal": 4,
-        "name": "payment_provider: PaymentProvider",
-        "type_info": {
-          "Custom": {
-            "name": "payment_provider_type",
-            "kind": {
-              "Enum": [
-                "stripe",
-                "external",
-                "aws_marketplace",
-                "gcp_marketplace",
-                "snowflake_marketplace"
-              ]
-            }
-          }
-        },
-        "origin": {
-          "Table": {
-            "table": "tenants",
-            "name": "payment_provider"
-          }
-        }
-      },
-      {
-        "ordinal": 5,
         "name": "plan_kind: PlanKind",
         "type_info": {
           "Custom": {
@@ -94,7 +70,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "collection_method: CollectionMethod",
         "type_info": {
           "Custom": {
@@ -115,7 +91,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "trial_start",
         "type_info": "Date",
         "origin": {
@@ -136,11 +112,10 @@
       false,
       true,
       true,
-      true,
       false,
       false,
       true
     ]
   },
-  "hash": "d31d7139cd37e3a49ff0349a04288ba2adba54e2c1819281573e626b305f59fc"
+  "hash": "65e0c481237f7a55da17fe18363eb33f16d48f00792f8cd0e14bfa164f403294"
 }

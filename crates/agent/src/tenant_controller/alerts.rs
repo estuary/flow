@@ -208,7 +208,7 @@ fn next_evaluation(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{CollectionMethod, PaymentProvider, PlanKind};
+    use super::super::{CollectionMethod, PlanKind};
     use super::*;
     use chrono::TimeZone as _;
     use control_plane_api::billing::{BillingProvider, InMemoryBillingProvider};
@@ -227,7 +227,6 @@ mod tests {
             billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
-            payment_provider: (plan_kind == PlanKind::Contract).then_some(PaymentProvider::Stripe),
             plan_kind,
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start,
@@ -278,8 +277,6 @@ mod tests {
         let start = chrono::NaiveDate::from_ymd_opt(2026, 1, 31).unwrap();
         let mut send_invoice = tenant(PlanKind::SelfServe, Some(start));
         send_invoice.collection_method = CollectionMethod::SendInvoice;
-        let mut external = tenant(PlanKind::SelfServe, None);
-        external.payment_provider = Some(PaymentProvider::External);
 
         // A second before each trial boundary, the boundary comes before the
         // daily check.
@@ -306,7 +303,6 @@ mod tests {
                 tenant(PlanKind::Internal, Some(start)),
                 before(2, 28),
             ),
-            ("external without a trial", external, at(1, 1, (0, 0, 0))),
             ("send_invoice during the trial", send_invoice, before(2, 28)),
         ];
 

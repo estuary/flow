@@ -138,7 +138,7 @@ mod tests {
 
     use super::super::Tenant;
     use super::{Outcome, QuotaUpdateStatus, update_quotas};
-    use crate::tenant_controller::{CollectionMethod, PaymentProvider, PlanKind};
+    use crate::tenant_controller::{CollectionMethod, PlanKind};
     use control_plane_api::billing::{self, BillingProvider, InMemoryBillingProvider};
     use std::sync::Arc;
 
@@ -189,7 +189,6 @@ mod tests {
             billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
-            payment_provider: None,
             plan_kind: PlanKind::SelfServe,
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
@@ -209,7 +208,6 @@ mod tests {
             billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
-            payment_provider: None,
             plan_kind: PlanKind::SelfServe,
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
@@ -250,7 +248,6 @@ mod tests {
             billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
-            payment_provider: None,
             plan_kind: PlanKind::SelfServe,
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
@@ -279,23 +276,16 @@ mod tests {
             .unwrap();
         let provider = Arc::new(provider);
 
-        for (payment_provider, plan_kind, collection_method) in [
+        for (plan_kind, collection_method) in [
             (
-                Some(PaymentProvider::External),
-                PlanKind::SelfServe,
-                CollectionMethod::ChargeDefaultPaymentMethod,
-            ),
-            (
-                Some(PaymentProvider::Stripe),
                 PlanKind::Contract,
                 CollectionMethod::ChargeDefaultPaymentMethod,
             ),
             (
-                None,
                 PlanKind::Internal,
                 CollectionMethod::ChargeDefaultPaymentMethod,
             ),
-            (None, PlanKind::SelfServe, CollectionMethod::SendInvoice),
+            (PlanKind::SelfServe, CollectionMethod::SendInvoice),
         ] {
             sqlx::query(
                 "UPDATE tenants SET tasks_quota = DEFAULT, collections_quota = DEFAULT WHERE tenant = $1",
@@ -309,7 +299,6 @@ mod tests {
                 billing_emails: Vec::new(),
                 billing_name: None,
                 billing_address: None,
-                payment_provider,
                 plan_kind,
                 collection_method,
                 trial_start: None,
@@ -336,7 +325,6 @@ mod tests {
             billing_emails: Vec::new(),
             billing_name: None,
             billing_address: None,
-            payment_provider: None,
             plan_kind: PlanKind::SelfServe,
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
