@@ -231,7 +231,9 @@ impl ServiceAccountsMutation {
     /// account's user_grants, which may span multiple prefixes.
     ///
     /// The caller must have CreateServiceAccount on the catalog name AND
-    /// CreateGrant on each granted prefix. Creates an auth.users row, an
+    /// CreateGrant on each granted prefix. The catalog name's tenant must be
+    /// paid. A self-serve tenant is paid once it has a payment method. Creates
+    /// an auth.users row, an
     /// internal.service_accounts row, and a user_grants row per requested
     /// grant.
     async fn create_service_account(
@@ -288,6 +290,7 @@ impl ServiceAccountsMutation {
             )
             .await?;
         }
+        super::billing::require_paid_tenant(ctx, catalog_name.as_str()).await?;
 
         let mut txn = env.pg_pool.begin().await?;
 
@@ -374,6 +377,8 @@ impl ServiceAccountsMutation {
     /// could grant anyone. (Human-user grant creation still lives in
     /// PostgREST; when it migrates to GraphQL it should gate on this same
     /// CreateGrant capability.)
+    ///
+    /// The account's tenant must be paid.
     async fn add_service_account_grant(
         &self,
         ctx: &Context<'_>,
@@ -407,6 +412,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(env, prefix.as_str(), models::authz::Capability::CreateGrant)
             .await?;
+        super::billing::require_paid_tenant(ctx, catalog_name.as_str()).await?;
 
         let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
 
@@ -534,7 +540,8 @@ impl ServiceAccountsMutation {
     /// as an `Authorization: Bearer` credential or exchange it for a 1-hour
     /// access token via `POST /api/v1/auth/token`.
     ///
-    /// The caller must have CreateApiKey on the account's catalog name.
+    /// The caller must have CreateApiKey on the account's catalog name. The
+    /// account's tenant must be paid.
     async fn create_api_key(
         &self,
         ctx: &Context<'_>,
@@ -560,6 +567,7 @@ impl ServiceAccountsMutation {
             models::authz::Capability::CreateApiKey,
         )
         .await?;
+        super::billing::require_paid_tenant(ctx, catalog_name.as_str()).await?;
 
         let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
 
@@ -2242,5 +2250,117 @@ mod test {
             create_escalation["errors"].is_array(),
             "seeding a grant beyond the team admin's CreateGrant must fail: {create_escalation}"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_service_accounts_require_a_paid_tenant(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let provider = std::sync::Arc::new(crate::billing::InMemoryBillingProvider::new());
+        provider.add_customer("aliceCo/", "cus_alice", None);
+        let server = test_server::TestServer::start_with_config(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            Some(provider.clone()),
+            None,
+            models::AlertConfig::default(),
+        )
+        .await;
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+        sqlx::query(
+            "INSERT INTO tenants (tenant, stripe_customer_id) VALUES ('aliceCo/', 'cus_alice')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // The error of a refused mutation, or the data of an accepted one.
+        async fn outcome(
+            server: &test_server::TestServer,
+            token: &str,
+            query: serde_json::Value,
+        ) -> String {
+            let response: serde_json::Value = server
+                .graphql(&serde_json::json!({"query": query}), Some(token))
+                .await;
+            match response["errors"][0]["message"].as_str() {
+                Some(message) => message.to_string(),
+                None => response["data"].to_string(),
+            }
+        }
+        let create = serde_json::json!(
+            r#"mutation { createServiceAccount(catalogName: "aliceCo/bot", grants: []) { catalogName } }"#
+        );
+        let add_grant = serde_json::json!(
+            r#"mutation { addServiceAccountGrant(catalogName: "aliceCo/bot", prefix: "aliceCo/data/", capability: read) { catalogName } }"#
+        );
+        let create_api_key = serde_json::json!(
+            r#"mutation { createApiKey(catalogName: "aliceCo/bot", detail: "ci", validFor: "P30D") { serviceAccount { catalogName } } }"#
+        );
+        let remove_grant = serde_json::json!(
+            r#"mutation { removeServiceAccountGrant(catalogName: "aliceCo/bot", prefix: "aliceCo/data/") { catalogName } }"#
+        );
+        let revoke_api_keys = serde_json::json!(
+            r#"mutation { revokeAllApiKeys(catalogName: "aliceCo/bot") { catalogName } }"#
+        );
+
+        let set_payment_method = |payment_method: Option<&'static str>| {
+            let provider = provider.clone();
+            async move {
+                crate::billing::BillingProvider::update_customer_default_payment_method(
+                    provider.as_ref(),
+                    &"cus_alice".parse().unwrap(),
+                    payment_method,
+                )
+                .await
+                .unwrap();
+            }
+        };
+
+        let mut results = Vec::new();
+
+        // The tenant has no payment method, so it can't create an account.
+        results.push(serde_json::json!({
+            "step": "no payment method",
+            "create": outcome(&server, &alice_token, create.clone()).await,
+        }));
+        let accounts: i64 = sqlx::query_scalar("SELECT count(*) FROM internal.service_accounts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(accounts, 0);
+
+        set_payment_method(Some("pm_alice")).await;
+        results.push(serde_json::json!({
+            "step": "the customer sets a default payment method",
+            "create": outcome(&server, &alice_token, create.clone()).await,
+        }));
+
+        // The account outlives the payment method, but gets no new grants or
+        // API keys until the tenant is paid again. Its grants can still be
+        // removed and its API keys revoked.
+        set_payment_method(None).await;
+        results.push(serde_json::json!({
+            "step": "the customer removes its payment method",
+            "addGrant": outcome(&server, &alice_token, add_grant.clone()).await,
+            "createApiKey": outcome(&server, &alice_token, create_api_key.clone()).await,
+            "removeGrant": outcome(&server, &alice_token, remove_grant).await,
+            "revokeAllApiKeys": outcome(&server, &alice_token, revoke_api_keys).await,
+        }));
+
+        set_payment_method(Some("pm_alice")).await;
+        results.push(serde_json::json!({
+            "step": "the customer sets a default payment method again",
+            "addGrant": outcome(&server, &alice_token, add_grant.clone()).await,
+            "createApiKey": outcome(&server, &alice_token, create_api_key.clone()).await,
+        }));
+
+        insta::assert_json_snapshot!(results);
     }
 }

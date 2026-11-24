@@ -20,6 +20,53 @@ fn billing_provider(ctx: &Context<'_>) -> async_graphql::Result<Arc<dyn BillingP
         .map_err(|_| async_graphql::Error::new("Billing is not configured"))
 }
 
+/// Errors unless the tenant of `catalog_name` is paid. Contract and internal
+/// tenants are paid. A self-serve tenant is paid when it is sent invoices, or
+/// has a default payment method.
+pub(super) async fn require_paid_tenant(
+    ctx: &Context<'_>,
+    catalog_name: &str,
+) -> async_graphql::Result<()> {
+    // Without a billing provider, no tenant can add a payment method.
+    let Ok(provider) = billing_provider(ctx) else {
+        return Ok(());
+    };
+    let env = ctx.data::<crate::Envelope>()?;
+    let tenant = models::tenant_from(catalog_name);
+
+    let needs_payment_method = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM tenants
+            WHERE tenant = $1
+              AND plan_kind = 'self_serve'
+              AND collection_method = 'charge_default_payment_method'
+        ) AS "exists!"
+        "#,
+        tenant,
+    )
+    .fetch_one(&env.pg_pool)
+    .await?;
+
+    if !needs_payment_method {
+        return Ok(());
+    }
+
+    let customer = crate::billing::find_customer(&env.pg_pool, provider.as_ref(), tenant).await?;
+    if customer
+        .as_ref()
+        .and_then(crate::billing::default_payment_method_id)
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    Err(async_graphql::Error::new(format!(
+        "{tenant} must add a payment method to use invite links and service accounts"
+    )))
+}
+
 #[cfg(test)]
 pub(crate) mod test_util {
     use crate::{billing, test_server};

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS (\n            SELECT 1\n            FROM tenants\n            WHERE tenant = $1\n              AND plan_kind = 'self_serve'\n              AND collection_method = 'charge_default_payment_method'\n        ) AS \"exists!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a846907e39ce1cbe3425947949c6e401c822dc967a3a7f11302b54bff8f9cee9"
+}
