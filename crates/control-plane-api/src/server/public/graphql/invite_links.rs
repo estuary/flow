@@ -173,6 +173,8 @@ impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
     /// The caller must have ManageInviteLinks capability on the catalog prefix.
+    /// The prefix's tenant must be paid. A self-serve tenant is paid once it
+    /// has a payment method.
     /// Share the returned token with the intended recipient out-of-band.
     pub async fn create_invite_link(
         &self,
@@ -203,6 +205,7 @@ impl InviteLinksMutation {
             models::authz::Capability::ManageInviteLinks,
         )
         .await?;
+        super::billing::require_paid_tenant(ctx, &catalog_prefix).await?;
 
         let row = sqlx::query!(
             r#"
@@ -254,6 +257,8 @@ impl InviteLinksMutation {
 
     /// Redeem an invite link token, granting the caller access to the associated
     /// catalog prefix with the specified capability.
+    ///
+    /// The invite link's tenant must be paid.
     pub async fn redeem_invite_link(
         &self,
         ctx: &Context<'_>,
@@ -261,6 +266,23 @@ impl InviteLinksMutation {
     ) -> async_graphql::Result<RedeemInviteLinkResult> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
+
+        // The paid check may call the billing provider, so it runs before the
+        // transaction locks the invite link.
+        let Some(catalog_prefix) = sqlx::query_scalar!(
+            r#"
+            SELECT catalog_prefix AS "catalog_prefix!: String"
+            FROM internal.invite_links
+            WHERE token = $1
+            "#,
+            token,
+        )
+        .fetch_optional(&env.pg_pool)
+        .await?
+        else {
+            return Err(async_graphql::Error::new("Invalid invite link"));
+        };
+        super::billing::require_paid_tenant(ctx, &catalog_prefix).await?;
 
         let mut txn = env.pg_pool.begin().await?;
 
@@ -1302,6 +1324,13 @@ mod test {
             Some("carol@example.com"),
         );
 
+        // The fixture's tenants are sent invoices, so they are paid without a
+        // payment method.
+        sqlx::query("UPDATE tenants SET collection_method = 'send_invoice'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
         // Alice (matching SSO) creates an invite link for acmeCo/.
         // The response should include ssoProviderId.
         let create_response: serde_json::Value = server
@@ -1572,5 +1601,103 @@ mod test {
                 .is_some(),
             "matching SSO user should redeem single-use invite after prior SSO rejection"
         );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_invite_links_require_a_paid_tenant(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let provider = std::sync::Arc::new(crate::billing::InMemoryBillingProvider::new());
+        provider.add_customer("aliceCo/", "cus_alice", None);
+        let server = test_server::TestServer::start_with_config(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            Some(provider.clone()),
+            None,
+            models::AlertConfig::default(),
+        )
+        .await;
+        let alice_token = server.make_access_token(
+            uuid::Uuid::from_bytes([0x11; 16]),
+            Some("alice@example.test"),
+        );
+
+        // Bob redeems a link that exists before the tenant is refused.
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ('22222222-2222-2222-2222-222222222222', 'bob@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let bob_token =
+            server.make_access_token(uuid::Uuid::from_bytes([0x22; 16]), Some("bob@example.test"));
+        let existing_link: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO internal.invite_links (catalog_prefix, capability, single_use) VALUES ('aliceCo/data/', 'read', false) RETURNING token",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // The error of a refused mutation, or the data of an accepted one.
+        async fn outcome(
+            server: &test_server::TestServer,
+            token: &str,
+            query: serde_json::Value,
+        ) -> String {
+            let response: serde_json::Value = server
+                .graphql(&serde_json::json!({"query": query}), Some(token))
+                .await;
+            match response["errors"][0]["message"].as_str() {
+                Some(message) => message.to_string(),
+                None => response["data"].to_string(),
+            }
+        }
+        let create = serde_json::json!(
+            r#"mutation { createInviteLink(catalogPrefix: "aliceCo/data/", capability: read) { catalogPrefix } }"#
+        );
+        let redeem = serde_json::json!(format!(
+            r#"mutation {{ redeemInviteLink(token: "{existing_link}") {{ catalogPrefix }} }}"#
+        ));
+
+        let set_payment_method = |payment_method: Option<&'static str>| {
+            let provider = provider.clone();
+            async move {
+                crate::billing::BillingProvider::update_customer_default_payment_method(
+                    provider.as_ref(),
+                    &"cus_alice".parse().unwrap(),
+                    payment_method,
+                )
+                .await
+                .unwrap();
+            }
+        };
+
+        // Each step changes aliceCo/ before Alice creates a link and Bob
+        // redeems the existing one.
+        let steps = [
+            "INSERT INTO tenants (tenant) VALUES ('aliceCo/')",
+            "UPDATE tenants SET stripe_customer_id = 'cus_alice' WHERE tenant = 'aliceCo/'",
+            "UPDATE tenants SET collection_method = 'send_invoice' WHERE tenant = 'aliceCo/'",
+            "UPDATE tenants SET collection_method = 'charge_default_payment_method', plan_kind = 'contract', payment_provider = 'stripe' WHERE tenant = 'aliceCo/'",
+            "UPDATE tenants SET plan_kind = 'internal' WHERE tenant = 'aliceCo/'",
+            "UPDATE tenants SET plan_kind = 'self_serve' WHERE tenant = 'aliceCo/'",
+            "the customer sets a default payment method",
+        ];
+        let mut results = Vec::new();
+        for step in steps {
+            if step.starts_with("the customer") {
+                set_payment_method(Some("pm_alice")).await;
+            } else {
+                sqlx::query(step).execute(&pool).await.unwrap();
+            }
+            results.push(serde_json::json!({
+                "step": step,
+                "create": outcome(&server, &alice_token, create.clone()).await,
+                "redeem": outcome(&server, &bob_token, redeem.clone()).await,
+            }));
+        }
+
+        insta::assert_json_snapshot!(results);
     }
 }

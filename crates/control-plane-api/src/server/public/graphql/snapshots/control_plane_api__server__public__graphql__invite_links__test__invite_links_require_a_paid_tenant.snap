@@ -1,0 +1,41 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/invite_links.rs
+expression: results
+---
+[
+  {
+    "create": "aliceCo/ must add a payment method to use invite links and service accounts",
+    "redeem": "aliceCo/ must add a payment method to use invite links and service accounts",
+    "step": "INSERT INTO tenants (tenant) VALUES ('aliceCo/')"
+  },
+  {
+    "create": "aliceCo/ must add a payment method to use invite links and service accounts",
+    "redeem": "aliceCo/ must add a payment method to use invite links and service accounts",
+    "step": "UPDATE tenants SET stripe_customer_id = 'cus_alice' WHERE tenant = 'aliceCo/'"
+  },
+  {
+    "create": "{\"createInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "redeem": "{\"redeemInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "step": "UPDATE tenants SET collection_method = 'send_invoice' WHERE tenant = 'aliceCo/'"
+  },
+  {
+    "create": "{\"createInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "redeem": "{\"redeemInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "step": "UPDATE tenants SET collection_method = 'charge_default_payment_method', plan_kind = 'contract', payment_provider = 'stripe' WHERE tenant = 'aliceCo/'"
+  },
+  {
+    "create": "{\"createInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "redeem": "{\"redeemInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "step": "UPDATE tenants SET plan_kind = 'internal' WHERE tenant = 'aliceCo/'"
+  },
+  {
+    "create": "aliceCo/ must add a payment method to use invite links and service accounts",
+    "redeem": "aliceCo/ must add a payment method to use invite links and service accounts",
+    "step": "UPDATE tenants SET plan_kind = 'self_serve' WHERE tenant = 'aliceCo/'"
+  },
+  {
+    "create": "{\"createInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "redeem": "{\"redeemInviteLink\":{\"catalogPrefix\":\"aliceCo/data/\"}}",
+    "step": "the customer sets a default payment method"
+  }
+]

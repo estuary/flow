@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT catalog_prefix AS \"catalog_prefix!: String\"\n            FROM internal.invite_links\n            WHERE token = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "catalog_prefix!: String",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.invite_links",
+            "name": "catalog_prefix"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d3e9b343fb436dad89aff08739dd4dc89f49cb294ee2c5186e85157f19626b89"
+}

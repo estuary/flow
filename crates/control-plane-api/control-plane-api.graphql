@@ -2094,12 +2094,16 @@ type MutationRoot {
 	Create an invite link that grants access to a catalog prefix.
 	
 	The caller must have ManageInviteLinks capability on the catalog prefix.
+	The prefix's tenant must be paid. A self-serve tenant is paid once it
+	has a payment method.
 	Share the returned token with the intended recipient out-of-band.
 	"""
 	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
 	"""
 	Redeem an invite link token, granting the caller access to the associated
 	catalog prefix with the specified capability.
+	
+	The invite link's tenant must be paid.
 	"""
 	redeemInviteLink(token: UUID!): RedeemInviteLinkResult!
 	"""
@@ -2182,7 +2186,9 @@ type MutationRoot {
 	account's user_grants, which may span multiple prefixes.
 	
 	The caller must have CreateServiceAccount on the catalog name AND
-	CreateGrant on each granted prefix. Creates an auth.users row, an
+	CreateGrant on each granted prefix. The catalog name's tenant must be
+	paid. A self-serve tenant is paid once it has a payment method. Creates
+	an auth.users row, an
 	internal.service_accounts row, and a user_grants row per requested
 	grant.
 	"""
@@ -2197,6 +2203,8 @@ type MutationRoot {
 	could grant anyone. (Human-user grant creation still lives in
 	PostgREST; when it migrates to GraphQL it should gate on this same
 	CreateGrant capability.)
+	
+	The account's tenant must be paid.
 	"""
 	addServiceAccountGrant(catalogName: Name!, prefix: Prefix!, capability: Capability!): ServiceAccount!
 	"""
@@ -2233,7 +2241,8 @@ type MutationRoot {
 	as an `Authorization: Bearer` credential or exchange it for a 1-hour
 	access token via `POST /api/v1/auth/token`.
 	
-	The caller must have CreateApiKey on the account's catalog name.
+	The caller must have CreateApiKey on the account's catalog name. The
+	account's tenant must be paid.
 	"""
 	createApiKey(		catalogName: Name!,		detail: String!,
 		"""
