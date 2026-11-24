@@ -1,11 +1,11 @@
 //! Just enough DNS to gate answers: read a message's header and question,
-//! read the A and CNAME records of its answer section, patch their TTLs in
-//! place, and synthesize the replies the resolver invents on its own.
+//! read the A and CNAME records of its answer section, read the A addresses
+//! of every section, patch TTLs in place, and synthesize the replies the
+//! resolver invents on its own.
 //!
-//! `domain` parses, borrowing the message and reading only the sections asked
-//! for, so the authority and additional sections are never parsed. It bounds
-//! a name at 255 bytes on the wire and 255 compression pointers, each of which
-//! must point backwards.
+//! `domain` parses, borrowing the message. It bounds a name at 255 bytes on
+//! the wire and 255 compression pointers, each of which must point backwards.
+//! Only the data of A and CNAME records is read.
 //!
 //! Nothing here re-encodes a message. Rewriting a TTL is a four-byte store at
 //! a known offset, and anything not understood is forwarded byte for byte,
@@ -100,9 +100,8 @@ pub fn first_question(message: &[u8]) -> anyhow::Result<Question> {
 }
 
 /// Every class-IN A and CNAME record of the answer section, with where each
-/// one's TTL lives. The authority and additional sections are never read: the
-/// guest resolves from the answer section, so nothing else can authorize a
-/// destination.
+/// one's TTL lives. The guest resolves from the answer section, so no other
+/// section can authorize a destination.
 pub fn answer_records(message: &[u8]) -> anyhow::Result<Vec<Record>> {
     let mut answer = parse(message)?.answer().context("question section")?;
     let mut records = Vec::new();
@@ -147,6 +146,31 @@ pub fn answer_records(message: &[u8]) -> anyhow::Result<Vec<Record>> {
         });
     }
     Ok(records)
+}
+
+/// The address of every four-byte A record in the answer, authority and
+/// additional sections, whatever its class. These are what the resolver
+/// screens before it answers. Fails unless every record the header counts is
+/// present and framed.
+pub fn addresses(message: &[u8]) -> anyhow::Result<Vec<Ipv4Addr>> {
+    let mut section = Some(parse(message)?.answer().context("question section")?);
+    let mut addresses = Vec::new();
+
+    while let Some(mut records) = section {
+        for record in &mut records {
+            let record = record.context("record")?;
+
+            if record.rtype().to_int() != TYPE_A || record.rdlen() != 4 {
+                continue;
+            }
+            let a = record
+                .to_record::<domain::rdata::A>()?
+                .expect("an A record parses as A");
+            addresses.push(a.data().addr());
+        }
+        section = records.next_section().context("record")?;
+    }
+    Ok(addresses)
 }
 
 pub fn set_ttl(message: &mut [u8], record: &Record, ttl: u32) {
@@ -293,6 +317,10 @@ mod tests {
         for (label, message) in cases() {
             table.push_str(&format!("# {label}\n"));
 
+            match super::addresses(&message) {
+                Ok(addresses) => table.push_str(&format!("addresses: {addresses:?}\n")),
+                Err(error) => table.push_str(&format!("unscreened: {error:#}\n")),
+            }
             match super::answer_records(&message) {
                 Ok(records) => {
                     for record in &records {
@@ -486,15 +514,15 @@ mod tests {
                     &a_record("acmeco.example", address, 300, super::CLASS_IN),
                 ),
             ),
-            ("a record past the answer section is not read", {
+            ("a record past the answer section authorizes nothing", {
                 let mut message = message(
                     "acmeco.example",
                     super::TYPE_A,
                     1,
                     &a_record("acmeco.example", address, 300, super::CLASS_IN),
                 );
-                // One answer, and an additional record the walk must stop
-                // short of: only the answer section authorizes anything.
+                // One answer, and an additional record which is screened
+                // but is not an answer.
                 message[10..12].copy_from_slice(&1u16.to_be_bytes());
                 message.extend(a_record(
                     "glue.acmeco.example",
@@ -559,7 +587,7 @@ mod tests {
                 answer.extend(a_record("acmeco.example", address, 300, super::CLASS_IN));
                 message("acmeco.example", super::TYPE_A, 2, &answer)
             }),
-            ("a malformed authority section is not read", {
+            ("a malformed authority section", {
                 let mut message = message(
                     "acmeco.example",
                     super::TYPE_A,
@@ -701,6 +729,7 @@ mod tests {
                     let reply = super::respond(&variant, &question, super::RCODE_REFUSED);
                     super::header(&reply).expect("a synthesized reply has a header");
                 }
+                _ = super::addresses(&variant);
                 let Ok(records) = super::answer_records(&variant) else {
                     refused += 1;
                     continue;

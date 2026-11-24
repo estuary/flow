@@ -19,15 +19,18 @@
 //!    they ask for `A` with declared CIDRs, in which case the answer decides.
 //!    A truncated upstream answer returns `SERVFAIL` for every query type.
 //!    No partial answer authorizes addresses or remembers targets.
-//! 5. A type other than `A`, or an answer whose rcode is not `NOERROR`:
+//! 5. Every upstream answer is screened, whatever its question type or
+//!    rcode. One `A` record address the policy does not reach, in the answer,
+//!    authority or additional section, condemns the whole answer with
+//!    `REFUSED`: a partial answer would teach the guest which name resolves
+//!    inward. An address within the excluded prefixes is never reached. One
+//!    within a declared CIDR always is. One elsewhere in the baseline never
+//!    is. A public address is reached only from a named question. An answer
+//!    whose sections cannot be read is dropped unanswered. Only `A` records
+//!    are screened: `dns::addresses` reads no other record's data.
+//! 6. A type other than `A`, or an answer whose rcode is not `NOERROR`:
 //!    answered as the upstream answered, byte for byte. It authorizes no
 //!    address and remembers no target.
-//! 6. `A`: forwarded. One answer address the policy does not reach condemns
-//!    the whole answer: a partial answer would teach the guest which name
-//!    resolves inward. An address within the excluded prefixes is never
-//!    reached. One within a declared CIDR always is. One elsewhere in the
-//!    baseline never is. A public address is reached only from a named
-//!    question.
 //! 7. Otherwise each `A` and `CNAME` TTL is clamped independently and
 //!    rewritten in place, every address outside the declared CIDRs is authorized
 //!    and every target of a named question remembered until at least its
@@ -311,8 +314,8 @@ pub struct Decision {
 pub enum Outcome {
     /// Not a class-IN standard query of one question. Nothing went upstream.
     Unsupported,
-    /// Answered as the upstream answered, authorizing nothing: a type other
-    /// than `A`, or an rcode other than `NOERROR`.
+    /// Screened, then answered as the upstream answered, authorizing nothing:
+    /// a type other than `A`, or an rcode other than `NOERROR`.
     Forwarded,
     /// The UDP answer requires TCP, which this resolver does not support.
     Truncated,
@@ -491,9 +494,24 @@ impl Resolver {
                 answer: Some(dns::respond(query, &question, dns::RCODE_SERVFAIL)),
             });
         }
-        // Only a `NOERROR` answer to `A` is read. An error rcode says the
+        // One condemned address condemns the answer, before any TTL is touched
+        // and before anything is authorized. This precedes the rcode and type
+        // because the guest reads every section of whatever it is sent.
+        let carried = match dns::addresses(&response) {
+            Ok(carried) => carried,
+            Err(error) => return Ok(dropped(name, qtype, &error)),
+        };
+        for address in carried {
+            if let Some(outcome) = self.config.refusal(address, named) {
+                return Ok(Handled {
+                    decision: decision(name, qtype, outcome),
+                    answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
+                });
+            }
+        }
+        // Only a `NOERROR` answer to `A` authorizes. An error rcode says the
         // answer does not resolve the question, so none of it is authorized,
-        // remembered or rewritten, whatever its records hold.
+        // remembered or rewritten.
         if answered.rcode != dns::RCODE_NOERROR || question.qtype != dns::TYPE_A {
             return Ok(Handled {
                 decision: decision(name, qtype, Outcome::Forwarded),
@@ -504,20 +522,6 @@ impl Resolver {
             Ok(records) => records,
             Err(error) => return Ok(dropped(name, qtype, &error)),
         };
-
-        // One condemned address condemns the answer, before any TTL is touched
-        // and before anything is authorized.
-        for record in &records {
-            let dns::Kind::Address(address) = record.kind else {
-                continue;
-            };
-            if let Some(outcome) = self.config.refusal(address, named) {
-                return Ok(Handled {
-                    decision: decision(name, qtype, outcome),
-                    answer: Some(dns::respond(query, &question, dns::RCODE_REFUSED)),
-                });
-            }
-        }
 
         let mut addresses: Vec<(Ipv4Addr, u32)> = Vec::new();
         let mut targets: Vec<(String, u32)> = Vec::new();
@@ -799,6 +803,8 @@ mod tests {
         CnameData(&'static str, &'static [u8], u32),
         /// An A record in a class other than IN. Nothing may authorize it.
         Chaos(&'static str, Ipv4Addr, u32),
+        /// A class-IN record of this type, its data these bytes.
+        Data(&'static str, u16, &'static [u8]),
     }
 
     fn encode_name(name: &str, out: &mut Vec<u8>) {
@@ -904,7 +910,26 @@ mod tests {
                     message.extend((rdata.len() as u16).to_be_bytes());
                     message.extend(*rdata);
                 }
+                Rr::Data(owner, rtype, rdata) => {
+                    encode_name(owner, &mut message);
+                    message.extend(rtype.to_be_bytes());
+                    message.extend(dns::CLASS_IN.to_be_bytes());
+                    message.extend(300u32.to_be_bytes());
+                    message.extend((rdata.len() as u16).to_be_bytes());
+                    message.extend(*rdata);
+                }
             }
+        }
+        message
+    }
+
+    /// A response to `question` with these answer, authority and additional
+    /// records, and this rcode.
+    fn sectioned(question: &[u8], rcode: u8, sections: [&[Rr]; 3]) -> Vec<u8> {
+        let mut message = with_rcode(respond(question, &sections.concat()), rcode);
+        for (index, section) in sections.iter().enumerate() {
+            let count = 6 + 2 * index;
+            message[count..count + 2].copy_from_slice(&(section.len() as u16).to_be_bytes());
         }
         message
     }
@@ -2704,12 +2729,13 @@ mod tests {
         insta::assert_snapshot!(log);
     }
 
-    /// An answer with an error rcode is returned as the upstream sent it,
-    /// whatever its answer section holds: malformed records and inward
-    /// addresses included. Nothing in it is rewritten, authorized or
-    /// remembered. A truncated one is still `SERVFAIL`.
+    /// An answer with an error rcode is screened like any other, and one that
+    /// passes is returned as the upstream sent it: a CNAME that is not one
+    /// included. Nothing in it is rewritten, authorized or remembered. One
+    /// claiming records it does not carry is dropped, and a truncated one is
+    /// still `SERVFAIL`.
     #[test]
-    fn an_error_rcode_is_returned_unchanged() {
+    fn an_error_rcode_authorizes_nothing() {
         let cases: [(&str, &str, fn(&[u8]) -> Vec<u8>); 6] = [
             (
                 "NXDOMAIN after a CNAME",
@@ -2812,10 +2838,245 @@ mod tests {
         insta::assert_snapshot!(log);
     }
 
+    /// An `A` record anywhere in an upstream response is held to the
+    /// policy: any question type, any rcode, and the answer, authority and
+    /// additional sections alike. A refused response authorizes nothing and
+    /// remembers no target. A response that passes comes back as the upstream
+    /// sent it unless it is a `NOERROR` answer to `A`, and only that answer
+    /// authorizes anything. Text that reads as an address is not a record of
+    /// one.
+    #[test]
+    fn every_address_record_is_screened() {
+        const NAME: &str = "artifacts.acmeco.example";
+        const UNLISTED: &str = "warehouse.corp.example";
+        const NS: &str = "ns.acmeco.example";
+        const ANY: u16 = 255;
+        const NXDOMAIN: u8 = 3;
+        const SERVFAIL: u8 = 2;
+        // The root as both names, and five zero counters.
+        const SOA: Rr = Rr::Data("acmeco.example", TYPE_SOA, &[0; 22]);
+        const MX: Rr = Rr::Data(NAME, TYPE_MX, b"\x00\x0a\x02ns\x06acmeco\x07example\x00");
+        let private = Ipv4Addr::new(172, 16, 0, 5);
+        let declared = Ipv4Addr::new(10, 1, 2, 3);
+        let metadata = Ipv4Addr::new(169, 254, 169, 254);
+        let alibaba = Ipv4Addr::new(100, 100, 100, 200);
+
+        type Case = (
+            &'static str,
+            &'static str,
+            u16,
+            u8,
+            [Vec<Rr>; 3],
+            &'static [&'static str],
+        );
+        let cases: Vec<Case> = vec![
+            (
+                "ANY answered with a private address",
+                NAME,
+                ANY,
+                0,
+                [vec![Rr::A(NAME, private, 300)], vec![], vec![]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "MX with a metadata address in the additional section",
+                NAME,
+                TYPE_MX,
+                0,
+                [vec![MX], vec![], vec![Rr::A(NS, metadata, 300)]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "SOA with a private address in the authority section",
+                NAME,
+                TYPE_SOA,
+                0,
+                [vec![SOA], vec![Rr::A(NS, private, 300)], vec![]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "MX with an excluded address inside a declared CIDR",
+                NAME,
+                TYPE_MX,
+                0,
+                [vec![MX], vec![], vec![Rr::A(NS, alibaba, 300)]],
+                &["100.64.0.0/10"],
+            ),
+            (
+                "MX with a private address of another class",
+                NAME,
+                TYPE_MX,
+                0,
+                [vec![MX], vec![], vec![Rr::Chaos(NS, private, 300)]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "A answered publicly, with private glue",
+                NAME,
+                dns::TYPE_A,
+                0,
+                [
+                    vec![
+                        Rr::Cname(NAME, "new.cdn.example", 300),
+                        Rr::A("new.cdn.example", public(11), 300),
+                    ],
+                    vec![],
+                    vec![Rr::A(NS, private, 300)],
+                ],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "NXDOMAIN holding a private address",
+                NAME,
+                dns::TYPE_A,
+                NXDOMAIN,
+                [vec![Rr::A(NAME, private, 300)], vec![], vec![]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "SERVFAIL with a metadata address in the additional section",
+                NAME,
+                dns::TYPE_A,
+                SERVFAIL,
+                [vec![], vec![], vec![Rr::A(NS, metadata, 300)]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "an unlisted name's NXDOMAIN holding an address outside the CIDRs",
+                UNLISTED,
+                dns::TYPE_A,
+                NXDOMAIN,
+                [vec![Rr::A(UNLISTED, private, 300)], vec![], vec![]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "an unlisted name answered within the CIDRs, with public glue",
+                UNLISTED,
+                dns::TYPE_A,
+                0,
+                [
+                    vec![Rr::A(UNLISTED, declared, 300)],
+                    vec![],
+                    vec![Rr::A(NS, public(12), 300)],
+                ],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "claiming an additional record it does not carry",
+                NAME,
+                TYPE_MX,
+                0,
+                [vec![MX], vec![], vec![]],
+                &[],
+            ),
+            (
+                "MX with public glue",
+                NAME,
+                TYPE_MX,
+                0,
+                [vec![MX], vec![], vec![Rr::A(NS, public(12), 300)]],
+                &[],
+            ),
+            (
+                "MX with glue inside a declared CIDR",
+                NAME,
+                TYPE_MX,
+                0,
+                [vec![MX], vec![], vec![Rr::A(NS, declared, 300)]],
+                &["10.0.0.0/8"],
+            ),
+            (
+                "MX with glue beside an excluded address",
+                NAME,
+                TYPE_MX,
+                0,
+                [
+                    vec![MX],
+                    vec![],
+                    vec![Rr::A(NS, Ipv4Addr::new(100, 100, 100, 201), 300)],
+                ],
+                &["100.64.0.0/10"],
+            ),
+            (
+                "NXDOMAIN with its SOA",
+                NAME,
+                dns::TYPE_A,
+                NXDOMAIN,
+                [vec![], vec![SOA], vec![]],
+                &[],
+            ),
+            (
+                "an empty TXT answer with its SOA",
+                NAME,
+                TYPE_TXT,
+                0,
+                [vec![], vec![SOA], vec![]],
+                &[],
+            ),
+            (
+                "TXT whose text reads as a metadata address",
+                NAME,
+                TYPE_TXT,
+                0,
+                [
+                    vec![Rr::Data(NAME, TYPE_TXT, b"\x0f169.254.169.254")],
+                    vec![],
+                    vec![],
+                ],
+                &[],
+            ),
+        ];
+
+        let mut log = String::new();
+        for (label, name, qtype, rcode, sections, cidrs) in cases {
+            let query = query(1, name, qtype);
+            let [answer, authority, additional] = &sections;
+            let mut sent = sectioned(&query, rcode, [answer, authority, additional]);
+            if label.starts_with("claiming") {
+                sent[10..12].copy_from_slice(&1u16.to_be_bytes());
+            }
+            let socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let upstream = socket.local_addr().unwrap();
+            let reply = sent.clone();
+            let server = std::thread::spawn(move || {
+                let (_, peer) = socket.recv_from(&mut [0; 512]).unwrap();
+                socket.send_to(&reply, peer).unwrap();
+            });
+
+            let recorder = Recorder::default();
+            let policy = crate::policy::tests::policy(&[NAME], cidrs, None);
+            let mut resolver = resolver_under(policy, upstream, recorder.clone());
+            let expiry = Instant::now() + Duration::from_secs(86_400);
+            resolver.addresses.insert(public(10), expiry);
+            resolver
+                .targets
+                .insert("held.cdn.example".to_string(), expiry);
+            let before = (resolver.addresses.clone(), resolver.targets.clone());
+
+            let handled = resolver.handle(&query, Instant::now()).unwrap();
+            server.join().unwrap();
+            assert_eq!(
+                (&resolver.addresses, &resolver.targets),
+                (&before.0, &before.1),
+                "{label}: nothing is authorized or remembered"
+            );
+            assert!(recorder.calls().is_empty(), "{label}: no kernel update");
+            writeln!(
+                log,
+                "# {label}\n{}\n{} unchanged={}\n",
+                handled.decision,
+                summarize(&handled),
+                handled.answer.as_ref() == Some(&sent)
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(log);
+    }
+
     /// A resolved answer keeps every byte the upstream sent but the TTLs of
     /// its class-IN `A` and `CNAME` answers: the question's case, a signature,
     /// a record of an unassigned type, another class's record, and the
-    /// authority and additional sections, malformed or not.
+    /// authority and additional sections, whatever their records' data.
     #[test]
     fn a_resolved_answer_changes_only_its_ttls() {
         let query = query(1, "PyPI.ORG", dns::TYPE_A);
@@ -2902,7 +3163,7 @@ mod tests {
             &[0xC0, 12],
             dns::TYPE_A,
             CLASS_CHAOS,
-            &[10, 0, 0, 1],
+            &public(11).octets(),
         );
         // Authority: an SOA whose data is not one.
         push(
@@ -2912,7 +3173,7 @@ mod tests {
             dns::CLASS_IN,
             &[0xC0, 0xFF, 0x80],
         );
-        // Additional: an inward address, then OPT with the DO bit and a cookie.
+        // Additional: an address, then OPT with the DO bit and a cookie.
         let mut glue = Vec::new();
         encode_name("glue.acmeco.example", &mut glue);
         push(
@@ -2920,7 +3181,7 @@ mod tests {
             &glue,
             dns::TYPE_A,
             dns::CLASS_IN,
-            &[10, 0, 0, 1],
+            &public(12).octets(),
         );
         message.extend([0, 0, 41, 4, 208, 0, 0, 0x80, 0, 0, 12, 0, 10, 0, 8]);
         message.extend([1, 2, 3, 4, 5, 6, 7, 8]);

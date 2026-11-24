@@ -203,6 +203,11 @@ because IANA marks them globally reachable.
   still holds the excluded and baseline destinations, IPv6 and ingress. It
   does not hold the name allowlist: such a VMM reaches any public address.
 - DNS is UDP only. A truncated answer returns `SERVFAIL`.
+- The resolver refuses any upstream answer carrying an `A` record whose
+  address this layer does not permit, in any section and under any question
+  type or rcode. It reads no other record: an address in an `AAAA`, `HTTPS`
+  or `TXT` record, or encoded in a name, reaches the guest. Connectivity
+  does not depend on this screening.
 
 ## Image
 
