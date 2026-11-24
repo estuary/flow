@@ -45,13 +45,14 @@ use runtime_next::{LoggerFactory, PublisherFactory};
 
 /// The connector router of every local context: one
 /// `Plane::Local` connector `Service`, served in-process, reached with bearers
-/// minted from a throwaway key the pair shares.
+/// minted from a throwaway key the pair shares. It has no VMM capability.
 pub fn local_router(
     network: String,
     registry: service_kit::Registry,
     secret_resolver: std::sync::Arc<dyn flow_client_next::SecretResolver>,
 ) -> std::sync::Arc<dyn proto_grpc::connector::Router> {
-    let (_service, router) = connector::Service::new_local(network, registry, secret_resolver);
+    let (_service, router) =
+        connector::Service::new_local(network, None, registry, secret_resolver);
     std::sync::Arc::new(router)
 }
 

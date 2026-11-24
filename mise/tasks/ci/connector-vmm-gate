@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Verify boundary installation, drift detection and DNS-mark handling of synthetic traffic in a VMM image's network namespace (needs no KVM)"
+#USAGE arg "<image>" help="The VMM image, as the engine names it"
+
+# CONNECTOR_VMM_GATE_ENGINE can also name a command such as `sudo -n podman`.
+IMAGE="${usage_image:-${1:?usage: connector-vmm-gate IMAGE}}"
+read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
+
+# The image's own nft must list what its binary installed. Drift is
+# defined here independently of the binary.
+# shellcheck disable=SC2016
+GATE='
+set -uo pipefail
+vmm=/usr/local/bin/flow-connector-vmm
+failed=0
+ok() {
+    local what=$1 out
+    shift
+    if ! out=$("$@" 2>&1); then
+        printf "FAILED %s: %s\n" "${what}" "${out}"
+        failed=1
+    fi
+}
+refused() {
+    local what=$1 says=$2 out status=0
+    shift 2
+    out=$("$@" 2>&1) || status=$?
+    if [[ "${status}" -ne 2 || "${out}" != *"${says}"* ]]; then
+        printf "FAILED %s: exit %s, not 2 naming %q: %s\n" "${what}" "${status}" "${says}" "${out}"
+        failed=1
+    fi
+}
+
+refused "verify before install" "table is absent" "${vmm}" boundary verify
+ok "install" "${vmm}" boundary install
+ok "a second install" "${vmm}" boundary install
+ok "verify" "${vmm}" boundary verify
+
+edits=(
+    "insert rule inet flow_vmm_boundary forward accept|inet forward, rule 0"
+    "flush chain inet flow_vmm_boundary input|inet input, rule 0"
+    "add table inet flow_vmm_boundary { flags dormant ; }|dormant"
+    "delete element inet flow_vmm_boundary baseline { 169.254.0.0/16 }|unexpected: {\"set\""
+    "flush chain inet flow_vmm_boundary ingress_input|inet ingress_input, rule 0"
+    "chain inet flow_vmm_boundary input { policy drop ; }|\"policy\":\"drop\""
+    "delete table bridge flow_vmm_boundary|the bridge flow_vmm_boundary table is absent"
+)
+for edit in "${edits[@]}"; do
+    ok "${edit%%|*}" nft "${edit%%|*}"
+    refused "verify after ${edit%%|*}" "${edit#*|}" "${vmm}" boundary verify
+    ok "install after ${edit%%|*}" "${vmm}" boundary install
+    ok "verify after reinstalling over ${edit%%|*}" "${vmm}" boundary verify
+done
+
+# The fixed policy against synthetic UDP/53. Each datagram sent here to the
+# VMM link leaves peer0 as from VMM address 10.89.0.2 and arrives on the link,
+# where a trusted fixture sets the reserved DNS mark at input priority -13.
+# Each send names how far it moves the counters of clear-dns-mark, gateway-dns
+# and host, in that order.
+link=fvm0123456789ab
+fixture="table ip gate_fixture {
+    chain fixture_mark {
+        type filter hook input priority -13; policy accept;
+        iifname \"${link}\" udp dport 53 meta mark set 0x46564d44
+    }
+    chain fixture_snat {
+        type nat hook postrouting priority srcnat; policy accept;
+        oifname \"peer0\" snat to 10.89.0.2
+    }
+}"
+ok "a VMM link" ip link add peer0 type veth peer name "${link}"
+ok "its address" ip link set "${link}" address 02:f1:0f:00:00:01
+ok "its gateway" ip addr add 10.89.0.1/24 dev "${link}"
+ok "a second address on it" ip addr add 10.89.0.53/24 dev "${link}"
+ok "the link up" ip link set "${link}" up
+ok "its peer up" ip link set peer0 up
+for address in 10.89.0.1 10.89.0.53; do
+    ok "the neighbour ${address}" ip neigh add "${address}" lladdr 02:f1:0f:00:00:01 dev peer0 nud permanent
+done
+ok "a route by the peer" ip route add 10.89.0.0/24 dev peer0 table 100
+ok "local UDP/53 by that route" ip rule add pref 10 iif lo ipproto udp dport 53 lookup 100
+ok "local addresses after it" ip rule add pref 20 lookup local
+ok "and not before it" ip rule del pref 0 lookup local
+ok "the trusted fixture" nft -f - <<<"${fixture}"
+counts() {
+    local rule line
+    for rule in ingress_input/clear-dns-mark input/gateway-dns input/host; do
+        line=$(nft list chain inet flow_vmm_boundary "${rule%/*}" | grep -F "comment \"${rule#*/}\"")
+        [[ "${line}" =~ packets\ ([0-9]+) ]] || return 1
+        printf "%s " "${BASH_REMATCH[1]}"
+    done
+}
+datagram() {
+    local what=$1 to=$2 want=$3 before after moved
+    before=($(counts))
+    printf x >"/dev/udp/${to}/53"
+    sleep 0.2
+    after=($(counts))
+    moved="$((after[0] - before[0])) $((after[1] - before[1])) $((after[2] - before[2]))"
+    if [[ "${moved}" != "${want}" ]]; then
+        printf "FAILED %s: moved %s, not %s\n" "${what}" "${moved}" "${want}"
+        failed=1
+    fi
+}
+owner=00112233445566778899aabbccddeeff
+datagram "an ungranted gateway" 10.89.0.1 "1 0 1"
+ok "a grant of the gateway" "${vmm}" boundary grant --owner="${owner}" --bridge="${link}" --nameserver=10.89.0.1
+datagram "the granted gateway" 10.89.0.1 "1 1 0"
+datagram "another address on the granted link" 10.89.0.53 "1 0 1"
+ok "a revoke" "${vmm}" boundary revoke --owner="${owner}"
+datagram "the revoked gateway" 10.89.0.1 "1 0 1"
+ok "deleting the VMM link" ip link del peer0
+ok "deleting the fixture" nft delete table ip gate_fixture
+ok "local addresses first again" ip rule add pref 0 lookup local
+ok "removing the later lookup" ip rule del pref 20 lookup local
+ok "removing the route by the peer" ip rule del pref 10
+
+ok "adding VMM bridge ${link}" ip link add "${link}" type dummy
+refused "remove beside a VMM bridge" "${link}" "${vmm}" boundary remove
+ok "verify after a refused remove" "${vmm}" boundary verify
+ok "deleting a table" nft delete table inet flow_vmm_boundary
+refused "install over a gap" "${link}" "${vmm}" boundary install
+ok "verify after installing over a gap" "${vmm}" boundary verify
+ok "deleting VMM bridge ${link}" ip link del "${link}"
+ok "remove" "${vmm}" boundary remove
+refused "verify after remove" "table is absent" "${vmm}" boundary verify
+exit "${failed}"
+'
+
+# A killed engine client may leave its container running. An exact name lets
+# cleanup remove that container and no other.
+NAME="connector-vmm-gate-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+TIMEOUT="${CONNECTOR_VMM_GATE_TIMEOUT:-300}"
+
+# Whether the engine has a container of exactly NAME: status 0 if it does,
+# 1 if it does not, and 2 if it cannot say.
+listed() {
+    local names
+    names=$("${ENGINE[@]}" ps -a --filter "name=${NAME}" --format '{{.Names}}') || return 2
+    grep -qxF -- "${NAME}" <<<"${names}"
+}
+
+# Remove the container, unless it is already gone, as `run --rm` leaves it.
+remove() {
+    local attempt found
+    for attempt in 1 2 3 4; do
+        found=0
+        listed || found=$?
+        if [[ "${found}" -ne 0 || "${attempt}" -eq 4 ]]; then
+            break
+        fi
+        "${ENGINE[@]}" rm -f "${NAME}" >/dev/null 2>&1 || sleep 1
+    done
+    case "${found}" in
+    1) return 0 ;;
+    0) echo "ci:connector-vmm-gate: could not remove container ${NAME}" >&2 ;;
+    *) echo "ci:connector-vmm-gate: could not list containers, to remove ${NAME}" >&2 ;;
+    esac
+    return 1
+}
+
+# Exiting while the client may run: stop it, then remove what it ran.
+release() {
+    local status=$?
+    if [[ -n "${CLIENT}" ]]; then
+        kill "${CLIENT}" 2>/dev/null || true
+        wait "${CLIENT}" 2>/dev/null || true
+    fi
+    remove || status=1
+    exit "${status}"
+}
+
+found=0
+listed || found=$?
+case "${found}" in
+0) echo "ci:connector-vmm-gate: a container named ${NAME} exists, and is not this gate's" >&2 && exit 1 ;;
+2) echo "ci:connector-vmm-gate: could not list containers" >&2 && exit 1 ;;
+esac
+
+echo "=== Gating VMM image ${IMAGE}: boundary install, verify and drift detection ==="
+CLIENT=
+trap release EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# In the background, so that a signal interrupts the wait at once.
+timeout --kill-after=10 "${TIMEOUT}" "${ENGINE[@]}" run --rm --name "${NAME}" --network=none \
+    --log-driver=none --read-only --cap-drop=all --cap-add=CAP_NET_ADMIN \
+    --entrypoint=/bin/bash "${IMAGE}" -c "${GATE}" &
+CLIENT=$!
+status=0
+wait "${CLIENT}" || status=$?
+trap - EXIT
+
+case "${status}" in
+0) ;;
+124) echo "ci:connector-vmm-gate: ${IMAGE}'s gate did not finish within ${TIMEOUT}s" >&2 ;;
+*) echo "ci:connector-vmm-gate: ${IMAGE} failed its gate" >&2 ;;
+esac
+remove || exit 1
+[[ "${status}" -eq 0 ]] || exit 1
+echo "ci:connector-vmm-gate: ${IMAGE} passed"

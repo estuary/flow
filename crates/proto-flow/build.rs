@@ -430,6 +430,16 @@ fn main() {
         config.boxed(path);
     }
 
+    // Ordinary execution, the common case, leaves `ConnectorExecution` unset.
+    for path in [
+        ".connector.Request.Start.execution",
+        ".flow.CaptureSpec.execution",
+        ".flow.MaterializationSpec.execution",
+        ".flow.CollectionSpec.Derivation.execution",
+    ] {
+        config.boxed(path);
+    }
+
     let mut fds = config
         .load_fds(&proto_build, &b.proto_include())
         .expect("failed to load protobuf descriptors");

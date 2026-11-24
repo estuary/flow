@@ -28,6 +28,24 @@ pub struct CaptureDef {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Run this capture's connector within a VMM.
+    /// When true, every invocation of the connector runs within a VMM rather
+    /// than an ordinary container. Only connectors which are eligible for VMM
+    /// execution may request it, and only with declared `egress`. A data plane
+    /// which cannot run the connector within a VMM fails the invocation: it
+    /// never falls back to an ordinary container.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub vmm: bool,
+    /// # Egress this capture's connector is held to.
+    /// Required with `vmm: true`. The connector may reach only the hosts and
+    /// address ranges listed: neither it nor its image adds any, and empty
+    /// egress (`{}`) permits no external destination.
+    /// Only an execution which enforces egress, such as VMM execution
+    /// (`vmm: true`), may run a task which declares it; any other fails the
+    /// task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "super::Egress")]
+    pub egress: Option<super::Egress>,
     /// # Bound collections to capture from the endpoint.
     pub bindings: Vec<CaptureBinding>,
     /// # Interval of time between invocations of the capture.
@@ -150,6 +168,8 @@ impl CaptureDef {
             }),
             endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
+            vmm: false,
+            egress: None,
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),

@@ -1,0 +1,24 @@
+---
+source: crates/connector-vmm/src/landlock.rs
+expression: table
+---
+read-only share, its file, read
+  lookup succeeds, open: opens
+read-only share, its file, write
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+writable share, its file, write
+  lookup succeeds, open: opens
+read-only share, ../outside/file, read
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+writable share, ../outside/file, write
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+writable share, ../read-only/file, write
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+writable share, /proc/self/mem, read
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+writable share, /proc/self/mem, write
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+writable share, /etc/passwd, read
+  lookup succeeds, open: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+the unnamed scratch file, write
+  open: opens

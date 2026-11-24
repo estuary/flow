@@ -2,15 +2,14 @@ use crate::graphql::*;
 use anyhow::Context;
 use proto_flow::flow;
 
-/// Load and validate sources and derivation connectors (only).
-/// Capture and materialization connectors are not validated.
+/// Prepare catalog sources without running any connector locally.
 pub(crate) async fn load_and_validate(
     ctx: &crate::CliContext,
     source: &str,
 ) -> anyhow::Result<build::Output> {
     let source = build::arg_source_to_url(source, false)?;
     let draft = surface_errors(load(&source).await.into_result())?;
-    let output = validate(ctx, true, false, true, draft, ops::tracing_log_handler).await;
+    let output = validate(ctx, true, true, true, draft, ops::tracing_log_handler).await;
     surface_errors(output.into_result())
 }
 
@@ -29,7 +28,19 @@ pub(crate) async fn load_and_validate_task(
     Ok((task, surface_errors(output.into_result())?))
 }
 
-/// Select the task named `task`, or else the draft's only task.
+pub(crate) fn local_vmm_refusal(task: &str) -> String {
+    format!(
+        "Task \"{task}\" requests VMM sandboxing (vmm: true). flowctl cannot run this \
+         connector locally in a sandbox.\n\n\
+         To keep sandboxing, publish the original spec to a VMM-enabled data plane. For \
+         ordinary local execution, make a local copy of the spec, set vmm to false or omit it, \
+         and remove egress. Local execution cannot enforce those egress rules. Only run Python \
+         code you trust this way."
+    )
+}
+
+/// Select the task named `task`, or else the draft's only task, to run its
+/// connector locally. A task requesting VMM sandboxing is refused.
 /// Every other task is disabled, so that validation doesn't run its connector.
 /// A connector Validate may reach out to its endpoint, and a user who means
 /// one task shouldn't wait on, or see errors from, all the others.
@@ -39,24 +50,24 @@ pub(crate) fn select_task(
 ) -> anyhow::Result<String> {
     let captures = draft.captures.iter_mut().filter_map(|row| {
         let model = row.model.as_mut()?;
-        Some((row.capture.as_str(), &mut model.shards))
+        Some((row.capture.as_str(), model.vmm, &mut model.shards))
     });
     let derivations = draft.collections.iter_mut().filter_map(|row| {
         let derive = row.model.as_mut()?.derive.as_mut()?;
-        Some((row.collection.as_str(), &mut derive.shards))
+        Some((row.collection.as_str(), derive.vmm, &mut derive.shards))
     });
     let materializations = draft.materializations.iter_mut().filter_map(|row| {
         let model = row.model.as_mut()?;
-        Some((row.materialization.as_str(), &mut model.shards))
+        Some((row.materialization.as_str(), model.vmm, &mut model.shards))
     });
-    let mut tasks: Vec<(&str, &mut models::ShardTemplate)> = captures
+    let mut tasks: Vec<(&str, bool, &mut models::ShardTemplate)> = captures
         .chain(derivations)
         .chain(materializations)
         .collect();
 
     let task = match (task, tasks.as_slice()) {
         (Some(task), _) => task.to_string(),
-        (None, [(only, _)]) => only.to_string(),
+        (None, [(only, _, _)]) => only.to_string(),
         (None, []) => anyhow::bail!(
             "sourced specification files do not contain any tasks (captures, derivations, or materializations)"
         ),
@@ -64,10 +75,13 @@ pub(crate) fn select_task(
             "sourced specification files contain multiple tasks. Use --task to identify a specific one"
         ),
     };
-    if !tasks.iter().any(|(name, _)| *name == task) {
+    let Some((_, vmm, _)) = tasks.iter().find(|(name, ..)| *name == task) else {
         anyhow::bail!("could not find capture, derivation, or materialization {task}");
+    };
+    if *vmm {
+        anyhow::bail!(local_vmm_refusal(&task));
     }
-    for (name, shards) in tasks.iter_mut() {
+    for (name, _, shards) in tasks.iter_mut() {
         if *name != task {
             shards.disable = true;
         }
@@ -81,11 +95,26 @@ pub(crate) async fn generate_files(
     ctx: &crate::CliContext,
     sources: tables::DraftCatalog,
 ) -> anyhow::Result<()> {
-    let build::Output {
-        mut draft, built, ..
-    } = validate(ctx, false, false, false, sources, ops::tracing_log_handler).await;
+    let output = validate(ctx, false, false, false, sources, ops::tracing_log_handler).await;
+    write_generated_files(output)
+}
 
+/// Write the files which connectors generated as they validated `output`.
+/// Errors of the specifications are logged, as files may be generated
+/// despite them, unless the connector service refused a task's execution.
+fn write_generated_files(
+    build::Output {
+        mut draft, built, ..
+    }: build::Output,
+) -> anyhow::Result<()> {
     build::generate_files(&draft.fetches[0].resource, &built)?;
+
+    let refused = draft
+        .errors
+        .iter()
+        .chain(built.errors.iter())
+        .find(|tables::Error { error, .. }| execution_refused(error))
+        .map(|tables::Error { scope, error }| anyhow::anyhow!("{scope}: {error:#}"));
 
     draft.errors = draft
         .errors
@@ -107,8 +136,28 @@ pub(crate) async fn generate_files(
             "I may not have generated all files because the Flow specifications have errors.",
         );
     }
+    if let Some(refused) = refused {
+        return Err(refused.context(
+            "the task's connector was refused the execution it requests, so it generated no files",
+        ));
+    }
 
     Ok(())
+}
+
+/// Whether `error` is the connector service's refusal of the execution its
+/// task requests (see `proto_grpc::connector::refuse_execution`).
+fn execution_refused(error: &anyhow::Error) -> bool {
+    let detail = match error.downcast_ref::<validation::Error>() {
+        // Transparent, so its chain skips `detail` itself.
+        Some(validation::Error::Connector { detail }) => detail,
+        _ => error,
+    };
+    detail.chain().any(|cause| {
+        cause
+            .downcast_ref::<proto_grpc::StatusError>()
+            .is_some_and(|status| proto_grpc::connector::is_execution_refused(status))
+    })
 }
 
 pub(crate) async fn load(source: &url::Url) -> tables::DraftCatalog {
@@ -734,5 +783,81 @@ mod test {
 
         draft.materializations.clear();
         insta::assert_snapshot!(select_task(&mut draft, None).unwrap_err(), @"sourced specification files do not contain any tasks (captures, derivations, or materializations)");
+    }
+
+    /// Generation fails if the connector service refuses the execution a
+    /// task requests, as flowctl's local service refuses VMM execution, with
+    /// or without declared egress. A connector's own failure is logged, and
+    /// generation goes on.
+    #[tokio::test]
+    async fn generation_fails_on_a_refused_execution() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"source\"\n",
+        )
+        .unwrap();
+        let source = url::Url::from_file_path(dir.path().join("flow.yaml")).unwrap();
+
+        // A starter project: its listed entry point is missing.
+        let python =
+            serde_json::json!({"python": {"files": ["pyproject.toml", "source/__init__.py"]}});
+        let shards = serde_json::json!({"flags": {"enable-runtime-v2": "true"}});
+        let mut rows = Vec::new();
+        for (name, capture) in [
+            (
+                "vmm, egress omitted",
+                serde_json::json!({"endpoint": python, "vmm": true, "bindings": [], "shards": shards}),
+            ),
+            (
+                "vmm, egress {}",
+                serde_json::json!({"endpoint": python, "vmm": true, "egress": {}, "bindings": [], "shards": shards}),
+            ),
+            (
+                "ordinary, a connector which fails",
+                serde_json::json!({"endpoint": {"local": {"command": ["false"], "config": {}}}, "bindings": []}),
+            ),
+        ] {
+            let catalog = serde_json::json!({"captures": {"acmeCo/source": capture}});
+            std::fs::write(dir.path().join("flow.yaml"), catalog.to_string()).unwrap();
+
+            let output = build::local(
+                models::Id::new([0xff; 8]),
+                models::Id::new([0xff; 8]),
+                runtime_local::local_test_router(),
+                ops::tracing_log_handler,
+                false,
+                false,
+                false,
+                super::load(&source).await,
+                build::no_op_live_catalog(),
+            )
+            .await;
+            let outcome = match super::write_generated_files(output) {
+                Ok(()) => "generation goes on".to_string(),
+                Err(err) => format!("{err:#}"),
+            };
+            rows.push(format!(
+                "{name} => {}",
+                outcome.replace(source.as_str(), "flow.yaml")
+            ));
+        }
+        insta::assert_snapshot!(rows.join("\n"), @r"
+        vmm, egress omitted => the task's connector was refused the execution it requests, so it generated no files: flow.yaml#/captures/acmeCo~1source: the task requests VMM execution but declares no egress; a VMM task must declare `egress`, and `egress: {}` permits no external destination (InvalidArgument)
+        vmm, egress {} => the task's connector was refused the execution it requests, so it generated no files: flow.yaml#/captures/acmeCo~1source: this data plane does not support VMM execution (FailedPrecondition)
+        ordinary, a connector which fails => generation goes on
+        ");
+
+        // A connector's status passes through with whatever code it chose.
+        let status = |status| {
+            anyhow::anyhow!(validation::Error::Connector {
+                detail: proto_grpc::status_to_anyhow(status),
+            })
+        };
+        let precondition = || tonic::Status::failed_precondition("the connector's own");
+        assert!(!super::execution_refused(&status(precondition())));
+        assert!(super::execution_refused(&status(
+            proto_grpc::connector::refuse_execution(precondition())
+        )));
     }
 }

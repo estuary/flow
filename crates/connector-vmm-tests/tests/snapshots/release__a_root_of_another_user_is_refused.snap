@@ -1,0 +1,12 @@
+---
+source: crates/connector-vmm-tests/tests/release.rs
+expression: report
+---
+=== a parent of another user's
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>: it is UID <uid>'s, neither yours (UID <another>) nor root's
+--- calls
+id -u
+lock: not made

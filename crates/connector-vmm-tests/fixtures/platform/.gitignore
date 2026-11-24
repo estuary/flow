@@ -1,0 +1,3 @@
+# Generated project files and uv environments.
+flow_generated/
+.venv/

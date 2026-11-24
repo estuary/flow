@@ -76,6 +76,9 @@ pub enum Command {
     /// endpoint. Any project files and supplemental type implementations
     /// the connector generates are written into the task's project directory,
     /// which is the directory of the specification file that defines it.
+    ///
+    /// A task which requests VMM sandboxing (`vmm: true`) is refused, as
+    /// flowctl cannot run its connector locally in a sandbox.
     Generate(generate::Generate),
     /// Locally run and preview a capture, derivation, or materialization.
     ///
@@ -99,6 +102,9 @@ pub enum Command {
     /// WARNING: previews of captures and materializations make live changes
     /// to their configured endpoints. Be sure that your task does not conflict
     /// or collide with a live task running in the Flow managed service.
+    ///
+    /// A task which requests VMM sandboxing (`vmm: true`) is refused, as
+    /// flowctl cannot run its connector locally in a sandbox.
     // Still homed under `raw` while `crates/runtime-local` is in flight; see
     // the TODO on `raw::Command::PreviewNext`.
     Preview(raw::preview_next::Preview),

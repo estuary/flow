@@ -76,6 +76,9 @@ pub async fn do_oauth(
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
     let model = capture.model.as_ref().expect("not a deletion");
+    if model.vmm {
+        anyhow::bail!(local_specs::local_vmm_refusal(&capture.capture));
+    }
 
     println!(
         "Performing oauth flow on task '{}'",
@@ -86,9 +89,13 @@ pub async fn do_oauth(
 
     // Get the task spec's oauth field
     let router = ctx.local_connector_router();
-    let spec_response =
-        local_connector::spec_capture(&*router, model.shards.log_level.as_deref(), spec_req)
-            .await?;
+    let spec_response = local_connector::spec_capture(
+        &*router,
+        model.shards.log_level.as_deref(),
+        assemble::connector_execution(model.vmm, model.egress.as_ref()),
+        spec_req,
+    )
+    .await?;
 
     let oauth_spec = spec_response
         .oauth2

@@ -89,6 +89,7 @@ impl TaskService {
         let connector_svc = connector::Service::new(
             plane,
             container_network,
+            connector::Vmm::from_env()?,
             proto_grpc::Authenticator::new(data_plane_fqdn.clone(), data_plane_verify_keys),
             process,
             registry.clone(),

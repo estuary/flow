@@ -4,9 +4,10 @@
 /// The FIRST request MUST set `start` AND exactly one protocol request, which
 /// determines the connector type for the life of the stream. Every later
 /// request sets exactly one protocol request of that same type, and MUST NOT
-/// set `start`. Only the first request is inspected: its endpoint
-/// configuration is extracted and unsealed, and its task identity is
-/// authorized against the bearer's claims. All later requests pass through.
+/// set `start`. Only the first request's endpoint configuration is extracted
+/// and unsealed, and only its task identity is authorized against the
+/// bearer's claims. Later requests pass through, except that one which embeds
+/// the task's built spec is first held to `Start.execution`.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Request {
     #[prost(message, optional, tag = "1")]
@@ -34,6 +35,17 @@ pub mod request {
         /// A gRPC client which sets it is rejected, as is any other connector type.
         #[prost(string, tag = "2")]
         pub sqlite_vfs_uri: ::prost::alloc::string::String,
+        /// Execution of the connector, or unset for ordinary execution.
+        /// Task-associated requests carry the task's execution: every request of
+        /// the stream, first or later, which embeds the task's built spec (Apply
+        /// or Open) MUST match its `execution`, or the stream fails.
+        /// A task-less Spec carries the execution chosen by its caller's policy.
+        /// A requested execution which this service cannot provide fails the
+        /// stream before the connector starts.
+        #[prost(message, optional, boxed, tag = "3")]
+        pub execution: ::core::option::Option<
+            ::prost::alloc::boxed::Box<super::super::flow::ConnectorExecution>,
+        >,
     }
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Kind {

@@ -5,12 +5,20 @@ use anyhow::Context;
 use futures::StreamExt;
 use proto_flow::{
     derive::{Request, request},
-    flow::collection_spec::derivation::ConnectorType,
+    flow::{self, collection_spec::derivation::ConnectorType},
 };
 
 pub(crate) use proto_flow::connector::Derive;
 
 impl Protocol for Derive {
+    fn spec_execution(request: &Request) -> Option<flow::ConnectorExecution> {
+        let Some(request::Kind::Open(open)) = &request.kind else {
+            return None;
+        };
+        let derivation = open.collection.as_ref()?.derivation.as_ref()?;
+        Some(derivation.execution.as_deref().cloned().unwrap_or_default())
+    }
+
     fn extract_endpoint<'r>(
         request: &'r mut Request,
         sqlite_vfs_uri: Option<String>,

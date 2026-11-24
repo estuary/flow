@@ -14,7 +14,7 @@ const CONNECTOR_INIT_PORT: u16 = models::CONNECTOR_INIT_PORT;
 // For now, we support only Linux amd64 connectors. `docker pull` must request
 // it explicitly: under Docker's containerd image store a platform-less pull
 // fetches only the host's variant, which `docker run --platform` cannot use.
-const CONNECTOR_PLATFORM: &str = "linux/amd64";
+pub(crate) const CONNECTOR_PLATFORM: &str = "linux/amd64";
 
 // `flow-connector-init` is extracted from this image when a locally-built copy
 // isn't found by `locate_bin` (dev/CI builds place one alongside the executable).
@@ -24,7 +24,7 @@ const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 /// Bytes which a connector container may write to stderr over its lifetime.
 /// Its expected writers, which [`pump_stderr`] lists, write little.
-const STDERR_BUDGET: usize = 16 * 1024;
+pub(crate) const STDERR_BUDGET: usize = 16 * 1024;
 
 /// Options which have already been selected for a container execution.
 pub(crate) struct RunParams {
@@ -172,7 +172,7 @@ pub(crate) async fn run(
 
     tracing::debug!(docker_args=?docker_args, "invoking docker");
 
-    let mut process: async_process::Child = docker_cli()
+    let mut process: async_process::Child = engine_command(&docker_cli())
         .args(docker_args)
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
@@ -201,9 +201,6 @@ pub(crate) async fn run(
     // Wait for container to become ready, or close its stderr (likely due to a crash),
     // or for a minute to elapse (timeout). Either is an internal failure,
     // whose cause is in this process's logs of the container's stderr.
-    // TODO(johnny): VMM rebase: the VMM's "preceding connector logs" errors
-    // (`vmm/launch.rs`) become internal errors naming the VM's container, as
-    // these do.
     tokio::select! {
         _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
             return Err(crate::status_to_anyhow(tonic::Status::internal(format!(
@@ -220,17 +217,7 @@ pub(crate) async fn run(
             ))));
         },
     }
-    let stderr_overflow = {
-        let name = name.clone();
-        async move {
-            match overflow_rx.await {
-                Ok(()) => stderr_budget_exceeded(&name),
-                // `pump_stderr` reached EOF within its budget.
-                Err(oneshot::Canceled) => futures::future::pending().await,
-            }
-        }
-        .boxed()
-    };
+    let stderr_overflow = stderr_overflow(overflow_rx, name.clone());
 
     // Ask docker for network configuration that it assigned to the container.
     let (ip_addr, mapped_host_ports) = inspect_container_network(&name).await?;
@@ -275,18 +262,36 @@ pub(crate) async fn run(
     })
 }
 
-fn stderr_budget_exceeded(container: &str) -> anyhow::Error {
+/// Resolve to the error which fails a session once `pump_stderr` signals
+/// `overflow_rx`, and otherwise never.
+pub(crate) fn stderr_overflow(
+    overflow_rx: oneshot::Receiver<()>,
+    container: String,
+) -> futures::future::BoxFuture<'static, anyhow::Error> {
+    async move {
+        match overflow_rx.await {
+            Ok(()) => stderr_budget_exceeded(&container),
+            // `pump_stderr` reached EOF within its budget.
+            Err(oneshot::Canceled) => futures::future::pending().await,
+        }
+    }
+    .boxed()
+}
+
+pub(crate) fn stderr_budget_exceeded(container: &str) -> anyhow::Error {
     crate::status_to_anyhow(tonic::Status::resource_exhausted(format!(
         "connector container {container} exceeded its stderr budget of {STDERR_BUDGET} bytes"
     )))
 }
 
-/// Read the stderr of `docker run` until it closes, signalling `ready_tx` at
-/// flow-connector-init's readiness byte.
+/// Read the stderr of `docker run`, or of a VMM's attached `podman start`,
+/// until it closes, signalling `ready_tx` at flow-connector-init's readiness
+/// byte.
 ///
 /// Connector logs travel in-band on the `connector.Connector` stream, so
 /// stderr carries only the container runtime's errors and flow-connector-init's
 /// application logs (and, possibly, lines a connector writes to it directly).
+/// A VMM adds libkrun's and its launcher's diagnostics.
 /// None is about something the user controls, so each line is emitted as an
 /// application warning naming the container.
 ///
@@ -294,10 +299,7 @@ fn stderr_budget_exceeded(container: &str) -> anyhow::Error {
 /// what remains, so memory is too. A read which crosses the budget is emitted
 /// truncated, and `overflow_tx` is signalled. The reader is then dropped, so
 /// that further writes fail rather than cost this process anything.
-// TODO(johnny): VMM rebase: VMM stderr follows the same rule. libkrun and
-// guest-init output goes to `tracing::warn!` naming the container, and never
-// to the task's logs.
-async fn pump_stderr<R>(
+pub(crate) async fn pump_stderr<R>(
     mut stderr: tokio::io::BufReader<R>,
     ready_tx: oneshot::Sender<()>,
     overflow_tx: oneshot::Sender<()>,
@@ -366,7 +368,7 @@ async fn pump_stderr<R>(
             tracing::warn!(%container, line, "connector container stderr");
         }
     }
-    // An un-sent `ready_tx` cancels on drop, telling `run()` that stderr
+    // An un-sent `ready_tx` cancels on drop, telling the launch that stderr
     // closed before the container came up.
 }
 
@@ -375,13 +377,16 @@ fn unique_container_name() -> String {
     format!("fc_{:016x}", rand::random::<u64>())
 }
 
-/// Docker CLIs and operator wrappers need their ambient configuration,
-/// but not the reactor's signing, decryption, or Flow login authority.
-fn docker_cli() -> async_process::Command {
-    let program = std::env::var("DOCKER_CLI")
+fn docker_cli() -> String {
+    std::env::var("DOCKER_CLI")
         .ok()
-        .unwrap_or_else(|| "docker".to_string());
+        .unwrap_or_else(|| "docker".to_string())
+}
 
+/// Build a command of the container engine `program`. Engine CLIs and
+/// operator wrappers need their ambient configuration, but not the reactor's
+/// signing, decryption, or Flow login authority.
+pub(crate) fn engine_command(program: &str) -> async_process::Command {
     let mut command = async_process::Command::new(program);
     for name in [
         "CONSUMER_AUTH_KEYS",
@@ -394,46 +399,63 @@ fn docker_cli() -> async_process::Command {
     command
 }
 
+pub(crate) const DEFAULT_MEMORY_LIMIT: &str = "1g";
+pub(crate) const DEFAULT_CPU_LIMIT: &str = "2";
+
 fn connector_memory_limit() -> String {
     std::env::var("CONNECTOR_MEMORY_LIMIT")
         .ok()
-        .unwrap_or_else(|| "1g".to_string())
+        .unwrap_or_else(|| DEFAULT_MEMORY_LIMIT.to_string())
 }
 
 fn connector_cpu_limit() -> String {
     std::env::var("CONNECTOR_CPU_LIMIT")
         .ok()
-        .unwrap_or_else(|| "2".to_string())
+        .unwrap_or_else(|| DEFAULT_CPU_LIMIT.to_string())
 }
 
 async fn docker_cmd<S>(args: &[S]) -> anyhow::Result<Vec<u8>>
 where
     S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
 {
-    let output = async_process::output(docker_cli().args(args))
+    engine_cmd(&docker_cli(), args).await
+}
+
+/// Run one command of the container engine `program` to completion,
+/// returning its stdout, or failing with its stderr.
+pub(crate) async fn engine_cmd<S>(program: &str, args: &[S]) -> anyhow::Result<Vec<u8>>
+where
+    S: AsRef<std::ffi::OsStr> + std::fmt::Debug,
+{
+    let output = async_process::output(engine_command(program).args(args))
         .await
-        .with_context(|| format!("failed to run docker command {args:?}"))?;
+        .with_context(|| format!("failed to run {program} command {args:?}"))?;
 
     if !output.status.success() {
         anyhow::bail!(
-            "docker command {args:?} failed: {}",
+            "{program} command {args:?} failed: {}",
             String::from_utf8_lossy(&output.stderr),
         );
     }
     Ok(output.stdout)
 }
 
-async fn docker_pull(image: &str, log_sink: &LogSink) -> anyhow::Result<()> {
+/// Pull the `CONNECTOR_PLATFORM` variant of `image` with the container engine
+/// `program`, retrying errors which look transient.
+pub(crate) async fn pull(program: &str, image: &str, log_sink: &LogSink) -> anyhow::Result<()> {
     const MAX_RETRIES: u32 = 3;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
     for attempt in 1..=MAX_RETRIES {
-        let Err(err) = docker_cmd(&[
-            "pull",
-            image,
-            "--quiet",
-            &format!("--platform={CONNECTOR_PLATFORM}"),
-        ])
+        let Err(err) = engine_cmd(
+            program,
+            &[
+                "pull",
+                image,
+                "--quiet",
+                &format!("--platform={CONNECTOR_PLATFORM}"),
+            ],
+        )
         .await
         else {
             return Ok(());
@@ -619,7 +641,7 @@ pub(crate) async fn pull_and_inspect(
     log_sink: &LogSink,
 ) -> anyhow::Result<ImageInspection> {
     if !image.ends_with(":local") {
-        docker_pull(image, log_sink)
+        pull(&docker_cli(), image, log_sink)
             .await
             .context("pulling image")?;
     }
@@ -634,6 +656,10 @@ pub(crate) async fn pull_and_inspect(
         inspection,
     })
 }
+
+#[cfg(test)]
+#[path = "container/engine_tests.rs"]
+mod engine_tests;
 
 #[cfg(test)]
 mod test {

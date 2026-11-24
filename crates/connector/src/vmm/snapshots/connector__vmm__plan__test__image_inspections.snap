@@ -1,0 +1,31 @@
+---
+source: crates/connector/src/vmm/plan.rs
+expression: table
+---
+# no label
+labels {} ports {}
+=> --egress-host=task.acmeco.example
+
+# a label declaring hosts, which adds none
+labels {"dev.estuary.egress-hosts":"[\"api.acmeco.example\", \"pypi.org\", \"files.pythonhosted.org\"]"} ports {}
+=> --egress-host=task.acmeco.example
+
+# a label which is not JSON, which is not read
+labels {"dev.estuary.egress-hosts":"pypi.org, files.pythonhosted.org"} ports {}
+=> --egress-host=task.acmeco.example
+
+# a public port
+labels {"dev.estuary.port-public.8080":"true"} ports {"8080/tcp":{}}
+=> --egress-host=task.acmeco.example
+
+# a private port
+labels {} ports {"8080/tcp":{},"9090":{}}
+=> --egress-host=task.acmeco.example
+
+# only a UDP port, which ordinary launches ignore too
+labels {} ports {"9000/udp":{}}
+=> --egress-host=task.acmeco.example
+
+# another protocol
+labels {"FLOW_RUNTIME_PROTOCOL":"capture"} ports {}
+=> refused: connector protocol Capture does not match requested type Derivation

@@ -1,0 +1,857 @@
+//! The run the task prepared, and the VMM containers a test launches in it,
+//! each on a network of its own.
+//!
+//! Every podman call and every touch of the state directory goes through
+//! `sudo -n`; the test process itself stays unprivileged. Anything a test is
+//! about to create is appended to the task's resources list first, so that a
+//! test killed before its own cleanup runs still leaves nothing behind.
+
+use std::io::{Read, Write};
+use std::net::Ipv4Addr;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// The task's root, which `claim` in mise/tasks/ci/connector-vmm-kvm-lib.sh
+/// makes: the invoking user's, with mode 0700. The task holds its lock, and
+/// owns `run.json`, `members` and `resources` inside it. Short, because
+/// `state/fv_<16 hex>/sock/init.sock` beneath it has to fit a Unix socket
+/// address.
+pub const ROOT: &str = "/var/tmp/connector-vmm-kvm";
+
+/// Where the test guest image keeps the probe server.
+pub const PROBES: &[&str] = &["/usr/local/bin/python", "/probes.py"];
+
+/// Where every guest has its connector mount, whatever the host path.
+pub const GUEST_CONNECTOR_MOUNT: &str = "/connector-mount";
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Run {
+    pub run_dir: PathBuf,
+    /// Built with connector-vmm's `test-controls` feature, and otherwise
+    /// `production_vmm_image`: what a launch uses unless its `Spec` says not.
+    pub vmm_image: String,
+    /// The default build, as packaged, which refuses the test controls.
+    pub production_vmm_image: String,
+    pub guest_image: String,
+    /// `guest_image` whose `User` is root.
+    pub root_guest_image: String,
+    pub hello_world_image: String,
+    /// The published Python derivation connector, pulled by the task.
+    pub derive_python_image: String,
+    /// The three connectors eligible for VMM execution, built by the task
+    /// from this checkout as `:local`, which no launch pulls.
+    pub capture_python_image: String,
+    pub local_derive_python_image: String,
+    pub materialize_python_image: String,
+    pub connector_init: PathBuf,
+    /// The controlled public addresses, inside `endpoint_netns`.
+    pub endpoints: Vec<Ipv4Addr>,
+    /// The namespace the endpoints live in, one routed hop from the host.
+    pub endpoint_netns: String,
+    /// The host's end of that hop: the address the endpoints see a VMM's
+    /// masqueraded traffic come from.
+    pub endpoint_peer: Ipv4Addr,
+    /// Baseline-excluded addresses routed into `endpoint_netns` like the
+    /// endpoints, so only the host boundary stands between a VMM and them.
+    pub decoys: Vec<Ipv4Addr>,
+}
+
+/// The policies tests launch with, as the flags a launcher passes.
+pub mod policy {
+    /// What `egress: {}` launches with: no name and no range.
+    pub const EMPTY: &[&str] = &[];
+    pub const SMOKE: &[&str] = &["--egress-host=pypi.org"];
+    pub const ALLOWLIST: &[&str] = &[
+        "--egress-host=ok.acmeco.example",
+        "--egress-host=*.wild.acmeco.example",
+    ];
+    pub const CIDRS: &[&str] = &[
+        "--egress-host=ok.acmeco.example",
+        "--egress-cidr=198.18.255.241/32",
+    ];
+    pub const EVERY_ADDRESS: &[&str] = &["--egress-cidr=0.0.0.0/0"];
+    pub const TTL: &[&str] = &[
+        "--egress-host=*.acmeco.example",
+        "--ttl-floor-secs=30",
+        "--ttl-cap-secs=60",
+    ];
+    pub const CAPACITY: &[&str] = &[
+        "--egress-host=*.acmeco.example",
+        "--ttl-floor-secs=3",
+        "--ttl-cap-secs=3600",
+    ];
+}
+
+/// What a test launches. `Spec::probes` is the common case.
+pub struct Spec<'a> {
+    pub vmm_image: String,
+    pub policy: &'a [&'a str],
+    pub connector_image: String,
+    pub memory_mib: u32,
+    pub disk_mib: u64,
+    /// A persistent disk at `$CONNECTOR_MOUNT/persist`, whose host directory
+    /// is created empty and writable by any guest user.
+    pub persistent_disk: bool,
+    pub task_update: Option<&'a str>,
+    pub rm: bool,
+    pub flags: Vec<String>,
+    pub exec: Option<Vec<String>>,
+    /// Changes to the reference line itself, for the tests of its guards.
+    pub edit: fn(&mut Vec<String>),
+}
+
+impl<'a> Spec<'a> {
+    pub fn probes(run: &Run, policy: &'a [&'a str]) -> Self {
+        let mut exec: Vec<String> = PROBES.iter().map(ToString::to_string).collect();
+        exec.push("serve".to_string());
+
+        Spec {
+            vmm_image: run.vmm_image.clone(),
+            policy,
+            connector_image: run.guest_image.clone(),
+            memory_mib: 512,
+            disk_mib: 256,
+            persistent_disk: false,
+            task_update: None,
+            rm: true,
+            flags: Vec::new(),
+            exec: Some(exec),
+            edit: |_| {},
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Captured {
+    pub bytes: Vec<u8>,
+    /// When a line beginning with a space first appeared: the readiness
+    /// marker, even before its line is complete.
+    pub ready: Option<Instant>,
+}
+
+/// One VMM container, removed with everything staged for it on drop. A test
+/// that panics also gets the container's output printed on the way out.
+pub struct Vmm {
+    pub name: String,
+    pub network: String,
+    /// The network's gateway as podman reports it, which the VMM is told.
+    pub nameserver: Ipv4Addr,
+    pub state_dir: String,
+    pub connector_mount: String,
+    pub persistent_dir: Option<String>,
+    pub argv: Vec<String>,
+    pub started: Instant,
+    pub stderr: Arc<Mutex<Captured>>,
+    pub stdout: Arc<Mutex<Captured>>,
+    child: std::process::Child,
+    /// Its DNS grant, unless a test routed its upstream elsewhere.
+    _dns: Option<Ingress>,
+}
+
+pub fn load() -> Run {
+    if std::env::var_os("CONNECTOR_VMM_KVM").is_none_or(|value| value.is_empty()) {
+        panic!(
+            "the KVM suite runs only under `mise run ci:connector-vmm-kvm`, \
+             which sets CONNECTOR_VMM_KVM"
+        );
+    }
+    serde_json::from_slice(&read_private("run.json"))
+        .unwrap_or_else(|e| panic!("parsing {ROOT}/run.json: {e}"))
+}
+
+/// Append to the task's resources list, once its members vouch for the
+/// entry, as its release requires. Called before the resource exists.
+pub fn record(kind: &str, value: &str) {
+    let line = format!("{kind} {value}\n");
+    for name in ["members", "resources"] {
+        // One write per line, so concurrent tests' lines never interleave.
+        open_private(name, std::fs::OpenOptions::new().append(true))
+            .write_all(line.as_bytes())
+            .unwrap_or_else(|e| panic!("appending to {ROOT}/{name}: {e}"));
+    }
+}
+
+/// What file `name` in ROOT holds, read as `open_private` opens it.
+pub fn read_private(name: &str) -> Vec<u8> {
+    let mut content = Vec::new();
+    open_private(name, std::fs::OpenOptions::new().read(true))
+        .read_to_end(&mut content)
+        .unwrap_or_else(|e| panic!("reading {ROOT}/{name}: {e}"));
+    content
+}
+
+/// Opens file `name` in ROOT with `open_owned`, once one lstat shows ROOT as
+/// `claim` makes it: a directory of this user's, with mode 0700.
+fn open_private(name: &str, options: &mut std::fs::OpenOptions) -> std::fs::File {
+    use std::os::unix::fs::MetadataExt;
+
+    let root = std::fs::symlink_metadata(ROOT).unwrap_or_else(|e| {
+        panic!("inspecting {ROOT}: {e}; tests run under `mise run ci:connector-vmm-kvm`")
+    });
+    assert!(
+        root.is_dir()
+            && root.uid() == rustix::process::geteuid().as_raw()
+            && root.mode() & 0o7777 == 0o700,
+        "{ROOT} (UID {}, mode {:o}) must be a directory of yours with mode 0700",
+        root.uid(),
+        root.mode() & 0o7777
+    );
+    open_owned(&Path::new(ROOT).join(name), options)
+}
+
+/// Opens `path`, never through a link nor blocking on a FIFO, and panics
+/// unless it is a regular file of this user's, writable by no one else, with
+/// no other name by which something else could reach it.
+pub fn open_owned(path: &Path, options: &mut std::fs::OpenOptions) -> std::fs::File {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let file = options
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .unwrap_or_else(|e| panic!("opening {}: {e}", path.display()));
+    let metadata = file
+        .metadata()
+        .unwrap_or_else(|e| panic!("inspecting {}: {e}", path.display()));
+    assert!(
+        metadata.is_file()
+            && metadata.uid() == rustix::process::geteuid().as_raw()
+            && metadata.mode() & 0o022 == 0
+            && metadata.nlink() == 1,
+        "{} (UID {}, mode {:o}, {} names) must be a regular file of yours, writable by \
+         no one else, with no other name",
+        path.display(),
+        metadata.uid(),
+        metadata.mode() & 0o7777,
+        metadata.nlink()
+    );
+    file
+}
+
+/// Panics unless `path`, if present, is a directory, not a link, which is
+/// root's or this user's and writable by no one else: root's `install -d`
+/// must make and change only what is beneath ROOT.
+fn check_beneath_root(path: &str) {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => panic!("inspecting {path}: {e}"),
+    };
+    assert!(
+        metadata.is_dir()
+            && (metadata.uid() == 0 || metadata.uid() == rustix::process::geteuid().as_raw())
+            && metadata.mode() & 0o022 == 0,
+        "{path} (UID {}, mode {:o}) must be a directory of root's or yours, which no one \
+         else can write",
+        metadata.uid(),
+        metadata.mode() & 0o7777
+    );
+}
+
+pub fn sudo(args: &[&str]) -> String {
+    let output = sudo_output(args, None);
+    if !output.status.success() {
+        panic!(
+            "sudo {}: {}\n{}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    String::from_utf8(output.stdout).expect("command output is UTF-8")
+}
+
+pub fn sudo_output(args: &[&str], stdin: Option<&[u8]>) -> std::process::Output {
+    let mut child = std::process::Command::new("sudo")
+        .arg("-n")
+        .args(args)
+        .stdin(match stdin {
+            Some(_) => std::process::Stdio::piped(),
+            None => std::process::Stdio::null(),
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("spawning sudo {}: {e}", args.join(" ")));
+
+    if let Some(content) = stdin {
+        let mut pipe = child.stdin.take().expect("stdin is piped");
+        pipe.write_all(content).expect("writing to sudo's stdin");
+    }
+    child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("waiting for sudo {}: {e}", args.join(" ")))
+}
+
+pub fn sudo_write(path: &str, content: &[u8], mode: &str) {
+    let output = sudo_output(&["tee", path], Some(content));
+    assert!(
+        output.status.success(),
+        "writing {path}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    sudo(&["chmod", mode, path]);
+}
+
+pub fn podman(args: &[&str]) -> String {
+    let mut argv = vec!["podman"];
+    argv.extend_from_slice(args);
+    sudo(&argv)
+}
+
+pub fn fixture(relative: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join(relative)
+}
+
+/// Stage the per-connector directory and connector mount as a launcher
+/// would, then `podman run` the launcher's line with `spec`'s additions.
+pub fn start(run: &Run, spec: Spec) -> Vmm {
+    let name = format!("fv_{}", random_hex());
+    let state_dir = format!("{ROOT}/state/{name}");
+    let connector_mount = format!("{ROOT}/connector-mounts-0/mount-{}", &name[3..]);
+
+    record("dir", &state_dir);
+    // Root makes these, and what is beneath them.
+    for parent in ["state", "connector-mounts-0"] {
+        check_beneath_root(&format!("{ROOT}/{parent}"));
+    }
+    sudo(&["install", "-d", "-m", "0711", &state_dir]);
+    sudo(&[
+        "install",
+        "-d",
+        "-m",
+        "0700",
+        &format!("{state_dir}/scratch"),
+    ]);
+    // Traversable by the unprivileged suite, which dials init.sock in here.
+    sudo(&["install", "-d", "-m", "0711", &format!("{state_dir}/sock")]);
+
+    record("dir", &connector_mount);
+    sudo(&[
+        "install",
+        "-d",
+        "-m",
+        "0700",
+        &format!("{ROOT}/connector-mounts-0"),
+    ]);
+    sudo(&["install", "-d", "-m", "0711", &connector_mount]);
+    sudo(&[
+        "install",
+        "-m",
+        "0555",
+        &run.connector_init.to_string_lossy(),
+        &format!("{connector_mount}/flow-connector-init"),
+    ]);
+    let inspect = podman(&["image", "inspect", &spec.connector_image]);
+    sudo_write(
+        &format!("{connector_mount}/image-inspect.json"),
+        inspect.as_bytes(),
+        "0444",
+    );
+    if let Some(generation) = spec.task_update {
+        replace_task_update(&connector_mount, generation);
+    }
+
+    // The bridge's name puts it behind the host boundary. Twelve of the id's
+    // sixteen digits, because an interface name holds fifteen bytes.
+    let bridge = format!("{}{}", connector::vmm_argv::BRIDGE_PREFIX, &name[3..15]);
+    record("network", &name);
+    let network = connector::vmm_argv::network(&name, &bridge, &[]);
+    podman(&network.iter().map(String::as_str).collect::<Vec<_>>());
+    let nameserver = nameserver(&name, &bridge);
+    // A launch grants its VMM's DNS to the nameserver it tells the VMM. A
+    // test's upstream routed elsewhere needs no exception on the host, so
+    // it gets none.
+    let dns = (resolver_upstream(&spec.flags, nameserver)
+        == std::net::SocketAddr::from((nameserver, 53)))
+    .then(|| grant(run, &name, &[format!("--nameserver={nameserver}")]));
+
+    record("volume", &name);
+    let inspected: serde_json::Value = serde_json::from_str(&inspect).unwrap();
+    let rootfs = connector::vmm_argv::rootfs(&name, inspected[0]["Id"].as_str().unwrap(), &[]);
+    podman(&rootfs.iter().map(String::as_str).collect::<Vec<_>>());
+
+    let persistent_dir = spec.persistent_disk.then(|| {
+        let dir = format!("{state_dir}/persistent");
+        // Writable by the image's user without a chown, which the disk's
+        // owner would read as a change to the task's data.
+        sudo(&["install", "-d", "-m", "0777", &dir]);
+        dir
+    });
+
+    let container_mib = spec.memory_mib + connector::vmm_argv::DEFAULT_MEMORY_OVERHEAD_MIB;
+    let mut argv = connector::vmm_argv::container(
+        "run",
+        &connector::vmm_argv::Container {
+            name: &name,
+            state: &state_dir,
+            connector_mount: &connector_mount,
+            vmm_image: &spec.vmm_image,
+            memory: connector::VmmMemory {
+                bytes: u64::from(container_mib) << 20,
+                guest_mib: spec.memory_mib,
+            },
+            cpus: "2",
+            vcpus: 2,
+            disk_mib: spec.disk_mib,
+            persistent_disk: persistent_dir
+                .as_deref()
+                .map(|host_dir| connector::vmm_argv::PersistentDisk { host_dir }),
+            options: &[],
+        },
+    );
+    if !spec.rm {
+        argv.retain(|argument| argument != "--rm");
+    }
+    // As a launch appends it, once podman has made the network.
+    argv.push(format!("--nameserver={nameserver}"));
+    (spec.edit)(&mut argv);
+    argv.extend(spec.policy.iter().map(ToString::to_string));
+    argv.extend(spec.flags);
+    if let Some(exec) = spec.exec {
+        argv.push("--exec".to_string());
+        argv.extend(exec);
+    }
+
+    record("container", &name);
+    let mut child = std::process::Command::new("sudo")
+        .arg("-n")
+        .arg("podman")
+        .args(&argv)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawning sudo podman run");
+    let started = Instant::now();
+
+    let stdout = capture(
+        child.stdout.take().expect("stdout is piped"),
+        run.run_dir.join(format!("{name}.stdout")),
+    );
+    let stderr = capture(
+        child.stderr.take().expect("stderr is piped"),
+        run.run_dir.join(format!("{name}.stderr")),
+    );
+
+    Vmm {
+        network: name.clone(),
+        name,
+        nameserver,
+        state_dir,
+        connector_mount,
+        persistent_dir,
+        argv,
+        started,
+        stderr,
+        stdout,
+        child,
+        _dns: dns,
+    }
+}
+
+/// The VMM's nameserver on network `name`, read from podman as a launch
+/// reads it.
+fn nameserver(name: &str, bridge: &str) -> Ipv4Addr {
+    let inspection = podman(&["network", "inspect", name]);
+    connector::vmm_argv::nameserver(bridge, inspection.as_bytes())
+        .unwrap_or_else(|e| panic!("the nameserver of network {name}: {e:#}"))
+}
+
+/// Where a VMM run with `flags` forwards its guest's queries: a test's
+/// `--resolver-upstream`, or else `nameserver`.
+fn resolver_upstream(flags: &[String], nameserver: Ipv4Addr) -> std::net::SocketAddr {
+    let mut flags = flags.iter();
+    while let Some(flag) = flags.next() {
+        let value = match flag.strip_prefix("--resolver-upstream") {
+            Some("") => flags.next().map(String::as_str),
+            Some(value) => value.strip_prefix('='),
+            None => continue,
+        };
+        return value
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_else(|| panic!("--resolver-upstream takes IP:PORT: {flag:?}"));
+    }
+    (nameserver, 53).into()
+}
+
+/// The runtime's protocol for a credential refresh: stage beside it, then
+/// rename over it, so every generation is a new inode.
+pub fn replace_task_update(connector_mount: &str, content: &str) {
+    let staged = format!("{connector_mount}/.task-update.json.tmp");
+    sudo_write(&staged, content.as_bytes(), "0444");
+    sudo(&[
+        "mv",
+        "-f",
+        &staged,
+        &format!("{connector_mount}/task-update.json"),
+    ]);
+}
+
+pub fn socket_path(vmm: &Vmm) -> PathBuf {
+    PathBuf::from(format!("{}/sock/init.sock", vmm.state_dir))
+}
+
+pub fn wait_ready(vmm: &Vmm, timeout: Duration) -> Duration {
+    eventually(&format!("readiness from {}", vmm.name), timeout, || {
+        let ready = vmm.stderr.lock().unwrap().ready?;
+        Some(ready - vmm.started)
+    })
+}
+
+pub fn wait_exit(vmm: &mut Vmm, timeout: Duration) -> std::process::ExitStatus {
+    let name = vmm.name.clone();
+    let child = &mut vmm.child;
+    eventually(&format!("{name} to exit"), timeout, || {
+        child.try_wait().expect("polling podman run")
+    })
+}
+
+/// The VMM's pid on the host, once podman reports one.
+pub fn pid(vmm: &Vmm) -> u32 {
+    eventually(
+        &format!("a pid for {}", vmm.name),
+        Duration::from_secs(30),
+        || {
+            let output = sudo_output(
+                &["podman", "inspect", "--format", "{{.State.Pid}}", &vmm.name],
+                None,
+            );
+            let pid: u32 = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse()
+                .ok()?;
+            (pid > 0).then_some(pid)
+        },
+    )
+}
+
+pub fn inspect(name: &str, format: &str) -> String {
+    podman(&["inspect", "--format", format, name])
+        .trim()
+        .to_string()
+}
+
+pub fn nsenter(pid: u32, args: &[&str]) -> String {
+    let pid = pid.to_string();
+    let mut argv = vec!["nsenter", "-t", &pid, "-n"];
+    argv.extend_from_slice(args);
+    sudo(&argv)
+}
+
+pub fn stderr_text(vmm: &Vmm) -> String {
+    String::from_utf8_lossy(&vmm.stderr.lock().unwrap().bytes).into_owned()
+}
+
+pub fn stdout_text(vmm: &Vmm) -> String {
+    String::from_utf8_lossy(&vmm.stdout.lock().unwrap().bytes).into_owned()
+}
+
+/// The launcher reads a line beginning with a space as connector readiness,
+/// so the only such line may be the workload's own marker. libkrun's WARN
+/// records and a connector's logs may follow it and need not be JSON.
+pub fn assert_framing(vmm: &Vmm, readiness: bool) {
+    let stderr = vmm.stderr.lock().unwrap();
+    let marked = stderr
+        .bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| line.first() == Some(&b' '))
+        .count();
+
+    assert_eq!(
+        marked,
+        usize::from(readiness),
+        "{}: lines beginning with a space on stderr, where only the workload's \
+         readiness marker may begin with one",
+        vmm.name
+    );
+}
+
+/// Killed outright: the VMM is the container's PID 1 and ignores SIGTERM, so
+/// podman's default stop would only wait ten seconds to send SIGKILL anyway.
+pub fn remove_container(name: &str) {
+    let _ = sudo_output(
+        &["podman", "rm", "-f", "--time", "0", "--ignore", name],
+        None,
+    );
+}
+
+/// `boundary ACTION` as a launcher runs it, but in the network namespace
+/// `network` names: `host` or `ns:<path>`.
+pub fn boundary(run: &Run, network: &str, action: &str) -> std::process::Output {
+    let mut argv = vec!["podman".to_string()];
+    argv.extend(connector::vmm_argv::host_boundary(
+        &run.vmm_image,
+        action,
+        connector::vmm_argv::Exited::Removed,
+        &[],
+    ));
+    let host = argv
+        .iter()
+        .position(|arg| arg == "--network=host")
+        .expect("a launcher's boundary runs in the host's network namespace");
+    argv[host] = format!("--network={network}");
+    sudo_output(&argv.iter().map(String::as_str).collect::<Vec<_>>(), None)
+}
+
+/// A plain container beside the VMMs, running `sleep` from the VMM image.
+pub struct Sidecar {
+    pub name: String,
+}
+
+/// A sidecar on an existing network, such as a VMM's.
+pub fn sidecar(run: &Run, network: &str) -> Sidecar {
+    let name = format!("fv_{}", random_hex());
+    record("container", &name);
+    podman(&[
+        "run",
+        "-d",
+        "--rm",
+        &format!("--name={name}"),
+        &format!("--network={network}"),
+        "--read-only",
+        "--entrypoint=sleep",
+        &run.vmm_image,
+        "infinity",
+    ]);
+    Sidecar { name }
+}
+
+impl Drop for Sidecar {
+    fn drop(&mut self) {
+        remove_container(&self.name);
+    }
+}
+
+pub struct Netns {
+    pub name: String,
+}
+
+pub fn netns() -> Netns {
+    let name = format!("connector-vmm-kvm-{}", random_hex());
+    record("netns", &name);
+    sudo(&["ip", "netns", "add", &name]);
+    Netns { name }
+}
+
+impl Drop for Netns {
+    fn drop(&mut self) {
+        let _ = sudo_output(&["ip", "netns", "del", &self.name], None);
+    }
+}
+
+/// Fails, and says so, while a container still uses it.
+fn remove_network(name: &str) {
+    let output = sudo_output(&["podman", "network", "rm", name], None);
+    if !output.status.success() {
+        eprintln!(
+            "left network {name}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+}
+
+/// Poll `probe` until it returns something or `timeout` passes.
+pub fn eventually<T>(what: &str, timeout: Duration, mut probe: impl FnMut() -> Option<T>) -> T {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(value) = probe() {
+            return value;
+        }
+        if Instant::now() > deadline {
+            panic!("timed out after {timeout:?} waiting for {what}");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Release the container and its image-backed volume before a test removes
+/// the connector image. Drop remains best-effort cleanup during unwinding.
+pub fn stop(mut vmm: Vmm) {
+    remove_checked(&["podman", "rm", "-f", "--time", "0", "--ignore", &vmm.name]);
+    eventually(
+        "the attached podman client to exit",
+        Duration::from_secs(10),
+        || vmm.child.try_wait().expect("waiting for podman run"),
+    );
+    remove_checked(&["podman", "volume", "rm", &vmm.name]);
+}
+
+fn remove_checked(args: &[&str]) {
+    // An explicit removal may overlap podman's --rm cleanup.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let output = sudo_output(args, None);
+        if output.status.success() {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "sudo {}: {}\n{}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+impl Drop for Vmm {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("{}", diagnostics(self));
+        }
+        remove_container(&self.name);
+        // The podman client exits once its container is gone. Bounded, so a
+        // wedged client cannot hang the test; sudo is root's, so no kill.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while matches!(self.child.try_wait(), Ok(None)) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        remove_network(&self.network);
+        let _ = sudo_output(&["podman", "volume", "rm", &self.name], None);
+        let _ = sudo_output(
+            &[
+                "rm",
+                "-rf",
+                "--one-file-system",
+                &self.state_dir,
+                &self.connector_mount,
+            ],
+            None,
+        );
+    }
+}
+
+fn diagnostics(vmm: &Vmm) -> String {
+    let stdout = stdout_text(vmm);
+    let tail: Vec<&str> = stdout.lines().rev().take(40).collect();
+    let tail: Vec<&str> = tail.into_iter().rev().collect();
+
+    format!(
+        "--- {} after {:?}\n--- argv: sudo -n podman {}\n--- stderr:\n{}\n--- stdout (last 40 lines):\n{}\n---",
+        vmm.name,
+        vmm.started.elapsed(),
+        vmm.argv.join(" "),
+        stderr_text(vmm),
+        tail.join("\n"),
+    )
+}
+
+fn capture(mut stream: impl Read + Send + 'static, path: PathBuf) -> Arc<Mutex<Captured>> {
+    let captured = Arc::new(Mutex::new(Captured::default()));
+    let shared = captured.clone();
+    let mut file =
+        std::fs::File::create(&path).unwrap_or_else(|e| panic!("creating {}: {e}", path.display()));
+
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            let read = match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => read,
+            };
+            let _ = file.write_all(&chunk[..read]);
+            let mut captured = shared.lock().unwrap();
+            let before = captured.bytes.len();
+            captured.bytes.extend_from_slice(&chunk[..read]);
+
+            if captured.ready.is_none() && begins_marked_line(&captured.bytes, before) {
+                captured.ready = Some(Instant::now());
+            }
+        }
+    });
+    captured
+}
+
+/// Whether a line that starts at or after `from` begins with a space.
+fn begins_marked_line(bytes: &[u8], from: usize) -> bool {
+    (from..bytes.len()).any(|i| bytes[i] == b' ' && (i == 0 || bytes[i - 1] == b'\n'))
+}
+
+pub fn random_hex() -> String {
+    let mut bytes = [0u8; 8];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .expect("reading /dev/urandom");
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Host permissions for a test guest. Recorded before creation for task
+/// cleanup, and revoked on drop.
+pub struct Ingress {
+    image: String,
+    owner: String,
+}
+
+/// Ingress to `ports`, and egress to `cidrs`.
+pub fn ingress(run: &Run, vmm: &Vmm, ports: &[u16], cidrs: &[&str]) -> Ingress {
+    let mut flags: Vec<String> = ports.iter().map(|port| format!("--port={port}")).collect();
+    flags.extend(cidrs.iter().map(|cidr| format!("--cidr={cidr}")));
+    grant(run, &vmm.name, &flags)
+}
+
+/// `boundary grant` of `flags` for network `name`'s bridge, under an owner of
+/// its own.
+fn grant(run: &Run, name: &str, flags: &[String]) -> Ingress {
+    let owner = format!("{}{}", random_hex(), random_hex());
+    record("ingress", &format!("{} {owner}", run.vmm_image));
+    let mut args = connector::vmm_argv::host_boundary(
+        &run.vmm_image,
+        "grant",
+        connector::vmm_argv::Exited::Removed,
+        &[],
+    );
+    args.extend([
+        format!("--owner={owner}"),
+        format!("--bridge=fvm{}", &name[3..15]),
+    ]);
+    args.extend_from_slice(flags);
+    podman(&args.iter().map(String::as_str).collect::<Vec<_>>());
+    Ingress {
+        image: run.vmm_image.clone(),
+        owner,
+    }
+}
+
+impl Drop for Ingress {
+    fn drop(&mut self) {
+        let mut args = vec!["podman".to_string()];
+        args.extend(connector::vmm_argv::host_boundary(
+            &self.image,
+            "revoke",
+            connector::vmm_argv::Exited::Removed,
+            &[],
+        ));
+        args.push(format!("--owner={}", self.owner));
+        let _ = sudo_output(&args.iter().map(String::as_str).collect::<Vec<_>>(), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Only an upstream of the gateway's own port 53 is granted.
+    #[test]
+    fn resolver_upstream() {
+        let gateway = std::net::Ipv4Addr::new(10, 89, 0, 1);
+        for (flags, want) in [
+            (&[][..], "10.89.0.1:53"),
+            (
+                &["--resolver-upstream", "192.31.196.241:40053"][..],
+                "192.31.196.241:40053",
+            ),
+            (
+                &["--resolver-upstream=10.89.0.1:5353"][..],
+                "10.89.0.1:5353",
+            ),
+        ] {
+            let flags: Vec<String> = flags.iter().map(ToString::to_string).collect();
+            assert_eq!(super::resolver_upstream(&flags, gateway).to_string(), want);
+        }
+    }
+}

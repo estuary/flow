@@ -154,6 +154,8 @@ async fn walk_materialization(
         target_naming,
         endpoint,
         secrets,
+        vmm,
+        egress,
         bindings: bindings_model,
         mut shards,
         expect_pub_id: _,
@@ -172,6 +174,16 @@ async fn walk_materialization(
     );
 
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
+    let execution = super::walk_execution(
+        scope,
+        "materialization",
+        materialization,
+        models::CatalogType::Materialization,
+        vmm,
+        egress.as_ref(),
+        &shards,
+        errors,
+    );
 
     let max_bindings = crate::max_bindings(indirect_specs);
 
@@ -352,6 +364,7 @@ async fn walk_materialization(
         no_op,
         data_plane_id,
         shards.log_level.as_deref(),
+        execution.clone(),
         connector::request::Kind::Materialize(materialize::Request {
             kind: Some(materialize::request::Kind::Validate(Box::new(
                 validate_request,
@@ -376,12 +389,20 @@ async fn walk_materialization(
         _ => network_ports,
     };
 
+    let declared = match &endpoint {
+        models::MaterializationEndpoint::Python(python) if noop_materializations => {
+            python.spec.config_schema.as_ref()
+        }
+        _ => None,
+    };
     crate::secrets::walk_plaintext(
         scope,
         "materialization",
         materialization,
         &secrets_ctx,
-        &connector_spec.config_schema_json,
+        declared.map_or(&connector_spec.config_schema_json[..], |schema| {
+            schema.get().as_bytes()
+        }),
         errors,
     );
 
@@ -780,6 +801,7 @@ async fn walk_materialization(
         linked_collections: Vec::new(),
         secrets: secrets_spec,
         connector_spec: (!no_op).then(|| Box::new(connector_spec)),
+        execution,
     };
     linked::install_materialization_spec(&mut spec, interner, indirect_specs);
 
@@ -789,6 +811,8 @@ async fn walk_materialization(
         on_incompatible_schema_change,
         endpoint,
         secrets,
+        vmm,
+        egress,
         bindings: bindings_model,
         shards,
         expect_pub_id: None,

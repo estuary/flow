@@ -1,0 +1,137 @@
+---
+source: crates/connector-vmm-tests/tests/release.rs
+expression: "reports.join(\"\")"
+---
+=== an entry among the run's own
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'dir <tmp>/elsewhere': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  builder connector-vmm-kvm-00000000
+  image sha256:0000000000000000000000000000000000000000000000000000000000000000
+  boundary sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image localhost/connector-vmm-test-controls:kvm-00000000
+  route blackhole 192.31.196.240/28 metric 4000
+  netns connector-vmm-kvm
+  link vmm-kvm0
+  dir <tmp>/root/platform-00000000
+  dropin <tmp>/home/.config/systemd/user/flow-reactor@local-acme-cluster-10299.service.d/connector-vmm.conf
+  stack acme local-acme-cluster <tmp>/checkout
+  network fv_0000000000000001
+  volume fv_0000000000000001
+  container fv_0000000000000001
+  dir <tmp>/root/launcher-0000000000000000
+  network fv_0000000000000002
+  volume fv_0000000000000002
+  container fv_0000000000000002
+  ingress localhost/connector-vmm-test-controls:kvm-00000000 00000000000000000000000000000002
+  dir <tmp>/elsewhere
+--- calls
+=== a directory outside the root
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'dir <tmp>/elsewhere': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  dir <tmp>/elsewhere
+--- calls
+=== a directory which climbs out of the root
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'dir <tmp>/root/launcher-0000000000000000/../../elsewhere': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  dir <tmp>/root/launcher-0000000000000000/../../elsewhere
+--- calls
+=== a directory reached through a link
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root/state: it is a link, or not a directory
+ci:connector-vmm-kvm: refusing 'dir <tmp>/root/state/fv_0000000000000003': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  dir <tmp>/root/state/fv_0000000000000003
+--- calls
+=== another checkout's stack
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'stack acme local-acme-cluster <tmp>/elsewhere': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  stack acme local-acme-cluster <tmp>/elsewhere
+--- calls
+=== another stack's reactor drop-in
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'dropin <tmp>/home/.config/systemd/user/flow-reactor@local-other-cluster-10299.service.d/connector-vmm.conf': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  dropin <tmp>/home/.config/systemd/user/flow-reactor@local-other-cluster-10299.service.d/connector-vmm.conf
+--- calls
+=== a route which is no fence
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'route blackhole 0.0.0.0/0 metric 4000': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  route blackhole 0.0.0.0/0 metric 4000
+--- calls
+=== a boundary of an image never recorded
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'boundary sha256:1111111111111111111111111111111111111111111111111111111111111111': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  boundary sha256:1111111111111111111111111111111111111111111111111111111111111111
+--- calls
+=== a grant of an image recorded only after it
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'ingress localhost/connector-vmm-test-controls:kvm-00000000 00000000000000000000000000000002': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  ingress localhost/connector-vmm-test-controls:kvm-00000000 00000000000000000000000000000002
+  image localhost/connector-vmm-test-controls:kvm-00000000
+--- calls
+=== an image no test makes
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'image docker.io/library/postgres:16': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  image docker.io/library/postgres:16
+--- calls
+=== podman's own network
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'network podman': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  network podman
+--- calls
+=== a kind no test records
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'mount /': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  mount /
+--- calls
+=== fields two spaces separate
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing 'link  vmm-kvm0': this task records no such entry for this run
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  link  vmm-kvm0
+--- calls
+=== an unterminated last line
+status: 1
+list: kept whole
+--- stderr
+ci:connector-vmm-kvm: refusing <tmp>/root/resources: its last line is unterminated
+ci:connector-vmm-kvm: kept everything in <tmp>/root/resources, and released none of it. Release by hand what it refused and remove it from the list, then run this task again to release:
+  netns connector-vmm-kvm
+  link vmm-kvm0
+--- calls

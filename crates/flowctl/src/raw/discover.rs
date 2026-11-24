@@ -54,6 +54,9 @@ pub async fn do_discover(
     };
 
     let model = capture.model.as_mut().expect("not a deletion");
+    if model.vmm {
+        anyhow::bail!(local_specs::local_vmm_refusal(&capture.capture));
+    }
     let mut model_clone = model.clone();
 
     // Inline a clone of the capture model for use with the discover RPC.
@@ -83,6 +86,7 @@ pub async fn do_discover(
     let response = local_connector::unary(
         &*router,
         model_clone.shards.log_level.as_deref(),
+        assemble::connector_execution(model_clone.vmm, model_clone.egress.as_ref()),
         proto_flow::connector::request::Kind::Capture(capture::Request {
             kind: Some(capture::request::Kind::Discover(Box::new(discover))),
             ..Default::default()

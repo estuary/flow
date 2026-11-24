@@ -1,0 +1,131 @@
+---
+source: crates/connector-vmm/src/resolver/dns.rs
+expression: table
+---
+# shorter than a header
+unscreened: message of 8 bytes: short message
+refused: message of 8 bytes: short message
+
+# one A record
+addresses: [93.184.216.34]
+records: [A 93.184.216.34 ttl 300]
+
+# an A record in another class
+addresses: [93.184.216.34]
+records: []
+
+# the owner name as a backward compression pointer
+addresses: [93.184.216.34]
+records: [A 93.184.216.34 ttl 300]
+
+# a forward compression pointer
+unscreened: record: too many compression pointers
+refused: answer record: too many compression pointers
+
+# a CNAME target of the root
+addresses: []
+records: []
+
+# a CNAME
+addresses: []
+records: [CNAME cdn.acmeco.example ttl 300]
+
+# a CNAME target as a backward compression pointer
+addresses: []
+records: [CNAME acmeco.example ttl 300]
+
+# a CNAME target of labels then a compression pointer
+addresses: []
+records: [CNAME cdn.acmeco.example ttl 300]
+
+# a CNAME target running on into the next record
+addresses: [93.184.216.34]
+refused: CNAME record data: unexpected end of input
+
+# a CNAME with no record data
+addresses: [93.184.216.34]
+refused: CNAME record data: unexpected end of input
+
+# a CNAME target's compression pointer cut short by rdlength
+addresses: []
+refused: CNAME record data: unexpected end of input
+
+# a CNAME target with bytes after it
+addresses: []
+refused: CNAME record data: trailing data in option
+
+# a label above 63 bytes
+unscreened: record: invalid label type
+refused: answer record: invalid label type
+
+# a reserved label length
+unscreened: record: invalid label type
+refused: answer record: invalid label type
+
+# rdlength running past the message
+unscreened: record: unexpected end of input
+refused: answer record: unexpected end of input
+
+# more answers claimed than carried
+unscreened: record: unexpected end of input
+refused: answer record: unexpected end of input
+
+# a record past the answer section authorizes nothing
+addresses: [93.184.216.34, 10.0.0.1]
+records: [A 93.184.216.34 ttl 300]
+
+# a truncated question
+unscreened: question section: unexpected end of input
+refused: question section: unexpected end of input
+
+# a truncated resource record
+unscreened: record: unexpected end of input
+refused: answer record: unexpected end of input
+
+# a 255-byte owner
+addresses: [93.184.216.34]
+records: [A 93.184.216.34 ttl 300]
+
+# a 256-byte owner
+unscreened: record: long domain name
+refused: answer record: long domain name
+
+# a 257-byte owner
+unscreened: record: long domain name
+refused: answer record: long domain name
+
+# an owner compressed past 255 bytes
+unscreened: record: long domain name
+refused: answer record: long domain name
+
+# 255 compression pointers
+addresses: [93.184.216.34]
+records: [A 93.184.216.34 ttl 300]
+
+# 256 compression pointers
+unscreened: record: too many compression pointers
+refused: answer record: too many compression pointers
+
+# a compression pointer to itself
+unscreened: record: too many compression pointers
+refused: answer record: too many compression pointers
+
+# A records of three and five bytes are skipped
+addresses: [93.184.216.34]
+records: [A 93.184.216.34 ttl 300]
+
+# the data of another type is not read
+addresses: [93.184.216.34]
+records: [A 93.184.216.34 ttl 300]
+
+# a malformed authority section
+unscreened: record: too many compression pointers
+records: [A 93.184.216.34 ttl 300]
+
+# a CNAME target in mixed case, with a dot and a backslash in labels
+addresses: []
+records: [CNAME eu\046mirror.a\092b.example ttl 300]
+
+# a CNAME target as a forward compression pointer
+addresses: []
+refused: CNAME record data: too many compression pointers

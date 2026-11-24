@@ -1,0 +1,7 @@
+---
+source: crates/connector-vmm-tests/tests/kvm.rs
+expression: remaining
+---
+[
+    "init.sock",
+]

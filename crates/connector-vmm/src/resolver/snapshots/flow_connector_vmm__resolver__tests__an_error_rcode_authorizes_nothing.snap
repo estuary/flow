@@ -1,0 +1,27 @@
+---
+source: crates/connector-vmm/src/resolver/mod.rs
+expression: log
+---
+# NXDOMAIN after a CNAME
+name=artifacts.acmeco.example qtype=1 outcome=forwarded addresses=[] targets=[] refreshed=[]
+answer: rcode=3 ancount=2 bytes=138 unchanged=true
+
+# SERVFAIL holding a private address
+name=artifacts.acmeco.example qtype=1 outcome=refused-private=169.254.169.254 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=42 unchanged=false
+
+# REFUSED holding a CNAME that runs past its data
+name=artifacts.acmeco.example qtype=1 outcome=forwarded addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=2 bytes=110 unchanged=true
+
+# NXDOMAIN claiming records it does not carry
+name=artifacts.acmeco.example qtype=1 outcome=dropped=record: too many compression pointers addresses=[] targets=[] refreshed=[]
+answer: none unchanged=false
+
+# an unlisted name's NXDOMAIN holding an address outside the CIDRs
+name=warehouse.corp.example qtype=1 outcome=refused-private=172.16.0.5 addresses=[] targets=[] refreshed=[]
+answer: rcode=5 ancount=0 bytes=40 unchanged=false
+
+# a truncated NXDOMAIN
+name=artifacts.acmeco.example qtype=1 outcome=servfail-truncated addresses=[] targets=[] refreshed=[]
+answer: rcode=2 ancount=0 bytes=42 unchanged=false

@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#MISE description="Build and optionally push multi-arch Docker images"
+#MISE description="Build Docker images locally or publish them and gate the pushed VMM image"
 
-PACKAGE_DIR="${HOME}/flow-package"
+PACKAGE_DIR="${PACKAGE_DIR:-${HOME}/flow-package}"
 TAGS_FILE="${PACKAGE_DIR}/tags"
 PUSH="${PUSH:-false}"
+
+# A publication builds exactly what this script configures: bake arguments
+# could change a target's output, platforms or context.
+if [[ "${PUSH}" == "true" && $# -gt 0 ]]; then
+    echo "Error: refusing custom bake arguments when pushing: $*" >&2
+    exit 1
+fi
 
 # Validate required files exist
 if [[ ! -f "${TAGS_FILE}" ]]; then
@@ -65,6 +72,18 @@ TARGET_NAMES=()
 
 for DOCKERFILE in docker/*.Dockerfile; do
     IMAGE_NAME=$(basename "${DOCKERFILE}" .Dockerfile)
+
+    # The VMM is amd64-only.
+    case "${IMAGE_NAME}" in
+    connector-vmm) IMAGE_SUPPORTED='["linux/amd64"]' ;;
+    *) IMAGE_SUPPORTED="${PLATFORMS}" ;;
+    esac
+    IMAGE_PLATFORMS=$(echo "${PLATFORMS}" | jq -c --argjson supported "${IMAGE_SUPPORTED}" \
+        '[.[] | select(. as $platform | $supported | index($platform))]')
+    if [[ "${IMAGE_PLATFORMS}" == "[]" ]]; then
+        echo "Skipping ${IMAGE_NAME}: built only for ${IMAGE_SUPPORTED}"
+        continue
+    fi
     TARGET_NAMES+=("${IMAGE_NAME}")
 
     # Per-image tags begin with the version tags from ${TAGS_FILE}.
@@ -89,7 +108,7 @@ for DOCKERFILE in docker/*.Dockerfile; do
         --arg dockerfile "${DOCKERFILE_ABS}" \
         --arg context "${PACKAGE_DIR}" \
         --argjson tags "${IMAGE_TAGS}" \
-        --argjson platforms "${PLATFORMS}" \
+        --argjson platforms "${IMAGE_PLATFORMS}" \
         --argjson output "${OUTPUT}" \
         --argjson attest "${ATTEST}" \
         '.[$name] = {
@@ -120,8 +139,16 @@ echo "Generated bake configuration:"
 cat "${BAKE_FILE}"
 echo ""
 
-echo "=== Building all images in parallel ==="
-docker buildx bake --allow=fs.read=${HOME}/flow-package -f "${BAKE_FILE}"
+echo "=== Building images in parallel ==="
+docker buildx bake --allow=fs.read=${PACKAGE_DIR} -f "${BAKE_FILE}" "$@"
+
+# A registry build can leave a stale tag in the gate engine's local store.
+if [[ "${PUSH}" == "true" ]]; then
+    VMM_IMAGE="ghcr.io/estuary/connector-vmm:${TAGS[0]}"
+    read -ra ENGINE <<<"${CONNECTOR_VMM_GATE_ENGINE:-docker}"
+    "${ENGINE[@]}" pull "${VMM_IMAGE}"
+    "$(dirname "$0")/connector-vmm-gate" "${VMM_IMAGE}"
+fi
 
 echo ""
 echo "Done! Built images for tags: ${TAGS[*]}"

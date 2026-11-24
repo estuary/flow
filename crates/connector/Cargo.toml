@@ -8,6 +8,11 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+# Exposes `connector::test_util`, request fixtures shared by unit tests and
+# `tests/e2e.rs`.
+test_util = []
+
 [dependencies]
 async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
@@ -34,10 +39,13 @@ unseal = { path = "../unseal" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
+clap = { workspace = true }
 futures = { workspace = true }
+ipnetwork = { workspace = true }
 libc = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
+rustix = { workspace = true, features = ["fs", "process"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
@@ -50,6 +58,8 @@ validator = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+connector = { path = ".", features = ["test_util"] }
 insta = { workspace = true }
 rustls = { workspace = true }
 tokio = { workspace = true, features = ["macros", "test-util"] }
+tracing-subscriber = { workspace = true }

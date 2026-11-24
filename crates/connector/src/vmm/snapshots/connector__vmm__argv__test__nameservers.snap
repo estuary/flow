@@ -1,0 +1,9 @@
+---
+source: crates/connector/src/vmm/argv.rs
+expression: table
+---
+beside an IPv6 gateway => 10.89.0.1
+its resolver disabled => refused: has podman's resolver disabled
+another bridge => refused: is on interface "podman1", not fvm0123456789ab
+no IPv4 gateway => refused: has 0 IPv4 gateways, not one
+two IPv4 gateways => refused: has 2 IPv4 gateways, not one

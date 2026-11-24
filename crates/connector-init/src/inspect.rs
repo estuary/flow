@@ -9,6 +9,7 @@ pub const FLOW_RUNTIME_CODEC: &str = "FLOW_RUNTIME_CODEC";
 #[derive(Debug, serde::Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct Image {
+    pub id: String,
     pub config: ImageConfig,
     /// Every local tag of the image, fully qualified. It lists all names the
     /// image is tagged under, and not only the name it was run under.
@@ -47,11 +48,10 @@ impl Image {
     /// Is this a frozen `derive-typescript` or `derive-python` `:dev` image?
     /// These images serve only one request per process. The rule mirrors
     /// `models::is_frozen_derive_image`, applied to every local tag of the image.
+    /// It applies equally to the `podman image inspect` a VMM mounts, as a
+    /// tag-pulled `linux/amd64` image lists its fully qualified `:dev` tag in
+    /// `RepoTags`.
     // TODO(johnny): Remove with retirement of the V1 runtime for derivations.
-    // TODO(johnny): VMM rebase: this applies to the podman inspect JSON which
-    // the VMM mounts, so the VMM's own `spec_rpc` arm is deleted. A tag-pulled
-    // `linux/amd64` image's `podman image inspect` lists its fully qualified
-    // `:dev` tag in `RepoTags`.
     pub fn is_frozen_derive(&self) -> bool {
         self.repo_tags.iter().any(|tag| {
             matches!(
@@ -107,6 +107,7 @@ mod test {
         ]
         .map(|tags| {
             let fixture = serde_json::json!([{
+                "Id": "test-image-id",
                 "RepoTags": tags,
                 "Config": {"Labels": {}, "Env": []},
             }]);
@@ -139,6 +140,7 @@ mod test {
             (
                 "docker",
                 Image {
+                    id: "sha256:c57faed797fce979d79ab84b76f7655b7d1b34a048fb1a9f518b2657e0ca54b7",
                     config: ImageConfig {
                         cmd: None,
                         entrypoint: Some(
@@ -171,6 +173,7 @@ mod test {
             (
                 "podman",
                 Image {
+                    id: "9e544cbf7d80edc92a2b9e8b1d5ec447d1e16d4e16e82c8bf77bc7407fece984",
                     config: ImageConfig {
                         cmd: None,
                         entrypoint: Some(

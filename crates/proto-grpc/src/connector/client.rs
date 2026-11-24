@@ -1,6 +1,26 @@
 use proto_flow::{capture, connector, derive, materialize, ops};
 use tokio::sync::mpsc;
 
+/// Distinguishes execution refusals from connector errors, which may use
+/// the same status code. Later requests may also be refused if their built
+/// specs change the session's execution.
+const EXECUTION_REFUSED: &str = "connector-execution-refused";
+
+/// Mark `status` as the connector service's refusal of a requested execution.
+pub fn refuse_execution(mut status: tonic::Status) -> tonic::Status {
+    status.metadata_mut().insert(
+        EXECUTION_REFUSED,
+        tonic::metadata::MetadataValue::from_static("true"),
+    );
+    status
+}
+
+/// Whether `status` is a connector service's refusal of a requested
+/// execution (see [`refuse_execution`]).
+pub fn is_execution_refused(status: &tonic::Status) -> bool {
+    status.metadata().contains_key(EXECUTION_REFUSED)
+}
+
 /// Open `first` through `router`, sink logs until the connector reports
 /// `Started`, and return the sender, remaining response receiver, and `Started`.
 pub async fn start(
@@ -253,8 +273,15 @@ mod test {
     }
 
     fn request() -> connector::Request {
+        request_with(None)
+    }
+
+    fn request_with(execution: Option<proto_flow::flow::ConnectorExecution>) -> connector::Request {
         connector::Request {
-            start: Some(Default::default()),
+            start: Some(connector::request::Start {
+                execution: execution.map(Box::new),
+                ..Default::default()
+            }),
             kind: Some(connector::request::Kind::Capture(capture::Request {
                 kind: Some(capture::request::Kind::Validate(Box::new(
                     capture::request::Validate {
@@ -367,6 +394,34 @@ mod test {
         assert!(
             err.downcast_ref::<tokio::time::error::Elapsed>().is_some(),
             "callers add data-plane context only to timeout errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn start_returns_an_execution_refusal() {
+        let router = TestRouter::new(
+            [Err(super::refuse_execution(
+                tonic::Status::failed_precondition(
+                    "this data plane does not support VMM execution",
+                ),
+            ))],
+            false,
+        );
+        let vmm = proto_flow::flow::ConnectorExecution {
+            vmm: true,
+            egress: Some(Default::default()),
+        };
+
+        let err = super::start(&router, &|_| {}, "acmeCo/capture", request_with(Some(vmm)))
+            .await
+            .unwrap_err();
+
+        let status = err.downcast_ref::<crate::StatusError>().unwrap();
+        assert!(super::is_execution_refused(status));
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(
+            status.message(),
+            "this data plane does not support VMM execution"
         );
     }
 }

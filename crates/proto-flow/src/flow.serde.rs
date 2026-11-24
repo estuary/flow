@@ -296,6 +296,9 @@ impl serde::Serialize for CaptureSpec {
         if self.connector_spec.is_some() {
             len += 1;
         }
+        if self.execution.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -349,6 +352,9 @@ impl serde::Serialize for CaptureSpec {
         if let Some(v) = self.connector_spec.as_ref() {
             struct_ser.serialize_field("connectorSpec", v)?;
         }
+        if let Some(v) = self.execution.as_ref() {
+            struct_ser.serialize_field("execution", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -384,6 +390,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             "secrets",
             "connector_spec",
             "connectorSpec",
+            "execution",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -402,6 +409,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
             LinkedCollections,
             Secrets,
             ConnectorSpec,
+            Execution,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -449,6 +457,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
+                            "execution" => Ok(GeneratedField::Execution),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -482,6 +491,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
                 let mut connector_spec__ = None;
+                let mut execution__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -578,6 +588,12 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                             }
                             connector_spec__ = map_.next_value()?;
                         }
+                        GeneratedField::Execution => {
+                            if execution__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("execution"));
+                            }
+                            execution__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -598,6 +614,7 @@ impl<'de> serde::Deserialize<'de> for CaptureSpec {
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
                     connector_spec: connector_spec__,
+                    execution: execution__,
                 })
             }
         }
@@ -1201,6 +1218,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if self.connector_spec.is_some() {
             len += 1;
         }
+        if self.execution.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation", len)?;
         if self.connector_type != 0 {
             let v = collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1258,6 +1278,9 @@ impl serde::Serialize for collection_spec::Derivation {
         if let Some(v) = self.connector_spec.as_ref() {
             struct_ser.serialize_field("connectorSpec", v)?;
         }
+        if let Some(v) = self.execution.as_ref() {
+            struct_ser.serialize_field("execution", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1290,6 +1313,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             "secrets",
             "connector_spec",
             "connectorSpec",
+            "execution",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1306,6 +1330,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
             LinkedCollections,
             Secrets,
             ConnectorSpec,
+            Execution,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1351,6 +1376,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
+                            "execution" => Ok(GeneratedField::Execution),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1385,6 +1411,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
                 let mut connector_spec__ = None;
+                let mut execution__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1475,6 +1502,12 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                             }
                             connector_spec__ = map_.next_value()?;
                         }
+                        GeneratedField::Execution => {
+                            if execution__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("execution"));
+                            }
+                            execution__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1493,6 +1526,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::Derivation {
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
                     connector_spec: connector_spec__,
+                    execution: execution__,
                 })
             }
         }
@@ -2049,6 +2083,233 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             FIELDS,
             GeneratedVisitor,
         )
+    }
+}
+impl serde::Serialize for ConnectorExecution {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.vmm {
+            len += 1;
+        }
+        if self.egress.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("flow.ConnectorExecution", len)?;
+        if self.vmm {
+            struct_ser.serialize_field("vmm", &self.vmm)?;
+        }
+        if let Some(v) = self.egress.as_ref() {
+            struct_ser.serialize_field("egress", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectorExecution {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &["vmm", "egress"];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Vmm,
+            Egress,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "vmm" => Ok(GeneratedField::Vmm),
+                            "egress" => Ok(GeneratedField::Egress),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectorExecution;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct flow.ConnectorExecution")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConnectorExecution, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut vmm__ = None;
+                let mut egress__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Vmm => {
+                            if vmm__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("vmm"));
+                            }
+                            vmm__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Egress => {
+                            if egress__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("egress"));
+                            }
+                            egress__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ConnectorExecution {
+                    vmm: vmm__.unwrap_or_default(),
+                    egress: egress__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("flow.ConnectorExecution", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for connector_execution::Egress {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.hosts.is_empty() {
+            len += 1;
+        }
+        if !self.cidrs.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("flow.ConnectorExecution.Egress", len)?;
+        if !self.hosts.is_empty() {
+            struct_ser.serialize_field("hosts", &self.hosts)?;
+        }
+        if !self.cidrs.is_empty() {
+            struct_ser.serialize_field("cidrs", &self.cidrs)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for connector_execution::Egress {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &["hosts", "cidrs"];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Hosts,
+            Cidrs,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl serde::de::Visitor<'_> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "hosts" => Ok(GeneratedField::Hosts),
+                            "cidrs" => Ok(GeneratedField::Cidrs),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = connector_execution::Egress;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct flow.ConnectorExecution.Egress")
+            }
+
+            fn visit_map<V>(
+                self,
+                mut map_: V,
+            ) -> std::result::Result<connector_execution::Egress, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut hosts__ = None;
+                let mut cidrs__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Hosts => {
+                            if hosts__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hosts"));
+                            }
+                            hosts__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Cidrs => {
+                            if cidrs__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cidrs"));
+                            }
+                            cidrs__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(connector_execution::Egress {
+                    hosts: hosts__.unwrap_or_default(),
+                    cidrs: cidrs__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("flow.ConnectorExecution.Egress", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ConnectorSpec {
@@ -4057,6 +4318,9 @@ impl serde::Serialize for MaterializationSpec {
         if self.connector_spec.is_some() {
             len += 1;
         }
+        if self.execution.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -4112,6 +4376,9 @@ impl serde::Serialize for MaterializationSpec {
         if let Some(v) = self.connector_spec.as_ref() {
             struct_ser.serialize_field("connectorSpec", v)?;
         }
+        if let Some(v) = self.execution.as_ref() {
+            struct_ser.serialize_field("execution", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -4147,6 +4414,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             "secrets",
             "connector_spec",
             "connectorSpec",
+            "execution",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4165,6 +4433,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
             LinkedCollections,
             Secrets,
             ConnectorSpec,
+            Execution,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4212,6 +4481,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             "secrets" => Ok(GeneratedField::Secrets),
                             "connectorSpec" | "connector_spec" => Ok(GeneratedField::ConnectorSpec),
+                            "execution" => Ok(GeneratedField::Execution),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4245,6 +4515,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                 let mut linked_collections__ = None;
                 let mut secrets__ = None;
                 let mut connector_spec__ = None;
+                let mut execution__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -4338,6 +4609,12 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                             }
                             connector_spec__ = map_.next_value()?;
                         }
+                        GeneratedField::Execution => {
+                            if execution__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("execution"));
+                            }
+                            execution__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4358,6 +4635,7 @@ impl<'de> serde::Deserialize<'de> for MaterializationSpec {
                     linked_collections: linked_collections__.unwrap_or_default(),
                     secrets: secrets__.unwrap_or_default(),
                     connector_spec: connector_spec__,
+                    execution: execution__,
                 })
             }
         }
