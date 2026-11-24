@@ -44,11 +44,6 @@ expression: results
     "next": null
   },
   {
-    "case": "external without a trial",
-    "isDailyCheck": false,
-    "next": null
-  },
-  {
     "case": "send_invoice during the trial",
     "isDailyCheck": false,
     "next": null

@@ -17,8 +17,8 @@ begin
     'internal tenants need no payment provider'
   );
   return query select throws_ok(
-    $i$ update tenants set plan_kind = 'contract', payment_provider = 'external' where tenant = 'bobCo/' $i$,
-    '23514', null, 'contracts cannot use the external payment provider'
+    $i$ update tenants set payment_provider = 'external' where tenant = 'bobCo/' $i$,
+    '23514', null, 'no tenant can use the external payment provider'
   );
   return query select throws_ok(
     $i$ update tenants set plan_kind = 'contract', payment_provider = null where tenant = 'bobCo/' $i$,

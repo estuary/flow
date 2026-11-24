@@ -9,7 +9,7 @@ mod quotas;
 use crate::tenant_controller::outcome::Outcome;
 use anyhow::Context;
 use automations::{Action, Executor, task_types};
-use billing_types::{CollectionMethod, PaymentProvider, PlanKind};
+use billing_types::{CollectionMethod, PlanKind};
 use control_plane_api::billing::{self, BillingProvider};
 use std::sync::Arc;
 
@@ -76,7 +76,6 @@ pub(crate) struct Tenant {
     pub billing_emails: Vec<String>,
     pub billing_name: Option<String>,
     pub billing_address: Option<serde_json::Value>,
-    pub payment_provider: Option<PaymentProvider>,
     pub plan_kind: PlanKind,
     pub collection_method: CollectionMethod,
     pub trial_start: Option<chrono::NaiveDate>,
@@ -84,14 +83,10 @@ pub(crate) struct Tenant {
 
 impl Tenant {
     /// Whether the tenant's invoices are charged to its default payment method,
-    /// which it must then have. Tenants with an `external` payment provider
-    /// don't need one either. Existing contracts are `external`, and keep the
-    /// `self_serve` default of `plan_kind` until it's set.
-    /// TODO(billing): remove the `external` exemption once no tenant uses it.
+    /// which it must then have.
     pub fn needs_payment_method(&self) -> bool {
         self.plan_kind == PlanKind::SelfServe
             && self.collection_method == CollectionMethod::ChargeDefaultPaymentMethod
-            && self.payment_provider != Some(PaymentProvider::External)
     }
 }
 
@@ -102,7 +97,7 @@ async fn fetch_tenant_by_controller_task(
     let row = sqlx::query_as!(
         Tenant,
         r#"
-        SELECT tenant as "tenant!", billing_emails, billing_name, billing_address, payment_provider as "payment_provider: PaymentProvider", plan_kind as "plan_kind: PlanKind", collection_method as "collection_method: CollectionMethod", trial_start
+        SELECT tenant as "tenant!", billing_emails, billing_name, billing_address, plan_kind as "plan_kind: PlanKind", collection_method as "collection_method: CollectionMethod", trial_start
         FROM tenants
         WHERE controller_task_id = $1
         "#,

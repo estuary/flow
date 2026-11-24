@@ -142,7 +142,6 @@ mod tests {
             billing_emails: email.into_iter().map(str::to_string).collect(),
             billing_name: name.map(str::to_string),
             billing_address: address,
-            payment_provider: None,
             plan_kind: PlanKind::SelfServe,
             collection_method: CollectionMethod::ChargeDefaultPaymentMethod,
             trial_start: None,
