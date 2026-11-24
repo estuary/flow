@@ -557,7 +557,7 @@ async fn exists(podman: &str, kind: &str, name: &str) -> anyhow::Result<bool> {
     let args = [kind, "exists", name];
     let output = tokio::time::timeout(
         COMMAND_TIMEOUT,
-        async_process::output(async_process::Command::new(podman).args(args)),
+        async_process::output(crate::container::engine_command(podman).args(args)),
     )
     .await
     .map_err(|_elapsed| {
@@ -621,7 +621,7 @@ where
 {
     let output = tokio::time::timeout(
         COMMAND_TIMEOUT,
-        async_process::output(async_process::Command::new(podman).args(args)),
+        async_process::output(crate::container::engine_command(podman).args(args)),
     )
     .await
     .map_err(|_elapsed| {

@@ -397,7 +397,7 @@ async fn run_vmm(
         return Err(abandoned());
     }
 
-    let mut child: async_process::Child = async_process::Command::new(&vmm.podman)
+    let mut child: async_process::Child = crate::container::engine_command(&vmm.podman)
         .args(["start", "--attach", created.as_str()])
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
