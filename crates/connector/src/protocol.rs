@@ -305,7 +305,11 @@ pub(crate) async fn start<P: Protocol>(
         (resolved.into(), true)
     };
 
-    // If IAM token injection is configured, fetch and inject tokens.
+    // The schema opts into IAM authentication; it does not authorize the target
+    // role or account. Federation assertions carry the authenticated task identity,
+    // and the target cloud's trust policy must restrict access to the customer's
+    // tenant prefix, including its trailing `/`. Connectors receive the resulting
+    // credentials, so keeping them hidden from task authors is not a security boundary.
     if let Some(iam_config) = inject_iam
         .then(|| {
             iam_auth::extract_iam_auth_from_connector_config(initial_config_slot, config_schema)
