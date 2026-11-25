@@ -740,6 +740,9 @@ async fn walk_materialization(
         &shard_id_prefix,
         false, // Don't disable wait_for_ack.
         &network_ports,
+        live_spec
+            .and_then(|live| live.shard_template.as_ref())
+            .and_then(assemble::shard_template_hostname),
     );
     let triggers_json: bytes::Bytes = match &triggers {
         None => bytes::Bytes::new(),

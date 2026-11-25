@@ -766,6 +766,10 @@ async fn walk_derivation(
         &shard_id_prefix,
         disable_wait_for_ack,
         &network_ports,
+        live_spec
+            .and_then(|live| live.derivation.as_ref())
+            .and_then(|live| live.shard_template.as_ref())
+            .and_then(assemble::shard_template_hostname),
     );
     let mut spec = flow::collection_spec::Derivation {
         connector_type,

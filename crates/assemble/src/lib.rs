@@ -383,6 +383,7 @@ pub fn shard_template(
     shard_id_prefix: &str,
     disable_wait_for_ack: bool,
     ports: &[flow::NetworkPort],
+    live_hostname: Option<&str>,
 ) -> consumer::ShardSpec {
     let models::ShardTemplate {
         disable,
@@ -440,7 +441,11 @@ pub fn shard_template(
 
     // Only add a hostname if the task actually exposes any ports.
     if !ports.is_empty() {
-        labels = labels::add_value(labels, labels::HOSTNAME, &shard_hostname_label(task_name));
+        let hostname = match live_hostname {
+            Some(hostname) => hostname.to_string(),
+            None => shard_hostname_label(task_name),
+        };
+        labels = labels::add_value(labels, labels::HOSTNAME, &hostname);
     }
     for flow::NetworkPort {
         number,
@@ -508,6 +513,13 @@ pub fn shard_template(
 fn shard_hostname_label(task_name: &str) -> String {
     let hash = fxhash::hash64(task_name);
     format!("{:x}", hash)
+}
+
+pub fn shard_template_hostname(template: &consumer::ShardSpec) -> Option<&str> {
+    let set = template.labels.as_ref()?;
+    labels::values(set, labels::HOSTNAME)
+        .first()
+        .map(|label| label.value.as_str())
 }
 
 pub fn journal_selector(

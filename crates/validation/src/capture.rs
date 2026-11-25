@@ -524,6 +524,9 @@ async fn walk_capture(
         &shard_id_prefix,
         false, // Don't disable wait_for_ack.
         &network_ports,
+        live_spec
+            .and_then(|live| live.shard_template.as_ref())
+            .and_then(assemble::shard_template_hostname),
     );
     let mut spec = flow::CaptureSpec {
         name: capture.to_string(),

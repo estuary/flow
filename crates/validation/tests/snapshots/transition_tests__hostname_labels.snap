@@ -1,0 +1,18 @@
+---
+source: crates/validation/tests/transition_tests.rs
+expression: "(kept_across_reset, first_ports)"
+---
+(
+    (
+        "capture/the/capture/2020202020202020",
+        [
+            "2ca75c1330626b55",
+        ],
+    ),
+    (
+        "capture/the/capture/0000000000000001",
+        [
+            "4fbdb9fff04cc9ee",
+        ],
+    ),
+)

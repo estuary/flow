@@ -709,3 +709,47 @@ test://example/catalog.yaml:
 
     insta::assert_debug_snapshot!(outcome);
 }
+
+// A live task keeps its hostname label, even across a reset. The label is
+// part of its endpoint addresses. A live task that first exposes ports has
+// no label to keep, so it gets a new one.
+#[test]
+fn test_hostname_labels() {
+    let hostname_of = |patch: &str| {
+        let outcome = common::run(MODEL_YAML, patch);
+        let spec = outcome.built_captures.iter().next().unwrap().spec.clone();
+        let template = spec.unwrap().shard_template.unwrap();
+        let hostnames = labels::values(template.labels.as_ref().unwrap(), labels::HOSTNAME)
+            .iter()
+            .map(|label| label.value.clone())
+            .collect::<Vec<_>>();
+        (template.id, hostnames)
+    };
+
+    let kept_across_reset = hostname_of(
+        r#"
+test://example/catalog.yaml:
+  captures:
+    the/capture:
+      reset: true
+
+driver:
+  liveCaptures:
+    the/capture:
+      hostname: 2ca75c1330626b55
+  captures:
+    the/capture:
+      networkPorts: [{ number: 8080 }]
+"#,
+    );
+    let first_ports = hostname_of(
+        r#"
+driver:
+  captures:
+    the/capture:
+      networkPorts: [{ number: 8080 }]
+"#,
+    );
+
+    insta::assert_debug_snapshot!((kept_across_reset, first_ports));
+}

@@ -162,6 +162,10 @@ pub fn run(fixture_yaml: &str, patch_yaml: &str) -> Outcome {
         };
         let shard_template = proto_gazette::consumer::ShardSpec {
             id: format!("capture/{capture}/0000000000000001"),
+            labels: mock
+                .hostname
+                .as_ref()
+                .map(|hostname| labels::build_set([(labels::HOSTNAME, hostname.as_str())])),
             ..Default::default()
         };
         let recovery_template = proto_gazette::broker::JournalSpec {
@@ -597,6 +601,9 @@ struct MockLiveCapture {
     /// `indirect-specs` flag.
     #[serde(default)]
     indirect_specs: bool,
+    /// Hostname label of the live shard template, as if the capture exposes ports.
+    #[serde(default)]
+    hostname: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
