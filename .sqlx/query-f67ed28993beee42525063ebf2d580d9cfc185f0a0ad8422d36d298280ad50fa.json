@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        update internal.sandboxes\n        set gone_at = now(), updated_at = now()\n        where id = $1 and gone_at is null\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f67ed28993beee42525063ebf2d580d9cfc185f0a0ad8422d36d298280ad50fa"
+}

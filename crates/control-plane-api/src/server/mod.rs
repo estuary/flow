@@ -46,10 +46,9 @@ pub struct App {
     pub pg_pool: sqlx::PgPool,
     pub publisher: crate::publications::Publisher,
     pub snapshot: Arc<dyn tokens::Watch<Snapshot>>,
-    /// Client for the Fly.io Sprites API, which backs GraphQL sandboxes.
-    /// `None` when unconfigured, in which case the sandbox mutations fail
-    /// closed. See `server::public::graphql::sandboxes`.
-    pub sprites: Option<Arc<crate::sprites::Client>>,
+    /// Providers of sandbox machines. Without a default provider, sandboxes
+    /// can't be created. See `server::public::graphql::sandboxes`.
+    pub sandbox_providers: crate::sandboxes::Providers,
     /// Signing secret for verifying inbound Stripe webhook deliveries. `None`
     /// when unconfigured, in which case the webhook endpoint fails closed rather
     /// than trusting any request. See `server::public::stripe_webhooks`.
@@ -65,7 +64,7 @@ impl App {
         pg_pool: sqlx::PgPool,
         publisher: crate::publications::Publisher,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
-        sprites: Option<Arc<crate::sprites::Client>>,
+        sandbox_providers: crate::sandboxes::Providers,
         stripe_webhook_secret: Option<String>,
     ) -> Self {
         Self {
@@ -78,7 +77,7 @@ impl App {
             pg_pool,
             publisher,
             snapshot,
-            sprites,
+            sandbox_providers,
             stripe_webhook_secret,
         }
     }

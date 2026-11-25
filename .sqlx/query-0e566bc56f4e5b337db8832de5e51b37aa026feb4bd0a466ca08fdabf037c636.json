@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        update internal.sandboxes\n        set provider_state = $2, updated_at = now()\n        where id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e566bc56f4e5b337db8832de5e51b37aa026feb4bd0a466ca08fdabf037c636"
+}

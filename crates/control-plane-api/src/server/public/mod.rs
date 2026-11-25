@@ -4,6 +4,7 @@ use std::sync::Arc;
 pub mod graphql;
 pub mod oauth;
 mod open_metrics;
+pub mod sandbox_exec;
 pub mod status;
 pub mod stripe_webhooks;
 pub mod token_exchange;
@@ -134,6 +135,42 @@ pub(crate) fn api_v1_router(
         .api_route(
             "/api/v1/auth/token",
             aide::axum::routing::post(token_exchange::handle_post_token),
+        )
+        .api_route(
+            "/api/v1/sandboxes/exec",
+            aide::axum::routing::post_with(sandbox_exec::handle_post_sandbox_exec, |op| {
+                op.summary("Run a command in a sandbox")
+                    .description(
+                        "Runs one command in a sandbox owned by the caller, as \
+                         `bash -lc <command>` within the named workspace. The \
+                         request body is a JSON line with `catalog_name`, \
+                         `workspace`, `command`, and an optional `credential`, \
+                         followed by the command's stdin as raw bytes. The end \
+                         of the body closes the command's stdin. Over HTTP/2, \
+                         stdin may stream while output streams back; an HTTP/1 \
+                         client sends its whole body first. The command's \
+                         `FLOW_AUTH_TOKEN` is a token minted from the caller's, \
+                         which expires within an hour. It has the masks of the \
+                         named credential or, without one, identifies the \
+                         caller and grants nothing. So callers who may not mint \
+                         restricted tokens are refused. The command is \
+                         cancelled if the client drops the response. Errors \
+                         before the command starts are ordinary error \
+                         responses. Status 412 means the sandbox no longer \
+                         exists, and should be deleted and created again. 503 \
+                         means it's still being provisioned.",
+                    )
+                    .response_with::<200, Vec<u8>, _>(|res| {
+                        res.description(
+                            "A stream of the frames of `crates/sandbox-exec`'s \
+                             output protocol: a 1-byte tag, a u32 big-endian \
+                             payload length, and the payload. Stdout (1) and \
+                             Stderr (2) frames carry the command's output, and \
+                             the stream ends with exactly one Exit (3) or Error \
+                             (4) frame, whose payload is JSON.",
+                        )
+                    })
+            }),
         )
         .route(
             "/api/v1/docs",

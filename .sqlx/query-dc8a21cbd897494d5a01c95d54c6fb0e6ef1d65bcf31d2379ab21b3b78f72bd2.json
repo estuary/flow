@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        select id as \"id!: models::Id\", user_id, handle, catalog_name, created_at, baseline_checkpoint_id\n        from internal.sandboxes\n        where catalog_name = any($1) or catalog_name ^@ any($2)\n        order by created_at desc\n        ",
+  "query": "\n        insert into internal.sandboxes (id, user_id, handle, catalog_name, provider)\n        select id, $1, $2 || replace(id::text, ':', ''), $3, $4\n        from (select internal.id_generator() as id) as generated\n        returning\n            id as \"id!: models::Id\",\n            user_id,\n            handle,\n            catalog_name,\n            created_at,\n            provider,\n            provider_state,\n            gone_at\n        ",
   "describe": {
     "columns": [
       {
@@ -60,20 +60,44 @@
       },
       {
         "ordinal": 5,
-        "name": "baseline_checkpoint_id",
+        "name": "provider",
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "internal.sandboxes",
-            "name": "baseline_checkpoint_id"
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "provider_state",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "provider_state"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "gone_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "gone_at"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "TextArray",
-        "TextArray"
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -82,8 +106,10 @@
       false,
       false,
       false,
+      false,
+      true,
       true
     ]
   },
-  "hash": "9853eaa7f99001ee69dc20e182121a15a02b1ce04cf227ea010d6fc585a2a2c9"
+  "hash": "dc8a21cbd897494d5a01c95d54c6fb0e6ef1d65bcf31d2379ab21b3b78f72bd2"
 }

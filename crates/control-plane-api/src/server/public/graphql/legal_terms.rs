@@ -84,21 +84,32 @@ impl LegalTermsQuery {
         };
 
         let env = ctx.data::<crate::Envelope>()?;
-        let capability = models::authz::Capability::CatalogRead;
-        let prefixes = super::authorized_prefixes::authorized_prefixes(
-            &env.snapshot().role_grants,
-            &env.snapshot().user_grants,
-            &env.claims()?.subject(),
-            capability,
-            Some(&tenant),
-        );
-        if prefixes.is_empty() {
-            // Refresh stale permissions before reporting a terminal denial.
-            super::verify_authorization(env, &tenant, capability).await?;
-        }
-
-        Ok(check_consent(&env.pg_pool, &tenant, r#type, version).await?)
+        check_authorized_consent(env, &tenant, r#type, version).await
     }
+}
+
+/// Check the tenant's agreement coverage, after verifying that the caller has
+/// CatalogRead somewhere within the tenant.
+pub(super) async fn check_authorized_consent(
+    env: &crate::Envelope,
+    tenant: &str,
+    terms_type: LegalTermsType,
+    version: ConsentVersion,
+) -> async_graphql::Result<bool> {
+    let capability = models::authz::Capability::CatalogRead;
+    let prefixes = super::authorized_prefixes::authorized_prefixes(
+        &env.snapshot().role_grants,
+        &env.snapshot().user_grants,
+        &env.claims()?.subject(),
+        capability,
+        Some(tenant),
+    );
+    if prefixes.is_empty() {
+        // Refresh stale permissions before reporting a terminal denial.
+        super::verify_authorization(env, tenant, capability).await?;
+    }
+
+    Ok(check_consent(&env.pg_pool, tenant, terms_type, version).await?)
 }
 
 /// Check the tenant's agreement coverage.

@@ -1,0 +1,97 @@
+---
+source: crates/control-plane-api/src/server/public/graphql/sandboxes.rs
+assertion_line: 508
+expression: "serde_json::json!({\"outcomes\": outcomes, \"calls\": ops})"
+---
+{
+  "calls": [
+    "provision",
+    "destroy"
+  ],
+  "outcomes": [
+    {
+      "create": {
+        "data": {
+          "sandboxCreate": {
+            "catalogName": "acmeCo/sandbox",
+            "state": "READY"
+          }
+        }
+      }
+    },
+    {
+      "createAgain": {
+        "data": null,
+        "errors": [
+          {
+            "locations": [
+              {
+                "column": 12,
+                "line": 1
+              }
+            ],
+            "message": "a sandbox named \"acmeCo/sandbox\" already exists",
+            "path": [
+              "sandboxCreate"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "list": {
+        "data": {
+          "sandboxes": [
+            {
+              "catalogName": "acmeCo/sandbox",
+              "state": "READY"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "gone": {
+        "data": {
+          "sandbox": {
+            "catalogName": "acmeCo/sandbox",
+            "state": "GONE"
+          }
+        }
+      }
+    },
+    {
+      "delete": {
+        "data": {
+          "sandboxDelete": true
+        }
+      }
+    },
+    {
+      "deleteAgain": {
+        "data": null,
+        "errors": [
+          {
+            "locations": [
+              {
+                "column": 12,
+                "line": 1
+              }
+            ],
+            "message": "sandbox not found",
+            "path": [
+              "sandboxDelete"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "afterDelete": {
+        "data": {
+          "sandbox": null
+        }
+      }
+    }
+  ]
+}

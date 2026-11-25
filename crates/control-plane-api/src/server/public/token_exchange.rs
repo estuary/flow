@@ -95,8 +95,16 @@ pub async fn handle_post_token(
         } => {
             use axum::extract::FromRequestParts;
             let env = crate::Envelope::from_request_parts(&mut parts, &app).await?;
-            let response =
-                mint_restricted_token(env.claims()?, capability_mask, prefix_mask, &app).await?;
+            let now = tokens::now();
+            let response = mint_restricted_token(
+                env.claims()?,
+                capability_mask,
+                prefix_mask,
+                now,
+                now + RESTRICTED_TOKEN_DURATION,
+                &app,
+            )
+            .await?;
             Ok(axum::Json(response))
         }
     }
@@ -152,17 +160,16 @@ pub(crate) async fn generate_access_token(
     })
 }
 
-const RESTRICTED_TOKEN_DURATION: std::time::Duration = std::time::Duration::from_secs(3600);
+/// Lifetime of a restricted token minted by the token exchange, and the most
+/// that a sandbox command's minted token may have.
+pub(crate) const RESTRICTED_TOKEN_DURATION: std::time::Duration =
+    std::time::Duration::from_secs(3600);
 
-/// Mint a restricted access token for the authenticated caller.
-///
-/// Capability and prefix masks narrow the user's grants.
-async fn mint_restricted_token(
+/// Refuses a caller who may not mint restricted tokens.
+pub(crate) async fn verify_may_mint(
     claims: &crate::ControlClaims,
-    capability_mask: Option<Vec<String>>,
-    prefix_mask: Option<Vec<String>>,
-    app: &Arc<crate::App>,
-) -> Result<TokenResponse, crate::ApiError> {
+    pg_pool: &sqlx::PgPool,
+) -> Result<(), crate::ApiError> {
     if claims.is_restricted() {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Restricted tokens cannot mint new tokens",
@@ -175,33 +182,47 @@ async fn mint_restricted_token(
             "Restricted tokens can only be minted from a user session",
         )));
     }
-
-    if crate::server::is_service_account(&app.pg_pool, claims.sub).await? {
+    if crate::server::is_service_account(pg_pool, claims.sub).await? {
         return Err(crate::ApiError::Status(tonic::Status::permission_denied(
             "Service account tokens cannot be used to mint restricted tokens",
         )));
     }
+    Ok(())
+}
+
+/// Bundle names of a capability mask, in snake case and without duplicates.
+pub(crate) fn normalize_capability_mask(mask: Vec<String>) -> Vec<String> {
+    mask.into_iter()
+        .map(|name| heck::ToSnakeCase::to_snake_case(name.as_str()))
+        .unique()
+        .collect()
+}
+
+/// Mint a restricted access token for the authenticated caller, issued at
+/// `issued_at` (usually now) and expiring at `expires_at`.
+///
+/// Capability and prefix masks narrow the user's grants.
+pub(crate) async fn mint_restricted_token(
+    claims: &crate::ControlClaims,
+    capability_mask: Option<Vec<String>>,
+    prefix_mask: Option<Vec<String>>,
+    issued_at: tokens::DateTime,
+    expires_at: tokens::DateTime,
+    app: &crate::App,
+) -> Result<TokenResponse, crate::ApiError> {
+    verify_may_mint(claims, &app.pg_pool).await?;
 
     if capability_mask.is_none() && prefix_mask.is_none() {
         return Err(crate::ApiError::Status(tonic::Status::invalid_argument(
             "At least one of capability_mask or prefix_mask is required",
         )));
     }
-
-    let capability_mask = capability_mask.map(|mask| {
-        mask.into_iter()
-            .map(|name| heck::ToSnakeCase::to_snake_case(name.as_str()))
-            .unique()
-            .collect::<Vec<_>>()
-    });
-
-    let iat = tokens::now().timestamp() as u64;
-    let exp = iat + RESTRICTED_TOKEN_DURATION.as_secs();
+    let capability_mask = capability_mask.map(normalize_capability_mask);
 
     let claims = models::authorizations::ControlClaims {
         aud: claims.aud.clone(),
-        iat,
-        exp,
+        iat: issued_at.timestamp() as u64,
+        exp: expires_at.timestamp() as u64,
         sub: claims.sub,
         // PostgREST uses this claim for `SET ROLE`. No Postgres role has this
         // name, so PostgREST refuses the token instead of serving it with the

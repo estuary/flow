@@ -1,0 +1,50 @@
+---
+source: crates/control-plane-api/src/server/public/sandbox_exec.rs
+expression: outcomes
+---
+[
+  {
+    "credential": "long",
+    "frames": "[Stdout(b\"hello\"), Stderr(b\"note\"), Exit { code: Some(0), signal: None }]",
+    "header": "Header { version: 1, workspace: \"ws\", command: \"cat\", env_keys: [\"FLOW_AUTH_TOKEN\"] }",
+    "inputs": "[Stdin(b\"hello\"), StdinEof]",
+    "token": {
+      "capability_mask": [
+        "viewer"
+      ],
+      "prefix_mask": [
+        "acmeCo/"
+      ],
+      "role": "postgrest_cant_use_this_token",
+      "sub": "11111111-1111-1111-1111-111111111111"
+    }
+  },
+  {
+    "credential": "short",
+    "frames": "[Stdout(b\"hello\"), Stderr(b\"note\"), Exit { code: Some(0), signal: None }]",
+    "header": "Header { version: 1, workspace: \"ws\", command: \"cat\", env_keys: [\"FLOW_AUTH_TOKEN\"] }",
+    "inputs": "[Stdin(b\"hello\"), StdinEof]",
+    "token": {
+      "capability_mask": [
+        "viewer"
+      ],
+      "prefix_mask": [
+        "acmeCo/"
+      ],
+      "role": "postgrest_cant_use_this_token",
+      "sub": "11111111-1111-1111-1111-111111111111"
+    }
+  },
+  {
+    "credential": null,
+    "frames": "[Stdout(b\"hello\"), Stderr(b\"note\"), Exit { code: Some(0), signal: None }]",
+    "header": "Header { version: 1, workspace: \"ws\", command: \"cat\", env_keys: [\"FLOW_AUTH_TOKEN\"] }",
+    "inputs": "[Stdin(b\"hello\"), StdinEof]",
+    "token": {
+      "capability_mask": [],
+      "prefix_mask": [],
+      "role": "postgrest_cant_use_this_token",
+      "sub": "11111111-1111-1111-1111-111111111111"
+    }
+  }
+]

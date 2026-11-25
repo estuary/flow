@@ -1,0 +1,25 @@
+---
+source: crates/control-plane-api/src/server/public/sandbox_exec.rs
+assertion_line: 628
+expression: "(outcomes, state(&pool, \"acmeCo/vanished\").await)"
+---
+(
+    [
+        "unauthenticated: 401 This is an authenticated API but the request is missing a required Authorization: Bearer token",
+        "notOwner: 404 sandbox \"acmeCo/sandbox\" not found",
+        "missing: 404 sandbox \"acmeCo/missing\" not found",
+        "unknownField: 400 invalid first line of the request: unknown field `env`, expected one of `catalog_name`, `workspace`, `command`, `credential` at line 1 column 72",
+        "invalidWorkspace: 400 invalid workspace \"../ws\": must match ^[a-z0-9][a-z0-9_-]{0,62}$",
+        "provisioning: 503 sandbox \"acmeCo/provisioning\" is still being provisioned; retry once it's ready",
+        "gone: 412 sandbox \"acmeCo/gone\" no longer exists; delete it and create another",
+        "missingCredential: 404 credential \"nope\" is not approved for workspace \"ws\" of this sandbox",
+        "expiredCredential: 403 credential \"expired\" of workspace \"ws\" expired at 2020-01-01T00:00:00Z; approve it again",
+        "nonApprover: 403 credential \"bobs\" of workspace \"ws\" was approved by another user",
+        "restrictedCaller: 403 sandbox commands run with a token minted from yours: Restricted tokens cannot mint new tokens",
+        "restrictedCallerWithoutCredential: 403 sandbox commands run with a token minted from yours: Restricted tokens cannot mint new tokens",
+        "goneAtExec: 412 sandbox \"acmeCo/vanished\" no longer exists; delete it and create another",
+        "emptyBody: 400 invalid first line of the request: EOF while parsing a value at line 1 column 0",
+        "invalidStartLine: 400 invalid first line of the request: expected value at line 1 column 1",
+    ],
+    Gone,
+)

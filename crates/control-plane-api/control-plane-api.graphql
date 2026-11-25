@@ -699,27 +699,6 @@ enum CollectionMethod {
 }
 
 """
-A command run in a sandbox.
-"""
-type Command {
-	id: Id!
-	command: String!
-	requestedAt: DateTime!
-	"""
-	Poll stdout with this `path` and `sandboxFileRead`.
-	"""
-	stdoutPath: String!
-	"""
-	Poll stderr with this `path` and `sandboxFileRead`.
-	"""
-	stderrPath: String!
-	"""
-	Null until the command exits (crashed commands may not record their exit code)
-	"""
-	exitCode: Int
-}
-
-"""
 Result of checking storage health for a catalog prefix.
 """
 type ConnectionHealthTestResult {
@@ -1462,12 +1441,6 @@ type FieldProvenance {
 	source: String
 }
 
-type FileRead {
-	offset: Int!
-	base64: String!
-	utf8: String!
-}
-
 """
 A flattened fragment store. Fields which don't apply to the
 store's `provider` are null.
@@ -2163,19 +2136,20 @@ type MutationRoot {
 	"""
 	revokeRefreshToken(id: Id!): Boolean!
 	"""
-	Returns after flowctl is installed.
+	Returns once the sandbox's machine is ready.
 	"""
 	sandboxCreate(catalogName: Name!): Sandbox!
 	"""
-	Returns once the command has started - read its output by polling `sandboxFileRead`.
+	Approves a credential for the commands of a sandbox workspace, which
+	replaces any approval of the same workspace and name.
+	
+	The masks narrow the caller's own authority, as do those of
+	`POST /api/v1/auth/token`. `capabilityMask` names `CapabilityBundle`
+	values in any case. Each tenant the masks reach must have accepted a
+	sandbox agreement. Empty masks are allowed, and make a credential which
+	identifies the user without granting access.
 	"""
-	sandboxExecute(catalogName: Name!, command: String!, stdin: String): Command!
-	sandboxCancel(catalogName: Name!, id: Id!): Boolean!
-	"""
-	Restore the sandbox to its baseline, discarding all changes, past
-	commands, and their output.
-	"""
-	sandboxReset(catalogName: Name!): Boolean!
+	sandboxCredentialApprove(catalogName: Name!, workspace: String!, name: String!, capabilityMask: [String!]!, prefixMask: [String!]!, durationMinutes: Int!): SandboxCredential!
 	sandboxDelete(catalogName: Name!): Boolean!
 	"""
 	Create a service account homed at the specified catalog name, seeded
@@ -2917,16 +2891,6 @@ type QueryRoot {
 	catalogStats(by: CatalogStatsBy!): CatalogStatsConnection!
 	sandbox(catalogName: Name!): Sandbox
 	sandboxes: [Sandbox!]!
-	sandboxFileRead(		catalogName: Name!,		path: String!,
-		"""
-		Byte offset
-		"""
-		offset: Int! = 0,
-		"""
-		Max 1 MiB
-		"""
-		limit: Int
-	): FileRead!
 	"""
 	Returns a discover visible to the caller, or null.
 	"""
@@ -3014,23 +2978,55 @@ type RepublishRequested {
 }
 
 """
-A persistent Linux VM that runs the user's shell commands.
+A Linux machine that runs the user's shell commands.
 """
 type Sandbox {
 	catalogName: Name!
 	createdAt: DateTime!
+	state: SandboxState!
 	"""
-	False until a new sandbox reaches its baseline state (flowctl installed).
+	Unexpired credential approvals of the sandbox's workspaces.
 	"""
-	ready: Boolean!
+	credentials: [SandboxCredential!]!
+}
+
+"""
+A user's approval of a credential for the commands of a sandbox workspace.
+A command which names the credential receives, as `FLOW_AUTH_TOKEN`, a
+token minted from the caller's own authority and restricted to the
+approval's masks. Nothing secret is stored.
+"""
+type SandboxCredential {
+	workspace: String!
+	name: String!
 	"""
-	A command started in this sandbox, or null if it does not exist.
+	Capabilities to which minted tokens are restricted.
 	"""
-	command(id: Id!): Command
+	capabilityMask: [String!]!
 	"""
-	Commands started in this sandbox
+	Catalog prefixes to which minted tokens are restricted.
 	"""
-	commands: [Command!]
+	prefixMask: [String!]!
+	"""
+	No token is minted from the approval after this time.
+	"""
+	expiresAt: DateTime!
+}
+
+enum SandboxState {
+	"""
+	The sandbox's machine is being created.
+	"""
+	PROVISIONING
+	"""
+	The sandbox's machine can run commands.
+	"""
+	READY
+	"""
+	The sandbox's machine no longer exists, and never will again. Delete
+	the sandbox and create another.
+	"""
+	GONE
 }
 
 """

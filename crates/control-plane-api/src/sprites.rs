@@ -1,7 +1,6 @@
 //! Client for the Fly.io Sprites API
 
 use anyhow::Context;
-use futures::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -13,21 +12,28 @@ pub struct Client {
     token: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct Checkpoint {
-    pub id: String,
-}
+/// A command's exec WebSocket. Its protocol is decoded by [`decode_message`].
+pub type ExecSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-#[derive(Debug, PartialEq)]
-pub struct Output {
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-    pub exit_code: i32,
+/// The Sprites API refused to start a command, answering its WebSocket
+/// upgrade with this HTTP status. A 404 means the sprite doesn't exist.
+#[derive(Debug, thiserror::Error)]
+#[error("failed to start command: HTTP {status}: {body}")]
+pub struct ExecRejected {
+    pub status: tungstenite::http::StatusCode,
+    pub body: String,
 }
 
 impl Client {
     pub fn new(token: String) -> Self {
         let base_url = url::Url::parse(BASE_URL).expect("BASE_URL is a valid URL");
+        Self::with_base_url(token, base_url)
+    }
+
+    /// A client of the Sprites API at `base_url`, such as a test server.
+    /// Exec WebSockets use `ws` for an `http` base, and `wss` otherwise.
+    pub fn with_base_url(token: String, base_url: url::Url) -> Self {
         Self {
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
@@ -77,156 +83,76 @@ impl Client {
         }
     }
 
-    pub async fn create_checkpoint(&self, name: &str) -> anyhow::Result<()> {
-        let url = self.url(["v1", "sprites", name, "checkpoint"]);
+    /// Names of the organization's sprites which start with `prefix`.
+    pub async fn list_sprites(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        let mut names = Vec::new();
+        let mut continuation_token: Option<String> = None;
 
-        let response = self
-            .http
-            .post(url)
-            .bearer_auth(&self.token)
-            .timeout(std::time::Duration::from_secs(30))
-            .json(&serde_json::json!({}))
-            .send()
-            .await
-            .context("failed to reach the Sprites API")?;
-
-        stream_result("create checkpoint", response).await
-    }
-
-    pub async fn list_checkpoints(&self, name: &str) -> anyhow::Result<Vec<Checkpoint>> {
-        let url = self.url(["v1", "sprites", name, "checkpoints"]);
-
-        let response = self
-            .http
-            .get(url)
-            .bearer_auth(&self.token)
-            .send()
-            .await
-            .context("failed to reach the Sprites API")?;
-
-        if !response.status().is_success() {
-            return Err(api_error("failed to list checkpoints", response).await);
-        }
-        response
-            .json()
-            .await
-            .context("failed to decode checkpoints")
-    }
-
-    pub async fn restore_checkpoint(&self, name: &str, id: &str) -> anyhow::Result<()> {
-        let url = self.url(["v1", "sprites", name, "checkpoints", id, "restore"]);
-
-        let response = self
-            .http
-            .post(url)
-            .bearer_auth(&self.token)
-            .timeout(std::time::Duration::from_secs(120))
-            .send()
-            .await
-            .context("failed to reach the Sprites API")?;
-
-        stream_result("restore checkpoint", response).await
-    }
-
-    pub async fn write_file(
-        &self,
-        name: &str,
-        working_dir: &str,
-        path: &str,
-        contents: String,
-    ) -> anyhow::Result<()> {
-        let response = self
-            .http
-            .put(self.url(["v1", "sprites", name, "fs", "write"]))
-            .bearer_auth(&self.token)
-            .query(&[
-                ("workingDir", working_dir),
-                ("path", path),
-                ("mode", "0600"),
-            ])
-            .timeout(std::time::Duration::from_secs(30))
-            .body(contents)
-            .send()
-            .await
-            .context("writing sprite file")?;
-        if !response.status().is_success() {
-            return Err(api_error("writing sprite file", response).await);
-        }
-        Ok(())
-    }
-
-    /// Returns the final exit code, or None if the session is missing or already exited.
-    pub async fn kill_command(&self, name: &str, session_id: &str) -> anyhow::Result<Option<i32>> {
-        let response = self
-            .http
-            .post(self.url(["v1", "sprites", name, "exec", session_id, "kill"]))
-            .bearer_auth(&self.token)
-            .query(&[("signal", "SIGTERM"), ("timeout", "10s")])
-            .timeout(std::time::Duration::from_secs(30))
-            .send()
-            .await
-            .context("killing sprite command")?;
-        if matches!(
-            response.status(),
-            reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE
-        ) {
-            return Ok(None);
-        }
-        if !response.status().is_success() {
-            return Err(api_error("killing sprite command", response).await);
-        }
-        let body = response
-            .text()
-            .await
-            .context("reading command kill response")?;
-        #[derive(serde::Deserialize)]
-        #[serde(tag = "type")]
-        enum Event {
-            #[serde(rename = "complete")]
-            Complete { exit_code: i32 },
-            #[serde(rename = "error")]
-            Error { message: String },
-            #[serde(other)]
-            Other,
-        }
-        let mut exit_code = None;
-        for line in body.lines().filter(|line| !line.trim().is_empty()) {
-            match serde_json::from_str(line).context("decoding command kill event")? {
-                Event::Complete { exit_code: code } => exit_code = Some(code),
-                Event::Error { message } => anyhow::bail!("killing sprite command: {message}"),
-                Event::Other => {}
+        loop {
+            let mut request = self
+                .http
+                .get(self.url(["v1", "sprites"]))
+                .bearer_auth(&self.token)
+                .query(&[("prefix", prefix), ("max_results", "500")]);
+            if let Some(token) = &continuation_token {
+                request = request.query(&[("continuation_token", token)]);
             }
+            let response = request
+                .send()
+                .await
+                .context("failed to reach the Sprites API")?;
+
+            if !response.status().is_success() {
+                return Err(api_error("failed to list sprites", response).await);
+            }
+            let page: SpriteList = response.json().await.context("decoding sprite list")?;
+
+            // Callers delete the sprites listed, so the API's filtering is checked.
+            for sprite in page.sprites {
+                anyhow::ensure!(
+                    sprite.name.starts_with(prefix),
+                    "sprite list for prefix {prefix:?} included {:?}",
+                    sprite.name
+                );
+                names.push(sprite.name);
+            }
+            if !page.has_more {
+                return Ok(names);
+            }
+            continuation_token = Some(
+                page.next_continuation_token
+                    .context("sprite list has more results but no continuation token")?,
+            );
         }
-        anyhow::ensure!(
-            exit_code.is_some(),
-            "command kill response ended without completing"
-        );
-        Ok(exit_code)
     }
 
-    /// The timeout applies to the request and response stream; it does not stop the command.
-    pub async fn command_stream(
-        &self,
-        name: &str,
-        argv: &[&str],
-        stdin: Option<&str>,
-        continue_after_disconnect: bool,
-        timeout: std::time::Duration,
-    ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<Frame>>> {
-        let deadline = tokio::time::Instant::now() + timeout;
+    /// URL of the exec WebSocket which runs `argv` with stdin and without a TTY.
+    ///
+    /// After the client disconnects, Sprites waits `max_run_after_disconnect`
+    /// (a duration such as `5s`) and then SIGTERMs the command's process group.
+    pub fn exec_url(&self, name: &str, argv: &[&str], max_run_after_disconnect: &str) -> url::Url {
         let mut url = self.url(["v1", "sprites", name, "exec"]);
-        url.set_scheme("wss").expect("valid WebSocket scheme");
+        let scheme = if url.scheme() == "http" { "ws" } else { "wss" };
+        url.set_scheme(scheme).expect("valid WebSocket scheme");
         {
             let mut query = url.query_pairs_mut();
             for arg in argv {
                 query.append_pair("cmd", arg);
             }
-            query.append_pair("stdin", if stdin.is_some() { "true" } else { "false" });
+            query.append_pair("stdin", "true");
             query.append_pair("tty", "false");
-            if continue_after_disconnect {
-                query.append_pair("max_run_after_disconnect", "0");
-            }
+            query.append_pair("max_run_after_disconnect", max_run_after_disconnect);
         }
+        url
+    }
+
+    /// Opens an exec WebSocket of [`Client::exec_url`]. An HTTP response
+    /// other than the upgrade is an [`ExecRejected`] error.
+    pub async fn connect_exec(
+        &self,
+        url: url::Url,
+        deadline: tokio::time::Instant,
+    ) -> anyhow::Result<ExecSocket> {
         let mut request = url
             .as_str()
             .into_client_request()
@@ -237,77 +163,19 @@ impl Client {
                 .parse()
                 .context("invalid Sprites token header")?,
         );
-        let socket =
-            match tokio::time::timeout_at(deadline, tokio_tungstenite::connect_async(request))
-                .await
-                .context("timed out connecting to Sprites command")?
-            {
-                Ok((socket, _)) => socket,
-                Err(tungstenite::Error::Http(response)) => {
-                    let status = response.status();
-                    let body =
-                        String::from_utf8_lossy(response.body().as_deref().unwrap_or_default());
-                    anyhow::bail!("failed to start command: HTTP {status}: {body}");
-                }
-                Err(err) => {
-                    return Err(anyhow::Error::new(err).context("connecting to Sprites command"));
-                }
-            };
-        let stdin = stdin.unwrap_or_default().to_owned();
-        let (mut writer, mut reader) = socket.split();
-        let frames = async_stream::try_stream! {
-            // Send input and receive command output concurrently so one doesn't block the other.
-            let send_input = async move {
-                for chunk in stdin.as_bytes().chunks(32 * 1024) {
-                    let mut payload = Vec::with_capacity(chunk.len() + 1);
-                    payload.push(0);
-                    payload.extend_from_slice(chunk);
-                    writer.send(tungstenite::Message::Binary(payload.into())).await?;
-                }
-                writer.send(tungstenite::Message::Binary(bytes::Bytes::from_static(&[4]))).await?;
-                Ok::<_, tungstenite::Error>(())
-            };
-            tokio::pin!(send_input);
-            let mut input_sent = false;
-            loop {
-                let event = tokio::select! {
-                    result = &mut send_input, if !input_sent => futures::future::Either::Left(result),
-                    message = tokio::time::timeout_at(deadline, reader.next()) => futures::future::Either::Right(message),
-                };
-                let message = match event {
-                    futures::future::Either::Left(result) => {
-                        result.context("sending command stdin")?;
-                        input_sent = true;
-                        continue;
-                    }
-                    futures::future::Either::Right(message) => message.context("timed out waiting for Sprites command")?,
-                };
-                let Some(message) = message else { break };
-                let message = message.context("reading command output")?;
-                if matches!(message, tungstenite::Message::Close(_)) {
-                    break;
-                }
-                if let Some(frame) = decode_message(message)? {
-                    let exited = matches!(frame, Frame::Exit(_));
-                    yield frame;
-                    if exited { break; }
-                }
+        match tokio::time::timeout_at(deadline, tokio_tungstenite::connect_async(request))
+            .await
+            .context("timed out connecting to Sprites command")?
+        {
+            Ok((socket, _)) => Ok(socket),
+            Err(tungstenite::Error::Http(response)) => Err(ExecRejected {
+                status: response.status(),
+                body: String::from_utf8_lossy(response.body().as_deref().unwrap_or_default())
+                    .into_owned(),
             }
-        };
-        Ok(frames.boxed())
-    }
-
-    pub async fn execute(
-        &self,
-        name: &str,
-        argv: &[&str],
-        timeout: std::time::Duration,
-    ) -> anyhow::Result<Output> {
-        collect_output(
-            self.command_stream(name, argv, None, false, timeout)
-                .await?,
-        )
-        .await
+            .into()),
+            Err(err) => Err(anyhow::Error::new(err).context("connecting to Sprites command")),
+        }
     }
 
     fn url<'s>(&self, segments: impl IntoIterator<Item = &'s str>) -> url::Url {
@@ -319,57 +187,20 @@ impl Client {
     }
 }
 
-// Command listings and other collected output can grow beyond a single file read.
-const OUTPUT_MAX_BYTES: usize = 2 * 1024 * 1024;
-
 const TAG_STDOUT: u8 = 1;
 const TAG_STDERR: u8 = 2;
 const TAG_EXIT: u8 = 3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
-    SessionInfo { session_id: String },
     Stdout(bytes::Bytes),
     Stderr(bytes::Bytes),
     Exit(i32),
 }
 
-async fn collect_output(
-    mut frames: futures::stream::BoxStream<'static, anyhow::Result<Frame>>,
-) -> anyhow::Result<Output> {
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let mut exit_code = None;
-
-    while let Some(frame) = frames.next().await {
-        let frame = frame?;
-        match &frame {
-            Frame::SessionInfo { .. } => {}
-            Frame::Stdout(bytes) | Frame::Stderr(bytes) => {
-                anyhow::ensure!(
-                    bytes.len() <= OUTPUT_MAX_BYTES - stdout.len() - stderr.len(),
-                    "sprite command output exceeds {OUTPUT_MAX_BYTES} bytes"
-                );
-                match frame {
-                    Frame::Stdout(bytes) => stdout.extend_from_slice(&bytes),
-                    Frame::Stderr(bytes) => stderr.extend_from_slice(&bytes),
-                    _ => unreachable!(),
-                }
-            }
-            Frame::Exit(code) => exit_code = Some(*code),
-        }
-    }
-
-    let exit_code =
-        exit_code.context("sprite closed the command response without an exit status")?;
-    Ok(Output {
-        stdout,
-        stderr,
-        exit_code,
-    })
-}
-
-fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>> {
+/// Decodes a message of an exec WebSocket. Messages without a frame,
+/// such as pings and unknown events, are None.
+pub(crate) fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>> {
     match message {
         tungstenite::Message::Binary(data) => {
             let Some(&tag) = data.first() else {
@@ -390,8 +221,6 @@ fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>
             #[derive(serde::Deserialize)]
             #[serde(tag = "type")]
             enum Event {
-                #[serde(rename = "session_info")]
-                SessionInfo { session_id: String },
                 #[serde(rename = "exit")]
                 Exit { exit_code: i32 },
                 #[serde(rename = "error")]
@@ -400,7 +229,6 @@ fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>
                 Other,
             }
             match serde_json::from_str(&text).context("decoding Sprites command event")? {
-                Event::SessionInfo { session_id } => Ok(Some(Frame::SessionInfo { session_id })),
                 Event::Exit { exit_code } => Ok(Some(Frame::Exit(exit_code))),
                 Event::Error { error } => anyhow::bail!("Sprites command failed: {error}"),
                 Event::Other => Ok(None),
@@ -410,44 +238,17 @@ fn decode_message(message: tungstenite::Message) -> anyhow::Result<Option<Frame>
     }
 }
 
-/// Checkpoint and restore report their outcome as NDJSON events
-/// 200 doesn't necessarily indicate success
-async fn stream_result(context: &str, response: reqwest::Response) -> anyhow::Result<()> {
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .context("reading checkpoint response")?;
+#[derive(Debug, serde::Deserialize)]
+struct SpriteList {
+    sprites: Vec<SpriteListEntry>,
+    has_more: bool,
+    #[serde(default)]
+    next_continuation_token: Option<String>,
+}
 
-    if !status.is_success() {
-        anyhow::bail!("{context} failed: HTTP {status}: {body}");
-    }
-
-    #[derive(serde::Deserialize)]
-    struct Event {
-        #[serde(rename = "type")]
-        kind: String,
-        #[serde(default)]
-        error: Option<String>,
-    }
-
-    let mut completed = false;
-    for line in body.lines() {
-        let Ok(event) = serde_json::from_str::<Event>(line.trim()) else {
-            continue;
-        };
-        match event.kind.as_str() {
-            "error" => anyhow::bail!(
-                "{context} failed: {}",
-                event.error.as_deref().unwrap_or("unknown error")
-            ),
-            "complete" => completed = true,
-            _ => {}
-        }
-    }
-
-    anyhow::ensure!(completed, "{context} ended without completing");
-    Ok(())
+#[derive(Debug, serde::Deserialize)]
+struct SpriteListEntry {
+    name: String,
 }
 
 async fn api_error(context: &str, response: reqwest::Response) -> anyhow::Error {
@@ -462,55 +263,5 @@ async fn api_error(context: &str, response: reqwest::Response) -> anyhow::Error 
     match serde_json::from_str::<Body>(&body) {
         Ok(Body { error }) => anyhow::anyhow!("{context}: {error} (HTTP {status})"),
         Err(_) => anyhow::anyhow!("{context}: HTTP {status}: {body}"),
-    }
-}
-
-#[cfg(test)]
-mod output_limit_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn combined_output_limit() {
-        let frames = vec![
-            Ok(Frame::Stdout(vec![0; OUTPUT_MAX_BYTES - 1].into())),
-            Ok(Frame::Stderr(bytes::Bytes::from_static(b"x"))),
-            Ok(Frame::Exit(0)),
-        ];
-        let output = collect_output(futures::stream::iter(frames).boxed())
-            .await
-            .unwrap();
-        assert_eq!(output.stdout.len() + output.stderr.len(), OUTPUT_MAX_BYTES);
-
-        for frame in [Frame::Stdout, Frame::Stderr] {
-            let frames = futures::stream::iter([
-                Ok(Frame::Stdout(vec![0; OUTPUT_MAX_BYTES].into())),
-                Ok(frame(bytes::Bytes::from_static(b"x"))),
-            ])
-            // Overflow must return immediately, without waiting for an exit or timeout.
-            .chain(futures::stream::pending())
-            .boxed();
-            let error =
-                tokio::time::timeout(std::time::Duration::from_secs(1), collect_output(frames))
-                    .await
-                    .unwrap()
-                    .unwrap_err();
-            assert!(error.to_string().contains("output exceeds"));
-        }
-    }
-
-    #[tokio::test]
-    async fn oversized_single_frame() {
-        let frames = futures::stream::iter([
-            Ok(Frame::Stdout(vec![0; OUTPUT_MAX_BYTES + 1].into())),
-            Ok(Frame::Exit(0)),
-        ])
-        .boxed();
-        assert!(
-            collect_output(frames)
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("output exceeds")
-        );
     }
 }

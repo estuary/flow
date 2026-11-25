@@ -119,12 +119,48 @@ impl TestServer {
         .await
     }
 
+    /// Starts a server whose sandboxes are served by `sandbox_providers`.
+    pub async fn start_with_sandbox_providers(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        sandbox_providers: crate::sandboxes::Providers,
+    ) -> Self {
+        Self::start_app(
+            pg_pool,
+            snapshot,
+            Some(Arc::new(crate::billing::InMemoryBillingProvider::new())),
+            None,
+            models::AlertConfig::default(),
+            sandbox_providers,
+        )
+        .await
+    }
+
     pub async fn start_with_config(
         pg_pool: sqlx::PgPool,
         snapshot: Arc<dyn tokens::Watch<Snapshot>>,
         billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
         catalog_stats: Option<Arc<catalog_stats::Client>>,
         alert_config_defaults: models::AlertConfig,
+    ) -> Self {
+        Self::start_app(
+            pg_pool,
+            snapshot,
+            billing_provider,
+            catalog_stats,
+            alert_config_defaults,
+            Default::default(),
+        )
+        .await
+    }
+
+    async fn start_app(
+        pg_pool: sqlx::PgPool,
+        snapshot: Arc<dyn tokens::Watch<Snapshot>>,
+        billing_provider: Option<Arc<dyn crate::billing::BillingProvider>>,
+        catalog_stats: Option<Arc<catalog_stats::Client>>,
+        alert_config_defaults: models::AlertConfig,
+        sandbox_providers: crate::sandboxes::Providers,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         // TODO(johnny): Aggregate into a sink?
@@ -147,7 +183,7 @@ impl TestServer {
             pg_pool.clone(),
             publisher,
             snapshot,
-            None,
+            sandbox_providers,
             Some(crate::server::public::stripe_webhooks::tests::DEV_WEBHOOK_SECRET.to_string()),
         ));
         let encoding_key = app.control_plane_jwt_encode_key.clone();

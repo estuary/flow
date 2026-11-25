@@ -31,6 +31,7 @@ ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["connector_client"] }
+sandbox-exec = { path = "../sandbox-exec" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 tokens = { path = "../tokens" }
@@ -67,6 +68,7 @@ schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+socket2 = { workspace = true }
 sqlx = { workspace = true }
 strum = { workspace = true }
 tempfile = { workspace = true }
@@ -97,6 +99,7 @@ service-kit = { path = "../service-kit" }
 hmac = { workspace = true }
 insta = { workspace = true }
 md5 = { workspace = true }
+reqwest = { workspace = true, features = ["http2"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
 

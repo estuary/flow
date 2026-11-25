@@ -1879,7 +1879,7 @@ impl TestHarness {
             self.pool.clone(),
             self.publisher.clone(),
             snapshot_watch.clone(),
-            None,
+            Default::default(),
             None,
         ));
 

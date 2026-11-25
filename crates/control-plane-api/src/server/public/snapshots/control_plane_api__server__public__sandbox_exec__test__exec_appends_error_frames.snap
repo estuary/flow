@@ -1,0 +1,12 @@
+---
+source: crates/control-plane-api/src/server/public/sandbox_exec.rs
+expression: "(outcomes, state(&pool, \"acmeCo/sandbox\").await)"
+---
+(
+    [
+        "wrapperCrashed: [Stdout(b\"some output\"), Error { message: \"the command wrapper exited with status 101 before the command finished (9 bytes of an incomplete output frame were dropped). The command wrapper's diagnostics: thread 'main' panicked\" }]",
+        "connectionLost: [Stdout(b\"some output\"), Error { message: \"the connection to the sandbox closed before the command finished\" }]",
+        "gone: [Stdout(b\"some output\"), Error { message: \"the sandbox machine no longer exists\" }]",
+    ],
+    Gone,
+)

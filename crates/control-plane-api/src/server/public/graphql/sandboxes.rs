@@ -3,109 +3,101 @@
 use async_graphql::Context;
 use std::sync::Arc;
 
-/// A persistent Linux VM that runs the user's shell commands.
+/// A Linux machine that runs the user's shell commands.
 #[derive(Debug, async_graphql::SimpleObject)]
 #[graphql(complex)]
 pub struct Sandbox {
+    #[graphql(skip)]
+    pub id: models::Id,
     pub catalog_name: models::Name,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    /// False until a new sandbox reaches its baseline state (flowctl installed).
-    pub ready: bool,
+    pub state: SandboxState,
 }
 
-#[async_graphql::ComplexObject]
-impl Sandbox {
-    /// A command started in this sandbox, or null if it does not exist.
-    async fn command(
-        &self,
-        ctx: &Context<'_>,
-        id: models::Id,
-    ) -> async_graphql::Result<Option<Command>> {
-        let env = ctx.data::<crate::Envelope>()?;
-        let client = sprites_client(ctx)?;
-        let sandbox = resolve_sandbox(env, self.catalog_name.as_str()).await?;
-        let command = crate::sandboxes::get_command(&client, &sandbox, id)
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, %id, "failed to look up sandbox command");
-                async_graphql::Error::new("failed to look up sandbox command")
-            })?;
-
-        Ok(command.map(Command::from))
-    }
-
-    /// Commands started in this sandbox
-    async fn commands(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<Vec<Command>>> {
-        let env = ctx.data::<crate::Envelope>()?;
-
-        let client = sprites_client(ctx)?;
-        let sandbox = resolve_sandbox(env, self.catalog_name.as_str()).await?;
-        let commands = crate::sandboxes::list_commands(&client, &sandbox)
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, "failed to list commands");
-                async_graphql::Error::new("failed to list commands")
-            })?;
-
-        Ok(Some(commands.into_iter().map(Command::from).collect()))
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, async_graphql::Enum)]
+pub enum SandboxState {
+    /// The sandbox's machine is being created.
+    Provisioning,
+    /// The sandbox's machine can run commands.
+    Ready,
+    /// The sandbox's machine no longer exists, and never will again. Delete
+    /// the sandbox and create another.
+    Gone,
 }
 
 impl From<crate::sandboxes::Sandbox> for Sandbox {
     fn from(sandbox: crate::sandboxes::Sandbox) -> Self {
+        let state = match sandbox.state() {
+            crate::sandboxes::State::Provisioning => SandboxState::Provisioning,
+            crate::sandboxes::State::Ready => SandboxState::Ready,
+            crate::sandboxes::State::Gone => SandboxState::Gone,
+        };
         Self {
+            id: sandbox.id,
             catalog_name: models::Name::new(sandbox.catalog_name),
             created_at: sandbox.created_at,
-            ready: sandbox.baseline_checkpoint_id.is_some(),
+            state,
         }
     }
-}
-
-/// A command run in a sandbox.
-#[derive(Debug, async_graphql::SimpleObject)]
-pub struct Command {
-    pub id: models::Id,
-    pub command: String,
-    pub requested_at: chrono::DateTime<chrono::Utc>,
-    /// Poll stdout with this `path` and `sandboxFileRead`.
-    pub stdout_path: String,
-    /// Poll stderr with this `path` and `sandboxFileRead`.
-    pub stderr_path: String,
-    /// Null until the command exits (crashed commands may not record their exit code)
-    pub exit_code: Option<i32>,
-}
-
-impl From<crate::sandboxes::Command> for Command {
-    fn from(event: crate::sandboxes::Command) -> Self {
-        use crate::sandboxes::CommandFile;
-
-        Self {
-            id: event.id,
-            command: event.command,
-            requested_at: event.requested_at,
-            stdout_path: CommandFile::Stdout.path(event.id),
-            stderr_path: CommandFile::Stderr.path(event.id),
-            exit_code: event.exit_code,
-        }
-    }
-}
-
-#[derive(Debug, async_graphql::SimpleObject)]
-#[graphql(complex)]
-pub struct FileRead {
-    #[graphql(skip)]
-    pub data: Vec<u8>,
-    pub offset: i32,
 }
 
 #[async_graphql::ComplexObject]
-impl FileRead {
-    async fn base64(&self) -> String {
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &self.data)
-    }
+impl Sandbox {
+    /// Unexpired credential approvals of the sandbox's workspaces.
+    async fn credentials(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Vec<SandboxCredential>> {
+        let env = ctx.data::<crate::Envelope>()?;
 
-    async fn utf8(&self) -> String {
-        String::from_utf8_lossy(&self.data).into_owned()
+        let credentials = crate::sandboxes::credentials::fetch_unexpired(&env.pg_pool, self.id)
+            .await
+            .map_err(|err| {
+                tracing::error!(?err, sandbox_id = %self.id, "failed to fetch sandbox credentials");
+                async_graphql::Error::new("failed to fetch sandbox credentials")
+            })?;
+
+        Ok(credentials
+            .into_iter()
+            .map(SandboxCredential::from)
+            .collect())
+    }
+}
+
+/// A user's approval of a credential for the commands of a sandbox workspace.
+/// A command which names the credential receives, as `FLOW_AUTH_TOKEN`, a
+/// token minted from the caller's own authority and restricted to the
+/// approval's masks. Nothing secret is stored.
+#[derive(Debug, async_graphql::SimpleObject)]
+pub struct SandboxCredential {
+    pub workspace: String,
+    pub name: String,
+    /// Capabilities to which minted tokens are restricted.
+    pub capability_mask: Vec<String>,
+    /// Catalog prefixes to which minted tokens are restricted.
+    pub prefix_mask: Vec<String>,
+    /// No token is minted from the approval after this time.
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<crate::sandboxes::credentials::Credential> for SandboxCredential {
+    fn from(credential: crate::sandboxes::credentials::Credential) -> Self {
+        let crate::sandboxes::credentials::Credential {
+            workspace,
+            name,
+            capability_mask,
+            prefix_mask,
+            approved_by: _,
+            expires_at,
+        } = credential;
+
+        Self {
+            workspace,
+            name,
+            capability_mask,
+            prefix_mask,
+            expires_at,
+        }
     }
 }
 
@@ -154,40 +146,6 @@ impl SandboxesQuery {
 
         Ok(sandboxes.into_iter().map(Sandbox::from).collect())
     }
-
-    async fn sandbox_file_read(
-        &self,
-        ctx: &Context<'_>,
-        catalog_name: models::Name,
-        path: String,
-        #[graphql(desc = "Byte offset", default = 0)] offset: i32,
-        #[graphql(desc = "Max 1 MiB")] limit: Option<i32>,
-    ) -> async_graphql::Result<FileRead> {
-        let env = ctx.data::<crate::Envelope>()?;
-        let client = sprites_client(ctx)?;
-
-        // resolve_sandbox will error if the user doesn't own catalog_name
-        let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
-
-        let offset = u64::try_from(offset)
-            .map_err(|_| async_graphql::Error::new("offset must not be negative"))?;
-        let limit = limit
-            .map(u64::try_from)
-            .transpose()
-            .map_err(|_| async_graphql::Error::new("limit must not be negative"))?;
-
-        let chunk = crate::sandboxes::read_file(&client, &sandbox, &path, offset, limit)
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, %path, "failed to read sandbox file");
-                async_graphql::Error::new(format!("failed to read sandbox file: {err:#}"))
-            })?;
-
-        Ok(FileRead {
-            data: chunk.bytes,
-            offset: i32::try_from(chunk.offset).unwrap_or(i32::MAX),
-        })
-    }
 }
 
 #[derive(Debug, Default)]
@@ -195,7 +153,7 @@ pub struct SandboxesMutation;
 
 #[async_graphql::Object]
 impl SandboxesMutation {
-    /// Returns after flowctl is installed.
+    /// Returns once the sandbox's machine is ready.
     async fn sandbox_create(
         &self,
         ctx: &Context<'_>,
@@ -224,20 +182,15 @@ impl SandboxesMutation {
             )
         })?;
         if !accepted {
-            let mut consent_url =
-                url::Url::parse("https://dashboard.estuary.dev/legal-consent").unwrap();
-            consent_url
-                .query_pairs_mut()
-                .append_pair("type", "sandbox")
-                .append_pair("tenant", tenant.trim_end_matches('/'));
             return Err(async_graphql::Error::new(format!(
-                "The tenant must accept a sandbox agreement before creating sandboxes. Accept at {consent_url}"
+                "The tenant must accept a sandbox agreement before creating sandboxes. Accept at {}",
+                consent_url(tenant)
             )));
         }
-        let client = sprites_client(ctx)?;
+        let providers = &ctx.data::<Arc<crate::App>>()?.sandbox_providers;
 
         let sandbox =
-            crate::sandboxes::create(&client, &env.pg_pool, claims.sub, catalog_name.as_str())
+            crate::sandboxes::create(providers, &env.pg_pool, claims.sub, catalog_name.as_str())
                 .await
                 .map_err(|err| match err {
                     crate::sandboxes::CreateError::Other(err) => {
@@ -251,82 +204,82 @@ impl SandboxesMutation {
         Ok(sandbox.into())
     }
 
-    /// Returns once the command has started - read its output by polling `sandboxFileRead`.
-    async fn sandbox_execute(
+    /// Approves a credential for the commands of a sandbox workspace, which
+    /// replaces any approval of the same workspace and name.
+    ///
+    /// The masks narrow the caller's own authority, as do those of
+    /// `POST /api/v1/auth/token`. `capabilityMask` names `CapabilityBundle`
+    /// values in any case. Each tenant the masks reach must have accepted a
+    /// sandbox agreement. Empty masks are allowed, and make a credential which
+    /// identifies the user without granting access.
+    async fn sandbox_credential_approve(
         &self,
         ctx: &Context<'_>,
         catalog_name: models::Name,
-        command: String,
-        stdin: Option<String>,
-    ) -> async_graphql::Result<Command> {
+        workspace: String,
+        name: String,
+        capability_mask: Vec<String>,
+        prefix_mask: Vec<String>,
+        duration_minutes: i32,
+    ) -> async_graphql::Result<SandboxCredential> {
         let env = ctx.data::<crate::Envelope>()?;
-        let client = sprites_client(ctx)?;
+        let claims = env.claims()?;
+
+        crate::sandboxes::credentials::validate(&workspace, &name, duration_minutes)
+            .map_err(async_graphql::Error::new)?;
+        let capability_mask = crate::sandboxes::credentials::capability_mask(capability_mask)
+            .map_err(async_graphql::Error::new)?;
+        let tenants = crate::sandboxes::credentials::consent_tenants(&prefix_mask)
+            .map_err(async_graphql::Error::new)?;
 
         // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
+        crate::server::public::token_exchange::verify_may_mint(claims, &env.pg_pool).await?;
 
-        let id = ctx
-            .data::<Arc<crate::App>>()?
-            .id_generator
-            .lock()
-            .unwrap()
-            .next();
+        for tenant in &tenants {
+            let accepted = super::legal_terms::check_authorized_consent(
+                env,
+                tenant,
+                super::legal_terms::LegalTermsType::Sandbox,
+                super::legal_terms::ConsentVersion::Gte(1),
+            )
+            .await?;
 
-        let event = crate::sandboxes::execute(&client, id, &sandbox, &command, stdin.as_deref())
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, "failed to start sandbox command");
-                async_graphql::Error::new(format!("failed to start command: {err:#}"))
-            })?;
+            if !accepted {
+                return Err(async_graphql::Error::new(format!(
+                    "Tenant {tenant} must accept a sandbox agreement before sandbox credentials may access it. Accept at {}",
+                    consent_url(tenant)
+                )));
+            }
+        }
 
-        tracing::info!(%sandbox.id, %event.id, "started sandbox command");
-        Ok(event.into())
-    }
+        let credential = crate::sandboxes::credentials::approve(
+            &env.pg_pool,
+            sandbox.id,
+            &workspace,
+            &name,
+            &capability_mask,
+            &prefix_mask,
+            claims.sub,
+            duration_minutes,
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!(?err, %sandbox.id, "failed to approve sandbox credential");
+            async_graphql::Error::new("failed to approve sandbox credential")
+        })?;
 
-    async fn sandbox_cancel(
-        &self,
-        ctx: &Context<'_>,
-        catalog_name: models::Name,
-        id: models::Id,
-    ) -> async_graphql::Result<bool> {
-        let env = ctx.data::<crate::Envelope>()?;
-        let client = sprites_client(ctx)?;
-
-        // resolve_sandbox will error if the user doesn't own catalog_name
-        let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
-
-        let cancelled = crate::sandboxes::cancel_command(&client, &sandbox, id)
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, %id, "failed to cancel sandbox command");
-                async_graphql::Error::new(format!("failed to cancel command: {err:#}"))
-            })?;
-
-        tracing::info!(%sandbox.id, %id, cancelled, "cancelled sandbox command");
-        Ok(cancelled)
-    }
-
-    /// Restore the sandbox to its baseline, discarding all changes, past
-    /// commands, and their output.
-    async fn sandbox_reset(
-        &self,
-        ctx: &Context<'_>,
-        catalog_name: models::Name,
-    ) -> async_graphql::Result<bool> {
-        let env = ctx.data::<crate::Envelope>()?;
-        let client = sprites_client(ctx)?;
-
-        // resolve_sandbox will error if the user doesn't own catalog_name
-        let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
-
-        crate::sandboxes::reset(&client, &sandbox)
-            .await
-            .map_err(|err| {
-                tracing::error!(?err, %sandbox.id, "failed to reset sandbox");
-                async_graphql::Error::new(format!("failed to reset sandbox: {err:#}"))
-            })?;
-
-        Ok(true)
+        tracing::info!(
+            %claims.sub,
+            %sandbox.id,
+            %workspace,
+            %name,
+            ?capability_mask,
+            ?prefix_mask,
+            %credential.expires_at,
+            "approved sandbox credential"
+        );
+        Ok(credential.into())
     }
 
     async fn sandbox_delete(
@@ -335,12 +288,12 @@ impl SandboxesMutation {
         catalog_name: models::Name,
     ) -> async_graphql::Result<bool> {
         let env = ctx.data::<crate::Envelope>()?;
-        let client = sprites_client(ctx)?;
+        let providers = &ctx.data::<Arc<crate::App>>()?.sandbox_providers;
 
         // resolve_sandbox will error if the user doesn't own catalog_name
         let sandbox = resolve_sandbox(env, catalog_name.as_str()).await?;
 
-        crate::sandboxes::delete(&client, &env.pg_pool, &sandbox)
+        crate::sandboxes::delete(providers, &env.pg_pool, &sandbox)
             .await
             .map_err(|err| {
                 tracing::error!(?err, %sandbox.id, "failed to delete sandbox");
@@ -357,19 +310,21 @@ async fn fetch_sandbox(
 ) -> async_graphql::Result<Option<crate::sandboxes::Sandbox>> {
     let claims = env.claims()?;
 
-    let sandboxes = crate::sandboxes::fetch(&env.pg_pool, &[catalog_name.to_string()], &[])
+    crate::sandboxes::fetch_owned(&env.pg_pool, claims, catalog_name)
         .await
         .map_err(|err| {
             tracing::error!(?err, %catalog_name, %claims.sub, "failed to look up sandbox");
             async_graphql::Error::new("failed to look up sandbox")
-        })?;
+        })
+}
 
-    // A sandbox is visible only to the user who created it.
-    // This will eventually be replaced with a proper authorization check on the incoming catalog_name
-    // based on user capabilities and respect for token limits (like capability_mask)
-    Ok(sandboxes
-        .into_iter()
-        .find(|sandbox| sandbox.user_id == claims.sub))
+/// Where a tenant's admin accepts the sandbox agreement.
+fn consent_url(tenant: &str) -> url::Url {
+    let mut url = url::Url::parse("https://dashboard.estuary.dev/legal-consent").unwrap();
+    url.query_pairs_mut()
+        .append_pair("type", "sandbox")
+        .append_pair("tenant", tenant.trim_end_matches('/'));
+    url
 }
 
 /// Errors if sandbox not found
@@ -380,13 +335,6 @@ async fn resolve_sandbox(
     fetch_sandbox(env, catalog_name)
         .await?
         .ok_or_else(|| async_graphql::Error::new("sandbox not found"))
-}
-
-fn sprites_client(ctx: &Context<'_>) -> async_graphql::Result<Arc<crate::sprites::Client>> {
-    ctx.data::<Arc<crate::App>>()?
-        .sprites
-        .clone()
-        .ok_or_else(|| async_graphql::Error::new("Sandboxes are not configured"))
 }
 
 #[cfg(test)]
@@ -450,7 +398,7 @@ mod test {
         .execute(&pool)
         .await
         .unwrap();
-        // The test server has no VM provider; reaching it proves consent passed.
+        // The test server has no sandbox provider; reaching it proves consent passed.
         let response: serde_json::Value = server.graphql(&query, Some(&token)).await;
         outcomes.push(response["errors"][0]["message"].clone());
         insta::assert_json_snapshot!(outcomes, @r#"
@@ -460,5 +408,318 @@ mod test {
           "Sandboxes are not configured"
         ]
         "#);
+    }
+
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn sandbox_lifecycle(pool: sqlx::PgPool) {
+        let user = uuid::Uuid::from_bytes([0x11; 16]);
+        sqlx::query("INSERT INTO auth.users (id, email) VALUES ($1, 'alice@example.test')")
+            .bind(user)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO tenants (tenant) VALUES ('acmeCo/')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO user_grants (user_id, object_role, capability, bundles)
+             VALUES ($1, 'acmeCo/', 'read', ARRAY['create_sandbox']::capability_bundle[])",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                 (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t
+             WHERE l.type = 'sandbox' AND l.version = 1",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let fake = std::sync::Arc::new(crate::sandboxes::fake::Fake::new("fake"));
+        let providers = crate::sandboxes::Providers::new(
+            vec![fake.clone() as std::sync::Arc<dyn crate::sandboxes::provider::Provider>],
+            Some("fake"),
+        )
+        .unwrap();
+        let server = crate::test_server::TestServer::start_with_sandbox_providers(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+            providers,
+        )
+        .await;
+        let token = server.make_access_token(user, None);
+
+        let mut outcomes = Vec::new();
+        let mut run = async |step: &str, query: &str| {
+            let response: serde_json::Value = server
+                .graphql(&serde_json::json!({ "query": query }), Some(&token))
+                .await;
+            outcomes.push(serde_json::json!({ step: response }));
+        };
+
+        run(
+            "create",
+            r#"mutation { sandboxCreate(catalogName: "acmeCo/sandbox") { catalogName state } }"#,
+        )
+        .await;
+        run(
+            "createAgain",
+            r#"mutation { sandboxCreate(catalogName: "acmeCo/sandbox") { catalogName } }"#,
+        )
+        .await;
+        run("list", r#"query { sandboxes { catalogName state } }"#).await;
+
+        let sandbox = crate::sandboxes::fetch(&pool, &["acmeCo/sandbox".to_string()], &[])
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        crate::sandboxes::mark_gone(&pool, &sandbox).await.unwrap();
+        run(
+            "gone",
+            r#"query { sandbox(catalogName: "acmeCo/sandbox") { catalogName state } }"#,
+        )
+        .await;
+
+        run(
+            "delete",
+            r#"mutation { sandboxDelete(catalogName: "acmeCo/sandbox") }"#,
+        )
+        .await;
+        run(
+            "deleteAgain",
+            r#"mutation { sandboxDelete(catalogName: "acmeCo/sandbox") }"#,
+        )
+        .await;
+        run(
+            "afterDelete",
+            r#"query { sandbox(catalogName: "acmeCo/sandbox") { catalogName } }"#,
+        )
+        .await;
+
+        let ops: Vec<_> = fake.calls().into_iter().map(|(op, _handle)| op).collect();
+        insta::assert_json_snapshot!(serde_json::json!({"outcomes": outcomes, "calls": ops}));
+    }
+    #[sqlx::test(migrations = "../../supabase/migrations")]
+    async fn sandbox_credential_approvals(pool: sqlx::PgPool) {
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let bob = uuid::Uuid::from_bytes([0x22; 16]);
+        sqlx::query(
+            "INSERT INTO auth.users (id, email)
+             VALUES ($1, 'alice@example.test'), ($2, 'bob@example.test')",
+        )
+        .bind(alice)
+        .bind(bob)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO tenants (tenant) VALUES ('acmeCo/'), ('otherCo/'), ('thirdCo/')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO user_grants (user_id, object_role, capability, bundles) VALUES
+             ($1, 'acmeCo/', 'read', ARRAY['create_sandbox']::capability_bundle[]),
+             ($1, 'otherCo/', 'read', ARRAY[]::capability_bundle[]),
+             ($2, 'acmeCo/', 'read', ARRAY[]::capability_bundle[])",
+        )
+        .bind(alice)
+        .bind(bob)
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Only acmeCo/ has accepted the sandbox agreement.
+        sqlx::query(
+            "INSERT INTO internal.tenant_consent
+                 (user_id, user_email, terms_id, tenant_name, tenant_id)
+             SELECT $1, 'alice@example.test', l.id, t.tenant, t.id
+             FROM internal.legal_terms l CROSS JOIN tenants t
+             WHERE l.type = 'sandbox' AND l.version = 1 AND t.tenant = 'acmeCo/'",
+        )
+        .bind(alice)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let fake = std::sync::Arc::new(crate::sandboxes::fake::Fake::new("fake"));
+        let providers = crate::sandboxes::Providers::new(
+            vec![fake.clone() as std::sync::Arc<dyn crate::sandboxes::provider::Provider>],
+            Some("fake"),
+        )
+        .unwrap();
+        let server = crate::test_server::TestServer::start_with_sandbox_providers(
+            pool.clone(),
+            crate::test_server::snapshot(pool.clone(), false).await,
+            providers,
+        )
+        .await;
+        let alice_token = server.make_access_token(alice, Some("alice@example.test"));
+        let bob_token = server.make_access_token(bob, Some("bob@example.test"));
+        let restricted_token = server.make_restricted_access_token(
+            alice,
+            Some("alice@example.test"),
+            Some(Vec::new()),
+            None,
+        );
+
+        let mut outcomes = Vec::new();
+        let mut run = async |step: &str, token: &str, query: &str| {
+            let response: serde_json::Value = server
+                .graphql(&serde_json::json!({ "query": query }), Some(token))
+                .await;
+            outcomes.push(serde_json::json!({ step: response }));
+        };
+        let approve = |workspace: &str,
+                       name: &str,
+                       capabilities: &str,
+                       prefixes: &str,
+                       minutes: i32| {
+            format!(
+                r#"mutation {{ sandboxCredentialApprove(
+                    catalogName: "acmeCo/sandbox", workspace: "{workspace}", name: "{name}",
+                    capabilityMask: {capabilities}, prefixMask: {prefixes}, durationMinutes: {minutes}
+                ) {{ workspace name capabilityMask prefixMask }} }}"#
+            )
+        };
+
+        run(
+            "create",
+            &alice_token,
+            r#"mutation { sandboxCreate(catalogName: "acmeCo/sandbox") { catalogName } }"#,
+        )
+        .await;
+
+        // An empty-scope credential needs no consent.
+        run(
+            "approveEmpty",
+            &alice_token,
+            &approve("ws", "ident", "[]", "[]", 60),
+        )
+        .await;
+        run(
+            "approveScoped",
+            &alice_token,
+            &approve(
+                "ws",
+                "reader",
+                r#"["Viewer", "viewer"]"#,
+                r#"["acmeCo/", "acmeCo/nested/", "ops/dp/public/", "ops/dp/private/acmeCo/"]"#,
+                480,
+            ),
+        )
+        .await;
+
+        for (step, token, query) in [
+            (
+                "invalidWorkspace",
+                &alice_token,
+                approve("WS", "x", "[]", "[]", 60),
+            ),
+            (
+                "invalidName",
+                &alice_token,
+                approve("ws", "-x", "[]", "[]", 60),
+            ),
+            (
+                "zeroDuration",
+                &alice_token,
+                approve("ws", "x", "[]", "[]", 0),
+            ),
+            (
+                "longDuration",
+                &alice_token,
+                approve("ws", "x", "[]", "[]", 481),
+            ),
+            (
+                "unknownCapability",
+                &alice_token,
+                approve("ws", "x", r#"["viewer", "read"]"#, "[]", 60),
+            ),
+            (
+                "invalidPrefix",
+                &alice_token,
+                approve("ws", "x", "[]", r#"["acmeCo"]"#, 60),
+            ),
+            (
+                "unsupportedPrefix",
+                &alice_token,
+                approve("ws", "x", "[]", r#"["ops/tasks/"]"#, 60),
+            ),
+            (
+                "consentMissing",
+                &alice_token,
+                approve("ws", "x", "[]", r#"["acmeCo/", "otherCo/"]"#, 60),
+            ),
+            (
+                "privateDataPlaneConsentMissing",
+                &alice_token,
+                approve("ws", "x", "[]", r#"["ops/dp/private/otherCo/"]"#, 60),
+            ),
+            (
+                "tenantUnauthorized",
+                &alice_token,
+                approve("ws", "x", "[]", r#"["thirdCo/"]"#, 60),
+            ),
+            ("notOwner", &bob_token, approve("ws", "x", "[]", "[]", 60)),
+            (
+                "restrictedCaller",
+                &restricted_token,
+                approve("ws", "x", "[]", "[]", 60),
+            ),
+        ] {
+            run(step, token, &query).await;
+        }
+
+        // Approving again replaces the approval.
+        run(
+            "replace",
+            &alice_token,
+            &approve("ws", "reader", r#"["admin"]"#, r#"["acmeCo/nested/"]"#, 30),
+        )
+        .await;
+        run(
+            "otherWorkspace",
+            &alice_token,
+            &approve("other-ws", "reader", "[]", "[]", 1),
+        )
+        .await;
+
+        sqlx::query(
+            "UPDATE internal.sandbox_credentials SET expires_at = now() - interval '1 minute'
+             WHERE name = 'ident'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        run(
+            "list",
+            &alice_token,
+            r#"query { sandbox(catalogName: "acmeCo/sandbox") {
+                credentials { workspace name capabilityMask prefixMask }
+            } }"#,
+        )
+        .await;
+
+        // Each row's duration and approver. The expired row remains.
+        let rows: Vec<(String, String, i32, bool)> = sqlx::query_as(
+            "SELECT workspace, name,
+                    extract(epoch from expires_at - created_at)::int4,
+                    approved_by = $1
+             FROM internal.sandbox_credentials ORDER BY workspace, name",
+        )
+        .bind(alice)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        insta::assert_json_snapshot!(serde_json::json!({"outcomes": outcomes, "rows": rows}));
     }
 }

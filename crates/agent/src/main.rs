@@ -42,12 +42,8 @@ struct Args {
     #[derivative(Debug = "ignore")]
     #[clap(long = "stripe-api-key", env = "STRIPE_API_KEY")]
     stripe_api_key: Option<String>,
-    /// Token for the Fly.io Sprites API. When provided, the sandbox GraphQL
-    /// mutations are enabled. Without it, those operations return an error
-    /// indicating sandboxes are not configured.
-    #[derivative(Debug = "ignore")]
-    #[clap(long = "sprites-token", env = "SPRITES_TOKEN")]
-    sprites_token: Option<String>,
+    #[command(flatten)]
+    sandboxes: control_plane_api::sandboxes::Config,
     /// Signing secret for verifying inbound Stripe webhook deliveries. When
     /// unset, the Stripe webhook endpoint fails closed. Intentionally has no
     /// default: production must set it explicitly, and never silently falls back
@@ -385,9 +381,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let tenant_controller_billing_provider = billing_provider.clone();
     let tenant_controller_catalog_stats = catalog_stats.clone();
 
-    let sprites = args
-        .sprites_token
-        .map(|token| Arc::new(control_plane_api::sprites::Client::new(token)));
+    let sandbox_providers = control_plane_api::sandboxes::Providers::from_config(args.sandboxes)?;
     let mut api_app = App::new(
         agent::id_generator::with_random_shard(),
         billing_provider,
@@ -396,7 +390,7 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
         pg_pool.clone(),
         publisher.clone(),
         snapshot_watch.clone(),
-        sprites,
+        sandbox_providers,
         args.stripe_webhook_secret,
     );
     if let Some(config) = args.oauth_config {
@@ -415,6 +409,11 @@ async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let api_listener = tokio::net::TcpListener::bind(format!("[::]:{}", args.api_port))
         .await
         .context("failed to bind server port")?;
+    let api_listener = axum::serve::ListenerExt::tap_io(api_listener, |stream| {
+        if let Err(err) = control_plane_api::sandboxes::set_keepalive(stream) {
+            tracing::warn!(?err, "failed to enable TCP keep-alive");
+        }
+    });
     let api_server = axum::serve(api_listener, api_router).with_graceful_shutdown(shutdown.clone());
     let api_server = async move { anyhow::Result::Ok(api_server.await?) };
 

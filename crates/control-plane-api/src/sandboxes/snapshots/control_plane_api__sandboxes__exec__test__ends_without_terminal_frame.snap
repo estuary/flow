@@ -1,0 +1,53 @@
+---
+source: crates/control-plane-api/src/sandboxes/exec.rs
+expression: outcomes
+---
+[
+    (
+        "closed within a frame",
+        [
+            "Frames [Stdout(b\"out\")]",
+            "Failed { message: \"the connection to the sandbox closed before the command finished (8 bytes of an incomplete output frame were dropped). The command wrapper's diagnostics: Error: input closed (client hung up)\", gone: false }",
+        ],
+    ),
+    (
+        "wrapper exited",
+        [
+            "Frames [Stdout(b\"out\")]",
+            "Failed { message: \"the command wrapper exited with status 1 before the command finished. The command wrapper's diagnostics: Error: input closed (client hung up)\", gone: false }",
+        ],
+    ),
+    (
+        "gone",
+        [
+            "Frames [Stdout(b\"out\")]",
+            "Failed { message: \"the sandbox machine no longer exists\", gone: true }",
+        ],
+    ),
+    (
+        "connection error",
+        [
+            "Failed { message: \"lost the connection to the sandbox: connection reset\", gone: false }",
+        ],
+    ),
+    (
+        "invalid frame",
+        [
+            "Failed { message: \"the command wrapper sent an invalid output frame: unknown output frame tag 9\", gone: false }",
+        ],
+    ),
+    (
+        "wrapper error",
+        [
+            "Frames [Error { message: \"invalid workspace\" }]",
+            "Finished(Error { message: \"invalid workspace\" })",
+        ],
+    ),
+    (
+        "stdin closed",
+        [
+            "Frames [Exit { code: None, signal: Some(9) }]",
+            "Finished(Exit { code: None, signal: Some(9) })",
+        ],
+    ),
+]

@@ -1,0 +1,30 @@
+---
+source: crates/control-plane-api/src/server/public/sandbox_exec.rs
+expression: "(with_credential, without_credential)"
+---
+(
+    (
+        "\"sub\":\"11111111-1111-1111-1111-111111111111\"\n\"capability_mask\":[\"viewer\"]\n\"prefix_mask\":[\"acmeCo/\"]\nhome: /work/ws\nstdin: some input\n",
+        "to stderr\n",
+        Some(
+            Exit {
+                code: Some(
+                    7,
+                ),
+                signal: None,
+            },
+        ),
+    ),
+    (
+        "\"sub\":\"11111111-1111-1111-1111-111111111111\"\n\"capability_mask\":[]\n\"prefix_mask\":[]\nhome: /work/ws\nstdin: more input\n",
+        "to stderr\n",
+        Some(
+            Exit {
+                code: Some(
+                    7,
+                ),
+                signal: None,
+            },
+        ),
+    ),
+)

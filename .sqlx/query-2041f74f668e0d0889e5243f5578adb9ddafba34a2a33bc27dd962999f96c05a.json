@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        insert into internal.sandboxes (id, user_id, handle, catalog_name)\n        select id, $1, $2 || replace(id::text, ':', ''), $3\n        from (select internal.id_generator() as id) as generated\n        returning id as \"id!: models::Id\", user_id, handle, catalog_name, created_at, baseline_checkpoint_id\n        ",
+  "query": "\n        select\n            id as \"id!: models::Id\",\n            user_id,\n            handle,\n            catalog_name,\n            created_at,\n            provider,\n            provider_state,\n            gone_at\n        from internal.sandboxes\n        where catalog_name = any($1) or catalog_name ^@ any($2)\n        order by created_at desc\n        ",
   "describe": {
     "columns": [
       {
@@ -60,21 +60,42 @@
       },
       {
         "ordinal": 5,
-        "name": "baseline_checkpoint_id",
+        "name": "provider",
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "internal.sandboxes",
-            "name": "baseline_checkpoint_id"
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "provider_state",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "provider_state"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "gone_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.sandboxes",
+            "name": "gone_at"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text"
+        "TextArray",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -83,8 +104,10 @@
       false,
       false,
       false,
+      false,
+      true,
       true
     ]
   },
-  "hash": "04c3dfb9de78a984be73d28394b6d32ae4cba39eb583a741768c74ff719e9719"
+  "hash": "2041f74f668e0d0889e5243f5578adb9ddafba34a2a33bc27dd962999f96c05a"
 }

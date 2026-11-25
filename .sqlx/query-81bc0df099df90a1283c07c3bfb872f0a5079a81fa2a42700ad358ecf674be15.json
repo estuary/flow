@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        select\n            workspace,\n            name,\n            capability_mask,\n            prefix_mask,\n            approved_by,\n            expires_at\n        from internal.sandbox_credentials\n        where sandbox_id = $1 and workspace = $2 and name = $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.sandbox_credentials",
+            "name": "workspace"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.sandbox_credentials",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "capability_mask",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "internal.sandbox_credentials",
+            "name": "capability_mask"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "prefix_mask",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "internal.sandbox_credentials",
+            "name": "prefix_mask"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "approved_by",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "internal.sandbox_credentials",
+            "name": "approved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.sandbox_credentials",
+            "name": "expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "81bc0df099df90a1283c07c3bfb872f0a5079a81fa2a42700ad358ecf674be15"
+}

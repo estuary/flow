@@ -54,6 +54,31 @@ Authorization applies the minted capability and prefix masks through
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
+## Sandboxes
+
+- `sandboxes/mod.rs`: `internal.sandboxes` records, each with one machine for
+  its whole life. `Providers` (on `App`) serves each record by its `provider`
+  column, so a record outlives a change of the default provider.
+- `sandboxes/provider.rs`: `Provider`, the interface to a host of machines.
+  It's implemented by `docker.rs` (local development, see `local/README.md`),
+  `sprites.rs` (Fly.io Sprites, through the client in `src/sprites.rs`), and
+  `fake.rs` (tests).
+- `sandboxes/credentials.rs`: approvals of capability and prefix masks for one
+  workspace of a sandbox. Nothing secret is stored.
+- `server/public/sandbox_exec.rs`: `POST /api/v1/sandboxes/exec`, which mints
+  the command's `FLOW_AUTH_TOKEN` from the caller's claims and an approval's
+  masks, starts `flowctl raw sandbox-exec` (`crates/sandbox-exec`), and relays
+  through `sandboxes/exec.rs`: the request body's stdin in, and output frames
+  out. Over h2c the two stream at once, which is why `axum`'s `http2` feature
+  is on and Cloud Run runs `agent-api` with `--use-http2`. A command runs
+  while its peers are connected. `sandboxes::set_keepalive` enables TCP
+  keep-alive on the agent's listener and each Sprites socket, to notice a peer
+  which vanished.
+
+Tests which need Docker or a live Sprites account are ignored by default:
+`tests/sandbox_docker.rs`, `sandbox_exec::docker_test`, and the `live_` tests
+of `tests/sandbox_sprites.rs`.
+
 ## Development
 
 > **NOTE:** All commands below should be run from inside the Lima VM.

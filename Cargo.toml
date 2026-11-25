@@ -270,8 +270,9 @@ aws-sdk-sts = { version = "1", default-features = false, features = [
     "rt-tokio",
 ] }
 
-# Used for the agent http server
-axum = { version = "0", features = ["macros"] }
+# Used for the agent http server. `http2` lets `axum::serve` accept h2c, which
+# Cloud Run sends when a service is deployed with `--use-http2`.
+axum = { version = "0", features = ["macros", "http2"] }
 axum-server = { version = "0.7.3", features = ["tls-rustls"] }
 axum-extra = { version = "0", features = ["typed-header", "query"] }
 async-graphql = { version = "7", features = [

@@ -1,0 +1,17 @@
+---
+source: crates/control-plane-api/src/sandboxes/exec.rs
+expression: "(items, inputs)"
+---
+(
+    [
+        "Frames [Stdout(b\"hello\")]",
+        "Frames [Stderr(b\"warning\"), Exit { code: Some(0), signal: None }]",
+        "Finished(Exit { code: Some(0), signal: None })",
+    ],
+    [
+        "Header(Header { version: 1, workspace: \"ws\", command: \"cat\", env_keys: [\"FLOW_AUTH_TOKEN\"] })",
+        "Stdin of 65536 bytes",
+        "Stdin of 36873 bytes",
+        "StdinEof",
+    ],
+)
