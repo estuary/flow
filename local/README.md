@@ -359,6 +359,7 @@ Per stack, under `~/flow-local/<name>/` (= `${FLOW_STACK_DIR}`):
 | `builds/` | Catalog builds emitted by the agent |
 | `disk-<base>/` | Disk-daemon socket and images of the data plane at `<base>` |
 | `test-tenant-<tenant>.env` | flowctl credentials from `local:test-tenant` |
+| `sandbox-profile.json` | flowctl profile of sandbox containers: endpoints only, no tokens |
 | `.supabase-started` | Sentinel that triggers `db reset` on next supabase start |
 
 Build artifacts are per-stack too: `~/cargo-target/<name>/` (Rust) and
@@ -384,10 +385,11 @@ it is idempotent and Linux-only. The systemd dedup timer is
 
 ## flowctl against a stack
 
-`local:control-plane` writes `~/.config/flowctl/<stack>.json` (write-if-absent,
-to preserve any login tokens) with this stack's `agent_url`, `pg_url`,
+`local:control-plane` writes this stack's `agent_url`, `pg_url`,
 `dashboard_url`, `config_encryption_url`, and the well-known local
-`pg_public_token`. Because `FLOWCTL_PROFILE=<stack>` is ambient, **bare `flowctl`
+`pg_public_token` to `${FLOW_STACK_DIR}/sandbox-profile.json`, and merges them
+into `~/.config/flowctl/<stack>.json`, preserving any login tokens there.
+Because `FLOWCTL_PROFILE=<stack>` is ambient, **bare `flowctl`
 inside the checkout targets this stack** — no `--profile` needed.
 
 You must `export SSL_CERT_FILE=~/flow-local/ca.crt` (per command) or you'll see
@@ -514,6 +516,51 @@ With a single stack on the host you can omit `[stack]`. It:
 
 Use `--no-remap` to forward a second stack alongside (identity sets never
 collide; the classic remap set belongs to one stack).
+
+## Sandbox containers
+
+A stack's agent creates each new sandbox as a container of `flow-sandbox:local`,
+through the Docker sandbox provider
+(`crates/control-plane-api/src/sandboxes/docker.rs`). Build the image from
+`local/sandbox.Dockerfile` before creating sandboxes:
+
+```bash
+mise run local:sandbox-image
+```
+
+The tag is machine-global: the most recent build wins across checkouts.
+`local:control-plane` configures the provider in the agent's env file
+(`DOCKER_SANDBOX_*` and `SANDBOX_PROVIDER`). Containers:
+
+- bind-mount the directory of this stack's debug `flowctl` at
+  `/opt/estuary/bin`, so running containers see each rebuild,
+- bind-mount the shared CA (`~/flow-local/ca.crt`) at `/opt/estuary/ca.crt`,
+- bind-mount `${FLOW_STACK_DIR}/sandbox-profile.json` into the workspace
+  skeleton, as flowctl's default profile
+  (`/opt/estuary/skel/.config/flowctl/default.json`),
+- use the host network, so they reach the stack on its localhost ports,
+- carry a `dev.estuary.sandbox-scope=<stack>` label.
+
+`docker ps --filter label=dev.estuary.sandbox-scope=<stack>` lists one stack's
+containers.
+
+A command in a container reaches the stack with flowctl as it does on the host.
+Commands run with their workspace as `HOME`, so flowctl reads profiles from
+`<workspace>/.config/flowctl/`. A new workspace starts as a copy of
+`/opt/estuary/skel` (see `crates/sandbox-exec`), so this stack's profile is its
+default. The profile holds only endpoints: each
+command's `FLOW_AUTH_TOKEN` is its credential. A workspace's later flowctl
+state, such as a selected draft, stays in that workspace. That token is
+restricted, so flowctl commands which call PostgREST (such as
+`collections read` and `auth roles list`) are refused.
+
+The image's entrypoint adds `/opt/estuary/ca.crt` to the container's system
+trust store (`update-ca-certificates`), so flowctl's data-plane calls trust this
+stack's brokers and reactors without `SSL_CERT_FILE`.
+
+When `SPRITES_TOKEN` is set in the shell which runs `local:control-plane`, the
+agent also serves sandboxes hosted by Sprites, though new sandboxes are still
+containers.
 
 ## Standalone helpers
 

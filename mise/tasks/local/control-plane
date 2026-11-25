@@ -10,6 +10,22 @@ prepare_dirs
 
 NAME="${FLOW_STACK_NAME}"
 
+# This stack's flowctl profile, holding only its endpoints and public token.
+# It's the profile of sandbox containers (see the agent env below), and the
+# base of the developer's own profile (end of this script). It must never hold
+# user tokens: every sandbox workspace gets a copy. It's rewritten in place
+# rather than replaced, so running containers' bind mounts of it see updates.
+SANDBOX_PROFILE="${FLOW_STACK_DIR}/sandbox-profile.json"
+PG_PUBLIC_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+jq -n \
+    --arg agent_url "http://localhost:${FLOW_PORT_AGENT}/" \
+    --arg pg_url "http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1" \
+    --arg dashboard_url "${FLOW_DASHBOARD_ORIGIN}/" \
+    --arg config_encryption_url "http://localhost:${FLOW_PORT_CONFIG_ENC}/" \
+    --arg pg_public_token "${PG_PUBLIC_TOKEN}" \
+    '{$agent_url, $pg_url, $dashboard_url, $config_encryption_url, $pg_public_token}' \
+    > "${SANDBOX_PROFILE}"
+
 # Agent env: this stack's API port, per-stack builds root and DB/bigtable ports,
 # plus the common build/runtime vars (CARGO_TARGET_DIR for the binary path,
 # FLOW_ROOT for the build step) and the two CORS origins the unit passes as
@@ -51,6 +67,17 @@ RUNTIME_V2_NEW_MATERIALIZATIONS=true
 BIGTABLE_PROJECT=estuary-local
 BIGTABLE_INSTANCE=estuary-local
 BIGTABLE_EMULATOR_HOST=localhost:${FLOW_PORT_BIGTABLE}
+
+# New sandboxes are containers of flow-sandbox:local (mise run local:sandbox-image),
+# which run this stack's debug flowctl. Each new workspace copies this stack's
+# profile from the workspace skeleton, as flowctl's default profile. The image's
+# entrypoint adds the CA to the system trust store, so flowctl trusts this stack's
+# brokers and reactors. See "Sandbox containers" in local/README.md.
+SANDBOX_PROVIDER=docker
+DOCKER_SANDBOX_IMAGE=flow-sandbox:local
+DOCKER_SANDBOX_FLOWCTL=${CARGO_TARGET_DIR}/debug/flowctl
+DOCKER_SANDBOX_SCOPE=${NAME}
+DOCKER_SANDBOX_MOUNT=${FLOW_LOCAL}/ca.crt:/opt/estuary/ca.crt,${SANDBOX_PROFILE}:/opt/estuary/skel/.config/flowctl/default.json
 EOF
 } > "${FLOW_ENV_DIR}/agent-${NAME}.env"
 
@@ -61,9 +88,9 @@ if [ -n "${STRIPE_API_KEY:-}" ]; then
     echo "STRIPE_API_KEY=${STRIPE_API_KEY}" >> "${FLOW_ENV_DIR}/agent-${NAME}.env"
 fi
 
-# Forward SPRITES_TOKEN from the invoking shell when set. Without it, the
-# sandbox GraphQL mutations and the sandbox exec route report that sandboxes
-# are not configured.
+# Forward SPRITES_TOKEN from the invoking shell when set. It configures the
+# Sprites sandbox provider, which serves sandboxes whose records name it.
+# New sandboxes are still Docker containers.
 if [ -n "${SPRITES_TOKEN:-}" ]; then
     echo "SPRITES_TOKEN=${SPRITES_TOKEN}" >> "${FLOW_ENV_DIR}/agent-${NAME}.env"
 fi
@@ -102,43 +129,24 @@ link_unit flow-control-plane@.target
 systemctl --user daemon-reload
 systemctl --user start "flow-control-plane@${NAME}.target"
 
-# Generate this stack's flowctl profile. Every stack's profile needs explicit
-# URLs: flowctl no longer compiles in any local defaults (ports are per-stack and
-# dynamic). URLs are refreshed on every start because a checkout's index (and
-# thus its ports) can change across re-allocations after a slot is reclaimed; a prior
-# `flowctl --profile ${NAME} login` may have stored tokens we must preserve, so
-# when a profile already exists we merge new URLs into it rather than overwrite.
+# Generate this stack's flowctl profile for the developer. Every stack's profile
+# needs explicit URLs: flowctl no longer compiles in any local defaults (ports are
+# per-stack and dynamic). URLs are refreshed on every start because a checkout's
+# index (and thus its ports) can change across re-allocations after a slot is
+# reclaimed; a prior `flowctl --profile ${NAME} login` may have stored tokens we
+# must preserve, so when a profile already exists we merge new URLs into it
+# rather than overwrite.
 PROFILE_DIR="${HOME}/.config/flowctl"
 PROFILE_FILE="${PROFILE_DIR}/${NAME}.json"
-PG_PUBLIC_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
 mkdir -p "${PROFILE_DIR}"
 if [ -f "${PROFILE_FILE}" ]; then
     # Refresh URLs and the public token in place, preserving login tokens
     # (user_access_token / user_refresh_token) and any other fields.
-    jq \
-        --arg agent_url "http://localhost:${FLOW_PORT_AGENT}/" \
-        --arg pg_url "http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1" \
-        --arg dashboard_url "${FLOW_DASHBOARD_ORIGIN}/" \
-        --arg config_encryption_url "http://localhost:${FLOW_PORT_CONFIG_ENC}/" \
-        --arg pg_public_token "${PG_PUBLIC_TOKEN}" \
-        '.agent_url = $agent_url
-            | .pg_url = $pg_url
-            | .dashboard_url = $dashboard_url
-            | .config_encryption_url = $config_encryption_url
-            | .pg_public_token = $pg_public_token' \
-        "${PROFILE_FILE}" > "${PROFILE_FILE}.tmp"
+    jq -s '.[0] * .[1]' "${PROFILE_FILE}" "${SANDBOX_PROFILE}" > "${PROFILE_FILE}.tmp"
     mv "${PROFILE_FILE}.tmp" "${PROFILE_FILE}"
     echo "Refreshed flowctl profile ${PROFILE_FILE} (use: flowctl --profile ${NAME})"
 else
-    cat > "${PROFILE_FILE}" <<EOF
-{
-  "agent_url": "http://localhost:${FLOW_PORT_AGENT}/",
-  "pg_url": "http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1",
-  "dashboard_url": "${FLOW_DASHBOARD_ORIGIN}/",
-  "config_encryption_url": "http://localhost:${FLOW_PORT_CONFIG_ENC}/",
-  "pg_public_token": "${PG_PUBLIC_TOKEN}"
-}
-EOF
+    cp "${SANDBOX_PROFILE}" "${PROFILE_FILE}"
     echo "Wrote flowctl profile ${PROFILE_FILE} (use: flowctl --profile ${NAME})"
 fi
 

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Build the Docker image of local sandboxes (flow-sandbox:local)"
+
+set -euo pipefail
+
+source "$(dirname "$0")/lib.sh"
+
+# The tag is machine-global rather than per-stack: the image holds no stack
+# state, and each sandbox bind-mounts its own stack's flowctl.
+# The Dockerfile copies nothing from a context (its entrypoint is inline), so
+# it's built without one.
+docker build --tag flow-sandbox:local - < "$(flow_repo_root)/local/sandbox.Dockerfile"
