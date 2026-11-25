@@ -18,7 +18,7 @@ proto-gazette = { path = "../proto-gazette" }
 tables = { path = "../tables" }
 
 bytes = { workspace = true }
-fxhash = { workspace = true }
+hex = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 pbjson-types = { workspace = true }
@@ -26,6 +26,7 @@ percent-encoding = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 superslice = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }

@@ -12,7 +12,7 @@ expression: "(kept_across_reset, first_ports)"
     (
         "capture/the/capture/0000000000000001",
         [
-            "4fbdb9fff04cc9ee",
+            "41143d5bc310500f3db35c9ca",
         ],
     ),
 )

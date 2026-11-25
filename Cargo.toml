@@ -87,7 +87,6 @@ flate2 = { version = "1", features = ["zlib-rs"] }
 futures = "0"
 futures-core = "0"
 futures-util = "0"
-fxhash = "0"
 gcp_auth = "0.12"
 googleapis-tonic-google-bigtable-v2 = "0.36"
 graphql_client = "*"

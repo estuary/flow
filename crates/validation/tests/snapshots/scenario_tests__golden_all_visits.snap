@@ -398,7 +398,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
-                                        value: "d7f4a9d02b48c1a",
+                                        value: "56c8c396b34f528642322c6c9",
                                         prefix: false,
                                     },
                                     Label {
@@ -1191,7 +1191,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
-                                        value: "d4b08a40cd6dda6d",
+                                        value: "9ad4bd98a2f7580d9863a5550",
                                         prefix: false,
                                     },
                                     Label {
@@ -8126,7 +8126,7 @@ Outcome {
                                     },
                                     Label {
                                         name: "estuary.dev/hostname",
-                                        value: "7c018f7d92537c75",
+                                        value: "0153924b2146038b11b14b092",
                                         prefix: false,
                                     },
                                     Label {

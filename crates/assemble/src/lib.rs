@@ -507,12 +507,14 @@ pub fn shard_template(
 /// This function supplies a domain name label that identifies _all_ shards for a given task.
 /// To do this, we just hash the task name and convert it to a hexidecimal string.
 /// It's a bit janky, but the only idea I've liked better is pet-names, which we
-/// don't have yet. This also has the property of being pretty short (16 chars),
+/// don't have yet. This also has the property of being pretty short,
 /// which is nice because it leaves a little more headroom for other labels in the
 /// the full hostname.
 fn shard_hostname_label(task_name: &str) -> String {
-    let hash = fxhash::hash64(task_name);
-    format!("{:x}", hash)
+    use sha2::Digest;
+
+    let digest = sha2::Sha256::digest(format!("estuary.dev/hostname/v2\0{task_name}"));
+    hex::encode(digest)[..25].to_string()
 }
 
 pub fn shard_template_hostname(template: &consumer::ShardSpec) -> Option<&str> {
