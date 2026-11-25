@@ -799,6 +799,9 @@ impl Invoice {
     }
 }
 
+/// Load the bills that a `publish-invoices` or `send-invoices` run for `month` selects.
+///
+/// Usage is billed in arrears: the run selects usage bills for `month`. Manual bills are billed in advance: the run selects those that start in the month after `month`, as well as those that overlap `month`.
 pub(crate) async fn load_invoices(
     pool: &sqlx::PgPool,
     month: NaiveDate,
@@ -839,7 +842,7 @@ pub(crate) async fn load_invoices(
             and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
             and invoice_type = 'final'
         ) or (
-            date_start <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+            date_start <= date_trunc('day', ($1::date)) + interval '2 months' - interval '1 day'
             and date_end >= date_trunc('day', $1::date)
             and invoice_type = 'manual'
         ))
@@ -1683,7 +1686,8 @@ mod tests {
                 ('otherCo/', '2026-08-01', '{"billed_month":"2026-08-01","subtotal":10000}', null);
             insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) values
                 ('acmeCo/', 10000, 'overlap', '2026-07-15', '2026-09-14', 'in_manual'),
-                ('acmeCo/', 10000, 'outside', '2026-09-01', '2026-09-30', null);
+                ('acmeCo/', 10000, 'starts next month', '2026-09-30', '2026-10-29', null),
+                ('acmeCo/', 10000, 'starts later', '2026-10-01', '2026-10-31', null);
             "#,
         )
         .execute(&pool)
@@ -1725,6 +1729,12 @@ mod tests {
                     "2026-08-01".parse().unwrap(),
                     "2026-08-31".parse().unwrap(),
                     Some("in_acme"),
+                ),
+                (
+                    InvoiceType::Manual,
+                    "2026-09-30".parse().unwrap(),
+                    "2026-10-29".parse().unwrap(),
+                    None,
                 ),
             ]
         );
