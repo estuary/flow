@@ -4,6 +4,7 @@ set -euo pipefail
 #MISE description="Provision a tenant via the onboarding API and emit flowctl credentials"
 #MISE depends=["local:control-plane"]
 #USAGE flag "--tenant <tenant>" help="Tenant name without trailing slash (default: test)"
+#USAGE flag "--sandbox-agreement" help="Also accept the sandbox agreement for the tenant, as the user. Sandboxes of the tenant require it."
 #USAGE flag "--user <user>" help="Email of an auth.users row to own the tenant (default: alice@example.com). NOTE: onboarding API rejects users that already administer a tenant, so each seeded user (alice/bob/carol/dave from seed.sql) can own at most one tenant."
 
 source "$(dirname "$0")/lib.sh"
@@ -131,6 +132,17 @@ fi
 # Raise the ceiling well above anything a test run could reach.
 psql "${PGURL}" -tAqc \
     "UPDATE public.tenants SET tasks_quota = 1000, collections_quota = 1000 WHERE tenant = '${PREFIX}'" >/dev/null
+
+if [ "${usage_sandbox_agreement:-false}" = "true" ]; then
+    psql "${PGURL}" -v ON_ERROR_STOP=1 -tAqc "
+        INSERT INTO internal.tenant_consent (user_id, user_email, terms_id, tenant_name, tenant_id)
+        SELECT '${USER_ID}'::uuid, '${USER_EMAIL}', terms.id, tenants.tenant, tenants.id
+        FROM public.tenants,
+            (SELECT id FROM internal.legal_terms WHERE type = 'sandbox' ORDER BY version DESC LIMIT 1) terms
+        WHERE tenants.tenant = '${PREFIX}'
+        ON CONFLICT (tenant_id, terms_id) DO NOTHING"
+    echo "Sandbox agreement accepted for ${PREFIX}."
+fi
 
 # Close the window where the agent still serves a stale authorization snapshot.
 #

@@ -194,7 +194,7 @@ fi
 #   +00/+01 etcd client/peer      +05 dashboard (reserved; see FLOW_DASHBOARD_ORIGIN)
 #   +10/+11/+12/+13 supabase api/db/studio/mailpit
 #   +20/+21 agent/config-encryption   +25 bigtable   +30/+31 kafka/kafka-ctrl
-#   +40 data-plane-controller (dev-facing)
+#   +40 data-plane-controller (dev-facing)   +45 MCP server (estuary/mcp)
 #   +200 + 100*p  data plane p in 0..7 (FLOW_PLANE_BASE = base+200)
 _se_out="$(cat <<EOF
 export FLOW_STACK_NAME="${_se_name}"
@@ -218,6 +218,7 @@ export FLOW_PORT_CONFIG_ENC="$(( _se_base + 21 ))"
 export FLOW_PORT_BIGTABLE="$(( _se_base + 25 ))"
 export FLOW_PORT_KAFKA="$(( _se_base + 30 ))"
 export FLOW_PORT_KAFKA_CTRL="$(( _se_base + 31 ))"
+export FLOW_PORT_MCP="$(( _se_base + 45 ))"
 export FLOW_PLANE_BASE="$(( _se_base + 200 ))"
 # External UI origin — GLOBAL, not a per-stack port (see _se_dashboard_origin
 # above). site_url derives from it so Supabase auth redirects land on the real UI.

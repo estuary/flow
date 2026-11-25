@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+#MISE description="Expose this stack's MCP server and OAuth endpoints through Tailscale Funnel (foreground)"
+
+source "$(dirname "$0")/lib.sh"
+ensure_stack_env
+prepare_dirs
+
+# One origin serves both the MCP server and the issuer: ChatGPT looks for the
+# issuer's metadata at the MCP server's origin, whatever issuer that names.
+# The port is fixed, so one stack of a machine uses Funnel at a time.
+HTTPS_PORT=443
+# The agent paths which an OAuth client needs. The rest of its API stays private.
+ISSUER_PATHS=(/.well-known/oauth-authorization-server /oauth/authorize /oauth/token)
+
+FUNNEL_ENV="${FLOW_STACK_DIR}/funnel.env"
+JWT_SECRET_FILE="${FLOW_STACK_DIR}/jwt-secret"
+AGENT_ENV="${FLOW_ENV_DIR}/agent-${FLOW_STACK_NAME}.env"
+
+if ! command -v tailscale >/dev/null; then
+    echo "Error: tailscale is not on PATH. See https://tailscale.com/download" >&2
+    exit 1
+fi
+
+# Changing a node's serve config needs root, or `tailscale set --operator=$USER`.
+ts() {
+    if [ "$(tailscale debug prefs 2>/dev/null | jq -r '.OperatorUser // empty')" = "$(id -un)" ]; then
+        tailscale "$@"
+    else
+        sudo tailscale "$@"
+    fi
+}
+
+# Funnel publishes this stack under the machine's name, which certificate
+# transparency logs disclose, and scanners arrive within seconds. A stack signs
+# user tokens with a secret that's public by default (see stack-env), and a
+# forged token is enough to run commands in a sandbox. So refuse to expose a
+# stack until it has its own secret, and its agent runs with it.
+if [ ! -s "${JWT_SECRET_FILE}" ]; then
+    (umask 077 && head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "${JWT_SECRET_FILE}")
+    echo "Generated this stack's signing secret at ${JWT_SECRET_FILE}."
+fi
+if nc -z localhost "${FLOW_PORT_AGENT}" 2>/dev/null \
+    && ! grep -qx "CONTROL_PLANE_JWT_SECRET=$(cat "${JWT_SECRET_FILE}")" "${AGENT_ENV}"; then
+    echo "Error: this stack is running without the signing secret of ${JWT_SECRET_FILE}." >&2
+    echo "  Restart it, and then re-run this task: mise run local:stop && mise run local:stack" >&2
+    echo "  The restart resets the stack's database, and the dashboard needs the anon" >&2
+    echo "  key which local:control-plane prints." >&2
+    exit 1
+fi
+
+HOST="$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')"
+if [ -z "${HOST}" ] || [ "${HOST}" = "null" ]; then
+    echo "Error: this machine has no tailnet DNS name. Is tailscale up?" >&2
+    exit 1
+fi
+
+funnel_off() {
+    rm -f "${FUNNEL_ENV}"
+    for path in / "${ISSUER_PATHS[@]}"; do
+        ts funnel --https="${HTTPS_PORT}" --set-path "${path}" off >/dev/null 2>&1 || true
+    done
+}
+# Clear what a killed run left behind, before and after.
+funnel_off
+trap funnel_off EXIT
+
+ts funnel --bg --yes --https="${HTTPS_PORT}" "http://127.0.0.1:${FLOW_PORT_MCP}" >/dev/null
+for path in "${ISSUER_PATHS[@]}"; do
+    ts funnel --bg --yes --https="${HTTPS_PORT}" --set-path "${path}" \
+        "http://127.0.0.1:${FLOW_PORT_AGENT}${path}" >/dev/null
+done
+
+MCP_PUBLIC_URL="https://${HOST}"
+OAUTH_ISSUER="https://${HOST}"
+cat > "${FUNNEL_ENV}" <<EOF
+OAUTH_ISSUER=${OAUTH_ISSUER}
+MCP_PUBLIC_URL=${MCP_PUBLIC_URL}
+EOF
+
+cat <<EOF
+
+Funnel is on, until this task stops:
+  ${MCP_PUBLIC_URL} -> the MCP server at localhost:${FLOW_PORT_MCP}, except
+  ${ISSUER_PATHS[*]}
+    -> the agent at localhost:${FLOW_PORT_AGENT}, as the OAuth issuer
+
+Next:
+  mise run local:stack       # or local:control-plane, if the stack is up
+Then, in the estuary/mcp checkout:
+  mise run local:serve --flow $(flow_repo_root)   # run the MCP server
+  mise run local:check --flow $(flow_repo_root)   # see what's missing
+Then add ${MCP_PUBLIC_URL} as a connector in claude.ai or ChatGPT.
+A first use of this name takes a minute or two to resolve publicly.
+
+EOF
+
+sleep infinity &
+wait $!

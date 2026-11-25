@@ -97,6 +97,7 @@ Offsets within a stack's 1000-wide block:
 | +25 | bigtable emulator |
 | +30 / +31 | dekaf upstream Kafka / KRaft controller |
 | +40 | data-plane-controller (dev-facing) |
+| +45 | MCP server (`estuary/mcp`'s `local:serve`) |
 | +200 + 100·p | data plane `p ∈ 0..7` (`FLOW_PLANE_BASE` = base+200) |
 
 Not stack-scoped: cockpit :9090, and the dashboard/UI origin
@@ -563,6 +564,71 @@ stack's brokers and reactors without `SSL_CERT_FILE`.
 When `SPRITES_TOKEN` is set in the shell which runs `local:control-plane`, the
 agent also serves sandboxes hosted by Sprites, though new sandboxes are still
 containers.
+
+## MCP development loop
+
+A stack can serve claude.ai or ChatGPT through the MCP server of an
+`estuary/mcp` checkout, with sandboxes as local containers. Run each
+long-lived piece in its own terminal, such as a tmux window. In this checkout:
+
+```bash
+mise run local:funnel           # 1. foreground: public URLs for the MCP server and OAuth
+mise run local:sandbox-image    # 2. once per machine
+mise run local:stack            # 3. or local:control-plane, if the stack is already up
+```
+
+Then, in the `estuary/mcp` checkout, `mise run local:serve --flow <this
+checkout>` runs the MCP server on this stack's `FLOW_PORT_MCP`, and
+`mise run local:check --flow <this checkout>` reports what is missing, and the
+connector URL. That repository's README covers them.
+
+The user of the loop is a dashboard user, because OAuth consent needs a
+signed-in dashboard session. Sign up in the dashboard with a magic link (read
+it in Mailpit) and create a tenant there. The dashboard has no page for the
+sandbox agreement, which sandboxes of a tenant require, so accept it with:
+
+```bash
+mise run local:test-tenant --tenant <tenant> --user <email> --sandbox-agreement
+```
+
+For a tenant which exists, that task provisions nothing: it accepts the
+agreement and writes flowctl credentials for the user.
+
+`local:funnel` uses [Tailscale Funnel](https://tailscale.com/kb/1223/funnel),
+so the machine must be on a tailnet whose policy grants it Funnel. Cloudflare
+quick tunnels don't work here: their edge blocks claude.ai's requests. While
+the task runs:
+
+- `https://<machine>.<tailnet>.ts.net` is the MCP server.
+- The same origin is the OAuth issuer. Three of its paths go to the agent: the
+  ones an OAuth client needs. Nothing else of the agent's API is exposed.
+  The issuer shares the MCP server's origin because ChatGPT looks for issuer
+  metadata there, whatever issuer the MCP server names.
+
+It writes the URL to `${FLOW_STACK_DIR}/funnel.env`. Stopping the task turns
+Funnel off and removes the file. The URL is the same on every run, so a
+connector added once keeps working. The port is fixed, so one stack of a
+machine uses Funnel at a time.
+
+The machine's name is public once Funnel has been on: certificate transparency
+logs disclose it, and scanners probe it within seconds. A stack signs user
+tokens with a secret which is public by default (see "Secrets you might think
+are real but aren't"), and a forged token is enough to run commands in a
+sandbox. So `local:funnel` generates a random secret at
+`${FLOW_STACK_DIR}/jwt-secret` and refuses to run while the stack's agent uses
+another. A stack reads the secret when it starts. The stack's anon key derives
+from the secret, and the dashboard needs it as `VITE_SUPABASE_ANON_KEY`:
+`local:control-plane` prints it. Delete the file to return to the default
+secret. Keep Funnel off when the loop isn't in use.
+
+`local:control-plane` serves OAuth (`crates/oauth-server`) as the Funnel
+issuer, and restarts a running agent whose configuration changed.
+Without Funnel, it serves OAuth as `OAUTH_ISSUER` of its shell, if set. The
+encryption key is generated once, at `${FLOW_STACK_DIR}/oauth-encryption-key`.
+
+OAuth consent happens in the dashboard (`/oauth/consent`), which runs on the
+developer's laptop against a forwarded stack: see "Forwarding a stack to your
+laptop".
 
 ## Standalone helpers
 

@@ -26,6 +26,9 @@ jq -n \
     '{$agent_url, $pg_url, $dashboard_url, $config_encryption_url, $pg_public_token}' \
     > "${SANDBOX_PROFILE}"
 
+AGENT_ENV_BEFORE="$(sha256sum < "${FLOW_ENV_DIR}/agent-${NAME}.env" 2>/dev/null || true)"
+AGENT_WAS_ACTIVE="$(systemctl --user is-active --quiet "flow-control-agent@${NAME}.service" && echo yes || true)"
+
 # Agent env: this stack's API port, per-stack builds root and DB/bigtable ports,
 # plus the common build/runtime vars (CARGO_TARGET_DIR for the binary path,
 # FLOW_ROOT for the build step) and the two CORS origins the unit passes as
@@ -95,6 +98,25 @@ if [ -n "${SPRITES_TOKEN:-}" ]; then
     echo "SPRITES_TOKEN=${SPRITES_TOKEN}" >> "${FLOW_ENV_DIR}/agent-${NAME}.env"
 fi
 
+# Serve OAuth when the agent has a public HTTPS origin: that of a running
+# local:funnel, or else OAUTH_ISSUER of the invoking shell.
+# OAUTH_CONSENT_URL is the dashboard's consent page. See crates/oauth-server.
+if [ -f "${FLOW_STACK_DIR}/funnel.env" ]; then
+    OAUTH_ISSUER="$(sed -n 's/^OAUTH_ISSUER=//p' "${FLOW_STACK_DIR}/funnel.env")"
+fi
+if [ -n "${OAUTH_ISSUER:-}" ]; then
+    # The key outlives the issuer, so pending approvals survive an agent restart.
+    OAUTH_KEY_FILE="${FLOW_STACK_DIR}/oauth-encryption-key"
+    if [ -z "${OAUTH_ENCRYPTION_KEY:-}" ] && [ ! -f "${OAUTH_KEY_FILE}" ]; then
+        (umask 077 && head -c 64 /dev/urandom | basenc --base64url | tr -d '=\n' > "${OAUTH_KEY_FILE}")
+    fi
+    cat >> "${FLOW_ENV_DIR}/agent-${NAME}.env" <<EOF
+OAUTH_ISSUER=${OAUTH_ISSUER}
+OAUTH_CONSENT_URL=${OAUTH_CONSENT_URL:-${FLOW_DASHBOARD_ORIGIN}/oauth/consent}
+OAUTH_ENCRYPTION_KEY=${OAUTH_ENCRYPTION_KEY:-$(cat "${OAUTH_KEY_FILE}")}
+EOF
+fi
+
 {
     emit_common_vars
     cat <<EOF
@@ -128,6 +150,14 @@ link_unit flow-config-encryption@.service
 link_unit flow-control-plane@.target
 systemctl --user daemon-reload
 systemctl --user start "flow-control-plane@${NAME}.target"
+
+# A running agent read its env file when it started. Restart it when this run
+# changed the file, as when local:funnel starts or stops.
+if [ "${AGENT_ENV_BEFORE}" != "$(sha256sum < "${FLOW_ENV_DIR}/agent-${NAME}.env")" ] \
+    && [ -n "${AGENT_WAS_ACTIVE}" ]; then
+    echo "Agent environment changed: restarting flow-control-agent@${NAME}"
+    systemctl --user restart "flow-control-agent@${NAME}.service"
+fi
 
 # Generate this stack's flowctl profile for the developer. Every stack's profile
 # needs explicit URLs: flowctl no longer compiles in any local defaults (ports are
