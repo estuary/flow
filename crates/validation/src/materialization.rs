@@ -175,7 +175,7 @@ async fn walk_materialization(
 
     let max_bindings = crate::max_bindings(indirect_specs);
 
-    if bindings_model.len() > max_bindings {
+    if !shards.disable && bindings_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "materialization",
             name: materialization.to_string(),

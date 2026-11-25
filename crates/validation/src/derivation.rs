@@ -283,7 +283,7 @@ async fn walk_derivation(
     let indirect_specs = super::indirect_specs_flag(scope, &shards.flags, errors);
     let max_bindings = crate::max_bindings(indirect_specs);
 
-    if transforms_model.len() > max_bindings {
+    if !shards.disable && transforms_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "derivation",
             name: collection.to_string(),
