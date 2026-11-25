@@ -658,7 +658,6 @@ pub(crate) async fn pull_and_inspect(
 }
 
 #[cfg(test)]
-#[path = "container/engine_tests.rs"]
 mod engine_tests;
 
 #[cfg(test)]

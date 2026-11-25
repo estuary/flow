@@ -36,7 +36,6 @@ message TaskServiceConfig {
   // as `connector.Response.Started.process`, telling a proxied caller which
   // reactor its connector landed on.
   protocol.ProcessSpec process = 7;
-  reserved 8;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.

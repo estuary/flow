@@ -95,8 +95,6 @@ message Response {
       derive.Response.Spec derive = 6;
       materialize.Response.Spec materialize = 7;
     }
-
-    reserved 8;
   }
 
   oneof kind {
