@@ -152,7 +152,7 @@ async fn walk_capture(
 
     let max_bindings = crate::max_bindings(indirect_specs);
 
-    if bindings_model.len() > max_bindings {
+    if !shards.disable && bindings_model.len() > max_bindings {
         Error::TooManyBindings {
             entity: "capture",
             name: capture.to_string(),

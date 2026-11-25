@@ -2657,3 +2657,60 @@ test://example/db-views:
     let errors = common::run_errors(MODEL_YAML, &patch);
     insta::assert_debug_snapshot!(errors);
 }
+
+#[test]
+fn test_disabled_tasks_skip_binding_ceiling() {
+    let bindings_count = validation::MAX_BINDINGS + 1;
+
+    let mut capture_bindings = String::new();
+    let mut transforms = String::new();
+    let mut materialization_bindings = String::new();
+
+    for i in 0..bindings_count {
+        capture_bindings.push_str(&format!(
+            r##"        - target: testing/int-string
+          resource:
+            stream: "binding{i}"
+"##
+        ));
+        transforms.push_str(&format!(
+            r##"          - name: transform{i}
+            source: testing/int-string
+            shuffle: any
+"##
+        ));
+        materialization_bindings.push_str(&format!(
+            r##"        - source: testing/int-string
+          resource:
+            table: "table{i}"
+"##
+        ));
+    }
+
+    let patch = format!(
+        r##"
+test://example/int-string-captures:
+  captures:
+    testing/s3-source:
+      shards: {{ disable: true }}
+      bindings:
+{capture_bindings}
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      derive:
+        shards: {{ disable: true }}
+        transforms:
+{transforms}
+test://example/db-views:
+  materializations:
+    testing/db-views:
+      shards: {{ disable: true }}
+      bindings:
+{materialization_bindings}
+"##
+    );
+
+    let errors = common::run_errors(MODEL_YAML, &patch);
+    insta::assert_debug_snapshot!(errors, @"[]");
+}
