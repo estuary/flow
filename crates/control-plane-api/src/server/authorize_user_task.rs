@@ -86,7 +86,6 @@ fn evaluate_authorization<'s>(
     ),
 )> {
     let user_id = subject.user_id;
-    let user_email = user_email.unwrap_or("user");
 
     let (claim_bits, cap) =
         super::evaluate_user_claims(snapshot, subject, user_email, task_name, capability_bundle)?;
@@ -245,7 +244,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/other/thing for Viewer"
+            "error": "the presented credential (user: bob@bob) lacks the journal and shard capability bits of the viewer capability bundle against 'acmeCo/other/thing'"
           }
         }
         "#);
@@ -264,7 +263,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to bobCo/anvils/materialize-orange for Admin"
+            "error": "the presented credential (user: bob@bob) lacks the journal and shard capability bits of the admin capability bundle against 'bobCo/anvils/materialize-orange'"
           }
         }
         "###);
@@ -365,7 +364,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to bobCo/tires/materialize-wheels for the Admin capability bundle (requires estuary_support/ grant)"
+            "error": "the presented credential (user: bob@bob) requests APPLY to 'bobCo/tires/materialize-wheels' through the admin capability bundle, and APPLY requires the admin capability bundle on 'estuary_support/'"
           }
         }
         "###);
@@ -586,7 +585,7 @@ mod tests {
             @r#"
         Status {
             code: PermissionDenied,
-            message: "alice@example.com is not authorized to Some/Other/Task for Writer",
+            message: "the presented credential (user: alice@example.com) lacks the journal and shard capability bits of the writer capability bundle against 'Some/Other/Task'",
             source: None,
         }
         "#,

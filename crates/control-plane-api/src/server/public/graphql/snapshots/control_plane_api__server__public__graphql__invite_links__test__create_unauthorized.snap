@@ -23,7 +23,7 @@ expression: unauthorized_response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAlice/'. Requires capabilities: team_admin or admin",
+      "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'notAlice/'. Retry with one of: team_admin, admin",
       "path": [
         "createInviteLink"
       ]

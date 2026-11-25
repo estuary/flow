@@ -4,7 +4,7 @@ expression: outcomes
 ---
 [
   {
-    "error": "PermissionDenied: user is not authorized to access prefix or name 'aliceCo/in/capture-foo'. Requires capabilities: editor or admin",
+    "error": "PermissionDenied: the presented credential lacks the capability bits required for this operation against 'aliceCo/in/capture-foo'. Retry with one of: editor, admin",
     "mask": [
       "viewer"
     ],

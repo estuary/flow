@@ -92,7 +92,7 @@ pub async fn create(
         })
     {
         anyhow::bail!(tonic::Status::permission_denied(format!(
-            "not authorized to read binding target {target}"
+            "the presented credential lacks the capability bits required to read binding target '{target}'"
         )));
     }
     let data_plane_error = || tonic::Status::not_found("data plane not found or unauthorized");

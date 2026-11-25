@@ -23,7 +23,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'. Requires capabilities: team_admin or admin",
+      "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'notAliceCo/'. Retry with one of: team_admin, admin",
       "path": [
         "updateAlertConfig"
       ]

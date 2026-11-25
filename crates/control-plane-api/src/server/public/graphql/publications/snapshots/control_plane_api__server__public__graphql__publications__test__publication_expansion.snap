@@ -5,7 +5,7 @@ expression: outcomes
 [
   {
     "case": "scoped to aliceCo/",
-    "error": "PermissionDenied: User is not authorized to create or change 'bobCo/out/mat'",
+    "error": "PermissionDenied: the presented credential lacks the capability bits required to create or change 'bobCo/out/mat'",
     "status": null
   },
   {

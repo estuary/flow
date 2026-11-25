@@ -30,15 +30,13 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
             };
             // Each option is a list of bundles which together hold the
             // denied bits. Today every option is a single bundle.
-            let options: Vec<Vec<String>> =
-                models::authz::bundles_containing(denial.capability_bits)
-                    .map(|bundle| vec![bundle_name(bundle)])
-                    .collect();
+            let options: Vec<Vec<&str>> = models::authz::bundles_containing(denial.capability_bits)
+                .map(|bundle| vec![bundle.into()])
+                .collect();
             let descriptions: Vec<_> = options.iter().map(|option| option.join(" + ")).collect();
-            error.message.push_str(&format!(
-                ". Requires capabilities: {}",
-                descriptions.join(" or ")
-            ));
+            error
+                .message
+                .push_str(&format!(". Retry with one of: {}", descriptions.join(", ")));
             let extensions = error.extensions.get_or_insert_with(Default::default);
             extensions.set("code", "FORBIDDEN");
             extensions.set("requiredBundleOptions", options);
@@ -87,14 +85,6 @@ pub(super) async fn authorization_outcome<T>(
         }
         Err(error) => Err(error.into()),
     }
-}
-
-fn bundle_name(bundle: models::authz::CapabilityBundle) -> String {
-    serde_json::to_value(bundle)
-        .expect("bundle serializes")
-        .as_str()
-        .expect("bundle is a string")
-        .to_owned()
 }
 
 #[cfg(test)]
@@ -178,7 +168,7 @@ mod tests {
             "data": null,
             "errors": [
               {
-                "message": "billing access denied. Requires capabilities: edit_billing or billing or admin",
+                "message": "billing access denied. Retry with one of: edit_billing, billing, admin",
                 "locations": [
                   {
                     "line": 1,

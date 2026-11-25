@@ -17,7 +17,7 @@ expression: outcomes
   },
   {
     "capture": "aliceCo/in/unreadable",
-    "error": "PermissionDenied: not authorized to read binding target aliceCo/other/foo",
+    "error": "PermissionDenied: the presented credential lacks the capability bits required to read binding target 'aliceCo/other/foo'",
     "status": null,
     "token": "scoped"
   },

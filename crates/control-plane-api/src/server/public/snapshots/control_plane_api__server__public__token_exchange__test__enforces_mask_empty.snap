@@ -6,13 +6,24 @@ expression: response
   "data": null,
   "errors": [
     {
+      "extensions": {
+        "code": "FORBIDDEN",
+        "requiredBundleOptions": [
+          [
+            "team_admin"
+          ],
+          [
+            "admin"
+          ]
+        ]
+      },
       "locations": [
         {
           "column": 29,
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'aliceCo/'",
+      "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'aliceCo/'. Retry with one of: team_admin, admin",
       "path": [
         "updateAlertConfig"
       ]

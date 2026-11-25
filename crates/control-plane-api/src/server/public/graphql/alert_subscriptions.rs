@@ -604,7 +604,7 @@ mod test {
                   "line": 2
                 }
               ],
-              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/'. Requires capabilities: team_admin or admin",
+              "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'notAliceAtAll/'. Retry with one of: team_admin, admin",
               "path": [
                 "alertSubscriptions"
               ]
@@ -651,7 +651,7 @@ mod test {
                   "line": 3
                 }
               ],
-              "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceAtAll/'. Requires capabilities: team_admin or admin",
+              "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'notAliceAtAll/'. Retry with one of: team_admin, admin",
               "path": [
                 "createAlertSubscription"
               ]

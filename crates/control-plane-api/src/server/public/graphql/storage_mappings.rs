@@ -216,8 +216,7 @@ impl StorageMappingsMutation {
         // Do basic input validation checks first.
         validate_inputs(&catalog_prefix, &spec)?;
 
-        // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
+        verify_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -347,8 +346,7 @@ impl StorageMappingsMutation {
         // Do basic input validation checks first.
         validate_inputs(&catalog_prefix, &spec)?;
 
-        // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
+        verify_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -492,8 +490,7 @@ impl StorageMappingsMutation {
         // Do basic input validation checks first.
         validate_inputs(&catalog_prefix, &spec)?;
 
-        // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
+        verify_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -507,47 +504,34 @@ impl StorageMappingsMutation {
     }
 }
 
-async fn evaluate_authorization(
+/// Verifies that the caller administers `catalog_prefix`, and that
+/// `catalog_prefix` may use each of `data_plane_names`.
+async fn verify_authorization(
     env: &crate::Envelope,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
-) -> Result<(), crate::ApiError> {
-    let policy_result = check_authorization(
-        &env.snapshot(),
-        env.subject()?,
-        env.claims()?.email.as_deref(),
-        catalog_prefix,
-        data_plane_names,
-    );
+) -> async_graphql::Result<()> {
+    // TODO: no capability bit means "may manage storage mappings of this
+    // prefix", so this requires the `Admin` bundle. Such a bit would authorize
+    // creating and changing where the prefix's collections are stored.
+    super::verify_authorization(
+        env,
+        [catalog_prefix],
+        models::authz::CapabilityBundle::Admin,
+    )
+    .await?;
+
+    let policy_result = evaluate_data_planes(env.snapshot(), catalog_prefix, data_plane_names);
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
 
-fn check_authorization(
+fn evaluate_data_planes(
     snapshot: &crate::Snapshot,
-    subject: &models::authz::Subject,
-    user_email: Option<&str>,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
-    let user_email = user_email.unwrap_or("user");
-
-    // Verify the User admins `catalog_prefix`.
-    // TODO: no capability bit means "may manage storage mappings of this
-    // prefix", so this requires the `Admin` bundle. Such a bit would authorize
-    // creating and changing where the prefix's collections are stored.
-    if !snapshot.is_user_authorized(
-        subject,
-        catalog_prefix,
-        models::authz::CapabilityBundle::Admin,
-    ) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
-        )));
-    }
-
     for data_plane_name in data_plane_names {
-        // Verify `catalog_prefix` is authorized to access the data-plane for Read.
         // TODO: no capability bit means "may use this data plane", so this
         // requires the `Viewer` bundle. Such a bit would authorize deploying
         // tasks into the data plane, and operating on them there.
@@ -557,11 +541,10 @@ fn check_authorization(
             models::authz::CapabilityBundle::Viewer,
         ) {
             return Err(tonic::Status::permission_denied(format!(
-                "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
+                "catalog prefix '{catalog_prefix}' may not use data plane '{data_plane_name}'",
             )));
         }
     }
-
     Ok((None, ()))
 }
 

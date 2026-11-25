@@ -1728,7 +1728,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&denied),
-            "PermissionDenied: alice@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires capabilities: modify_data_plane_private_networking or manage_data_plane or admin",
+            "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Retry with one of: modify_data_plane_private_networking, manage_data_plane, admin",
         );
     }
 
@@ -1977,7 +1977,7 @@ mod tests {
             .await;
         assert_eq!(
             first_error_message(&bob_denied),
-            "PermissionDenied: bob@example.test is not authorized to access prefix or name 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Requires capabilities: modify_data_plane_private_networking or manage_data_plane or admin",
+            "PermissionDenied: the presented credential (user: bob@example.test) lacks the capability bits required for this operation against 'ops/dp/private/aliceCo/aws-us-east-1-c1'. Retry with one of: modify_data_plane_private_networking, manage_data_plane, admin",
         );
 
         // An id-addressed mutation on a link Bob may not modify must return the

@@ -126,16 +126,23 @@ where
     S: AsRef<str> + std::fmt::Display,
 {
     let required = required.into();
-    let user_email = user_email.unwrap_or("user");
+    let user = credential_user(user_email);
 
     for prefix_or_name in prefixes_or_names.into_iter() {
         if !snapshot.is_user_authorized(subject, prefix_or_name.as_ref(), required) {
             return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to access prefix or name '{prefix_or_name}'",
+                "the presented credential{user} lacks the capability bits required for this operation against '{prefix_or_name}'",
             )));
         }
     }
     Ok((None, ()))
+}
+
+/// Names the user of a presented credential within a denial.
+fn credential_user(user_email: Option<&str>) -> String {
+    user_email
+        .map(|email| format!(" (user: {email})"))
+        .unwrap_or_default()
 }
 
 /// Build the agent's API router.
@@ -403,7 +410,7 @@ fn map_bundle_to_gazette(
 fn evaluate_user_claims(
     snapshot: &Snapshot,
     subject: &models::authz::Subject,
-    user_email: &str,
+    user_email: Option<&str>,
     object_role_or_name: &str,
     bundle: models::authz::CapabilityBundle,
 ) -> tonic::Result<(models::authz::CapabilityBits, u32)> {
@@ -416,7 +423,8 @@ fn evaluate_user_claims(
     }
     if !snapshot.is_user_authorized(subject, object_role_or_name, claim_bits) {
         return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not authorized to {object_role_or_name} for {bundle:?}",
+            "the presented credential{} lacks the journal and shard capability bits of the {bundle} capability bundle against '{object_role_or_name}'",
+            credential_user(user_email),
         )));
     }
     Ok((claim_bits, cap))
@@ -437,7 +445,7 @@ fn evaluate_user_claims(
 fn evaluate_support_apply(
     snapshot: &Snapshot,
     subject: &models::authz::Subject,
-    user_email: &str,
+    user_email: Option<&str>,
     object_role_or_name: &str,
     bundle: models::authz::CapabilityBundle,
     claim_bits: models::authz::CapabilityBits,
@@ -451,7 +459,8 @@ fn evaluate_support_apply(
         models::authz::CapabilityBundle::Admin,
     ) {
         return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not authorized to {object_role_or_name} for the {bundle:?} capability bundle (requires estuary_support/ grant)",
+            "the presented credential{} requests APPLY to '{object_role_or_name}' through the {bundle} capability bundle, and APPLY requires the admin capability bundle on 'estuary_support/'",
+            credential_user(user_email),
         )));
     }
     Ok(())
@@ -484,7 +493,7 @@ mod tests {
         assert_eq!(status.code(), tonic::Code::PermissionDenied);
         assert_eq!(
             status.message(),
-            "user@example.test is not authorized to access prefix or name 'ops/'"
+            "the presented credential (user: user@example.test) lacks the capability bits required for this operation against 'ops/'"
         );
 
         // Capability bits stay internal even when the caller checks one directly.

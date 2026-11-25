@@ -42,7 +42,7 @@ pub async fn submit(
         !snapshot.is_user_authorized(subject, name, models::authz::CapabilityBit::SpecEdit)
     }) {
         anyhow::bail!(tonic::Status::permission_denied(format!(
-            "User is not authorized to create or change '{name}'"
+            "the presented credential lacks the capability bits required to create or change '{name}'"
         )));
     }
 
@@ -80,7 +80,7 @@ pub async fn submit(
         };
         if !snapshot.is_user_authorized(subject, name, required) {
             anyhow::bail!(tonic::Status::permission_denied(format!(
-                "User is not authorized to {action} '{name}'"
+                "the presented credential lacks the capability bits required to {action} '{name}'"
             )));
         }
     }

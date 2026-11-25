@@ -404,7 +404,7 @@ mod test {
 
         let text = response.text().await.unwrap();
         assert!(
-            text.contains("alice@example.com is not authorized to access prefix or name 'ops/'"),
+            text.contains("the presented credential (user: alice@example.com) lacks the capability bits required for this operation against 'ops/'"),
             "unexpected denial body: {text}"
         );
     }

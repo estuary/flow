@@ -32,7 +32,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'. Requires capabilities: catalog_read or viewer or writer or editor or admin",
+      "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'notAliceCo/'. Retry with one of: catalog_read, viewer, writer, editor, admin",
       "path": [
         "effectiveAlertConfig"
       ]

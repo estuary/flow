@@ -162,7 +162,7 @@ impl LegalTermsMutation {
             ));
         }
         // Legal consent must come from the user's direct grants, not inherited admin roles.
-        // TODO: Use standard authorization checks once the legacy admin bundle is split up.
+        // TODO: Use standard authorization checks once the `Admin` bundle is split up.
         let required = models::authz::CapabilityBit::ManageLegal;
         let authorized = tables::UserGrant::is_authorized(
             &[],
@@ -413,7 +413,7 @@ mod test {
             "query": "mutation($id: Id!) { legalAccept(tenant: \"otherCo/\", termsId: $id) { id } }",
             "variables": {"id": terms_id.to_string()},
         }), Some(&token)).await;
-        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""PermissionDenied: Accepting legal terms requires a direct user grant on the tenant. Requires capabilities: admin""#);
+        insta::assert_json_snapshot!(response["errors"][0]["message"], @r#""PermissionDenied: Accepting legal terms requires a direct user grant on the tenant. Retry with one of: admin""#);
         let count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM internal.tenant_consent WHERE tenant_name = 'otherCo/'",
         )

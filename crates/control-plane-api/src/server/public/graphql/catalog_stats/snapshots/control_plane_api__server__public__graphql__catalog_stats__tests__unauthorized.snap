@@ -32,7 +32,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope'. Requires capabilities: catalog_read or viewer or writer or editor or admin",
+      "message": "PermissionDenied: the presented credential lacks the capability bits required for this operation against 'bobCo/nope'. Retry with one of: catalog_read, viewer, writer, editor, admin",
       "path": [
         "catalogStats"
       ]

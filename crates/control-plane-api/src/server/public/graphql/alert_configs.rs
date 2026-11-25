@@ -221,7 +221,7 @@ impl AlertConfigsQuery {
         // AlertConfigEntry and `effectiveAlertConfig` on liveSpec.
         super::verify_authorization(
             env,
-            [catalog_prefix_or_name.as_str()],
+            [&catalog_prefix_or_name],
             models::authz::CapabilityBit::CatalogRead,
         )
         .await?;

@@ -74,7 +74,6 @@ fn evaluate_authorization<'s>(
     ),
 )> {
     let user_id = subject.user_id;
-    let user_email = user_email.unwrap_or("user");
 
     let (claim_bits, cap) =
         super::evaluate_user_claims(snapshot, subject, user_email, prefix, capability_bundle)?;
@@ -90,15 +89,13 @@ fn evaluate_authorization<'s>(
     // TODO: no capability bit means "may use this data plane", so this
     // requires the `Viewer` bundle. Such a bit would authorize deploying
     // tasks into the data plane, and operating on them there.
-    if !snapshot.is_user_authorized(
+    let (_, ()) = super::evaluate_names_authorization(
+        snapshot,
         subject,
-        data_plane_name,
+        user_email,
         models::authz::CapabilityBundle::Viewer,
-    ) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not authorized to {data_plane_name}",
-        )));
-    }
+        [data_plane_name],
+    )?;
 
     let Some(data_plane) = snapshot.data_plane_by_catalog_name(data_plane_name) else {
         return Err(tonic::Status::not_found(format!(
@@ -324,7 +321,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/whoosh/ for Writer"
+            "error": "the presented credential (user: bob@bob) lacks the journal and shard capability bits of the writer capability bundle against 'acmeCo/whoosh/'"
           }
         }
         "#);
@@ -344,7 +341,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to ops/dp/private/something"
+            "error": "the presented credential (user: bob@bob) lacks the capability bits required for this operation against 'ops/dp/private/something'"
           }
         }
         "###);
@@ -384,7 +381,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/shared/stuff/ for Writer"
+            "error": "the presented credential (user: bob@bob) lacks the journal and shard capability bits of the writer capability bundle against 'acmeCo/shared/stuff/'"
           }
         }
         "#);
@@ -405,7 +402,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to bobCo/tires/ for the Admin capability bundle (requires estuary_support/ grant)"
+            "error": "the presented credential (user: bob@bob) requests APPLY to 'bobCo/tires/' through the admin capability bundle, and APPLY requires the admin capability bundle on 'estuary_support/'"
           }
         }
         "###);
@@ -613,7 +610,7 @@ mod tests {
             @r#"
         Status {
             code: PermissionDenied,
-            message: "alice@example.com is not authorized to Some/Other/Prefix/ for Writer",
+            message: "the presented credential (user: alice@example.com) lacks the journal and shard capability bits of the writer capability bundle against 'Some/Other/Prefix/'",
             source: None,
         }
         "#,

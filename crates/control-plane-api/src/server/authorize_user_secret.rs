@@ -167,11 +167,11 @@ mod tests {
             ),
             (
                 "alice/other-tenant",
-                "403 user@example.com is not authorized to access prefix or name 'bobCo/token'",
+                "403 the presented credential (user: user@example.com) lacks the capability bits required for this operation against 'bobCo/token'",
             ),
             (
                 "bob/denied",
-                "403 user@example.com is not authorized to access prefix or name 'aliceCo/in/token'",
+                "403 the presented credential (user: user@example.com) lacks the capability bits required for this operation against 'aliceCo/in/token'",
             ),
             (
                 "alice/malformed",

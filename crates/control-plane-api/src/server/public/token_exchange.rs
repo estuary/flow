@@ -384,13 +384,33 @@ mod test {
                   "data": null,
                   "errors": [
                     {
+                      "extensions": {
+                        "code": "FORBIDDEN",
+                        "requiredBundleOptions": [
+                          [
+                            "catalog_read"
+                          ],
+                          [
+                            "viewer"
+                          ],
+                          [
+                            "writer"
+                          ],
+                          [
+                            "editor"
+                          ],
+                          [
+                            "admin"
+                          ]
+                        ]
+                      },
                       "locations": [
                         {
                           "column": 17,
                           "line": 2
                         }
                       ],
-                      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'aliceCo/data/'",
+                      "message": "PermissionDenied: the presented credential (user: alice@example.test) lacks the capability bits required for this operation against 'aliceCo/data/'. Retry with one of: catalog_read, viewer, writer, editor, admin",
                       "path": [
                         "liveSpecs"
                       ]
@@ -1129,7 +1149,7 @@ mod test {
         assert!(denied["data"].is_null(), "mutation must not run: {denied}");
         assert_eq!(
             denied["errors"][0]["message"],
-            "PermissionDenied: carol@example.test is not authorized to access prefix or name 'bobCo2/'",
+            "PermissionDenied: the presented credential (user: carol@example.test) lacks the capability bits required for this operation against 'bobCo2/'. Retry with one of: team_admin, admin",
             "the mask cannot grant admin carol lacks: {denied}"
         );
 
