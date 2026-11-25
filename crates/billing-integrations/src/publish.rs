@@ -221,10 +221,10 @@ impl Invoice {
             .with_context(|| format!("invalid recorded Stripe invoice ID {recorded}"))?;
         let invoice = provider.retrieve_invoice(&invoice_id).await?;
         if let Some(invoice) = &invoice {
-            crate::stripe_utils::verify_invoice_customer(
-                invoice,
-                self.stripe_customer_id.as_deref(),
-            )?;
+            let customer = self.stripe_customer_id.as_deref().with_context(|| {
+                format!("No recorded Stripe customer for invoice {}", invoice.id)
+            })?;
+            crate::stripe_utils::verify_invoice_customer(invoice, customer)?;
         }
         Ok(invoice)
     }

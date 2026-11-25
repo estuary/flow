@@ -169,6 +169,8 @@ async fn retrieve_recorded_invoice(
         .parse()
         .with_context(|| format!("Invalid recorded Stripe invoice ID {recorded_id}"))?;
     let invoice = StripeInvoice::retrieve(stripe_client, &invoice_id, &["customer"]).await?;
+    let expected_customer = expected_customer
+        .with_context(|| format!("No recorded Stripe customer for invoice {}", invoice.id))?;
     crate::stripe_utils::verify_invoice_customer(&invoice, expected_customer)?;
     Ok(Some(Invoice::with_metadata(invoice, metadata.clone())))
 }
