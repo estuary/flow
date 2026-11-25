@@ -16,7 +16,7 @@ NAME="${FLOW_STACK_NAME}"
 # user tokens: every sandbox workspace gets a copy. It's rewritten in place
 # rather than replaced, so running containers' bind mounts of it see updates.
 SANDBOX_PROFILE="${FLOW_STACK_DIR}/sandbox-profile.json"
-PG_PUBLIC_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+PG_PUBLIC_TOKEN="$(sign_jwt '{"iss":"supabase-demo","role":"anon","exp":1983812996}')"
 jq -n \
     --arg agent_url "http://localhost:${FLOW_PORT_AGENT}/" \
     --arg pg_url "http://localhost:${FLOW_PORT_SUPABASE_API}/rest/v1" \
@@ -42,7 +42,7 @@ API_PORT=${FLOW_PORT_AGENT}
 FLOW_DASHBOARD_ORIGIN=${FLOW_DASHBOARD_ORIGIN}
 FLOW_PORT_DASHBOARD=${FLOW_PORT_DASHBOARD}
 BUILDS_ROOT=file://${FLOW_STACK_DIR}/builds/
-CONTROL_PLANE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
+CONTROL_PLANE_JWT_SECRET=${FLOW_JWT_SECRET}
 DATABASE_URL=postgresql://postgres:postgres@db.flow.localhost:${FLOW_PORT_SUPABASE_DB}/postgres
 LOG_FORMAT=text
 CONTROLLER_MAX_JOBS=10
@@ -148,6 +148,13 @@ if [ -f "${PROFILE_FILE}" ]; then
 else
     cp "${SANDBOX_PROFILE}" "${PROFILE_FILE}"
     echo "Wrote flowctl profile ${PROFILE_FILE} (use: flowctl --profile ${NAME})"
+fi
+
+# The Supabase CLI derives its anon key from the signing secret, as the same
+# claims as its well-known key. A stack with its own secret has its own key.
+if [ -s "${FLOW_STACK_DIR}/jwt-secret" ]; then
+    echo "This stack has its own signing secret. The dashboard needs its anon key:"
+    echo "  VITE_SUPABASE_ANON_KEY=${PG_PUBLIC_TOKEN}"
 fi
 
 echo "Control-plane started. Check status with: systemctl --user status flow-control-plane@${NAME}.target"

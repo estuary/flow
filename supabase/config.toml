@@ -38,6 +38,9 @@ port = "env(FLOW_PORT_SUPABASE_MAILPIT)"
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
 site_url = "env(FLOW_SITE_URL)"
+# Signs user tokens, and the anon and service-role API keys. Per-stack: see
+# FLOW_JWT_SECRET in mise/tasks/local/stack-env.
+jwt_secret = "env(FLOW_JWT_SECRET)"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 # env() does not work inside TOML arrays (supabase/cli#2774), so this stays static;
 # it only matters for OAuth redirects, which are unused locally.

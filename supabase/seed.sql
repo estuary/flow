@@ -136,7 +136,7 @@ $$ language plpgsql;
 -- Seed the JWT secret into the vault so that refresh token exchange works locally.
 -- This is required for the OpenMetrics API and any other endpoint that uses refresh tokens.
 select vault.create_secret(
-  'super-secret-jwt-token-with-at-least-32-characters-long',
+  current_setting('app.settings.jwt_secret'),
   'app.jwt_secret'
 );
 

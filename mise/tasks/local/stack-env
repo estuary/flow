@@ -178,6 +178,15 @@ _se_rocksdb_lib="${ROCKSDB_LIB_DIR:-${HOME}/rocksdb-${ROCKSDB_VERSION:-9.10.0}/l
 # cockpit :9090, it is machine-global, not stack-scoped.
 _se_dashboard_origin="http://localhost:3000"
 
+# The secret which signs this stack's user tokens. It defaults to the Supabase
+# CLI's well-known development secret, with which anyone can forge a token for
+# any user. A stack that's reachable from the internet must have its own:
+# `local:funnel` generates one into the stack's state dir.
+_se_jwt_secret="super-secret-jwt-token-with-at-least-32-characters-long"
+if [ -s "${_se_flow_local}/${_se_name}/jwt-secret" ]; then
+    _se_jwt_secret="$(cat "${_se_flow_local}/${_se_name}/jwt-secret")"
+fi
+
 # Build the block of `export` statements once, then apply and/or print it.
 #
 # Offsets within a stack's 1000-wide block (last three digits identify the
@@ -214,6 +223,7 @@ export FLOW_PLANE_BASE="$(( _se_base + 200 ))"
 # above). site_url derives from it so Supabase auth redirects land on the real UI.
 export FLOW_DASHBOARD_ORIGIN="${_se_dashboard_origin}"
 export FLOW_SITE_URL="${_se_dashboard_origin}"
+export FLOW_JWT_SECRET="${_se_jwt_secret}"
 export FLOW_PG_URL="postgresql://postgres:postgres@localhost:$(( _se_base + 11 ))/postgres"
 # The sqlx compile-time query macros connect to DATABASE_URL to verify queries;
 # point it at the Postgres of this checkout. Without this the build falls back to the

@@ -82,6 +82,16 @@ SNAPPY_STATIC="${SNAPPY_STATIC}"
 EOF
 }
 
+# Print an HS256 JWT of the given claims (a JSON object), signed with this
+# stack's secret.
+sign_jwt() {
+    local b64url="basenc --base64url -w0" unsigned
+    unsigned="$(printf '%s' '{"alg":"HS256","typ":"JWT"}' | ${b64url} | tr -d '=')"
+    unsigned="${unsigned}.$(printf '%s' "$1" | ${b64url} | tr -d '=')"
+    printf '%s.%s' "${unsigned}" "$(printf '%s' "${unsigned}" \
+        | openssl dgst -sha256 -hmac "${FLOW_JWT_SECRET}" -binary | ${b64url} | tr -d '=')"
+}
+
 # Print the compact stack "card": the one-screen summary of this stack's
 # identity and go-to commands. Shared by local:stack (printed on completion) and
 # local:stack-info (which prints it as the short form beneath its full detail).

@@ -147,9 +147,8 @@ SSL_CERT_FILE=${FLOW_LOCAL}/ca.crt
 AGENT_API=http://agent.flow.localhost:${FLOW_PORT_AGENT}
 PG_URL=postgresql://postgres:postgres@localhost:${FLOW_PORT_SUPABASE_DB}/postgres
 
-# A token for the local-stack system user signed against the local-stack
-# supabase secret (super-secret-jwt-token-with-at-least-32-characters-long).
-SYSTEM_USER_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjU0MzEvYXV0aC92MSIsInN1YiI6ImZmZmZmZmZmLWZmZmYtZmZmZi1mZmZmLWZmZmZmZmZmZmZmZiIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjI3MDAwMDAwMDAsImlhdCI6MTcwMDAwMDAwMCwiZW1haWwiOiJzdXBwb3J0QGVzdHVhcnkuZGV2Iiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.Nb-N4s_YnObBHGivSTe_8FEniVUUpehzrRkF5JgNWWU
+# A token for the system user, signed with this stack's secret.
+SYSTEM_USER_TOKEN=$(sign_jwt '{"sub":"ffffffff-ffff-ffff-ffff-ffffffffffff","aud":"authenticated","exp":2700000000,"iat":1700000000,"email":"support@estuary.dev","role":"authenticated","is_anonymous":false}')
 
 DATA_PLANE_NAME=${DATA_PLANE}
 CREATE_REQUEST=${FLOW_ENV_DIR}/plane-link-${DATA_PLANE}.json

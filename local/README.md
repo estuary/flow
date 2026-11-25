@@ -317,8 +317,10 @@ preserve state, delete the sentinel beforehand or don't restart.
 ## Secrets you might think are real but aren't
 
 - **`super-secret-jwt-token-with-at-least-32-characters-long`** — the Supabase
-  JWT secret. The pre-minted `SYSTEM_USER_TOKEN` in `plane-link-*.env` is a JWT
-  signed with it for the `support@estuary.dev` system user.
+  CLI's default JWT secret, and a stack's `FLOW_JWT_SECRET` unless
+  `${FLOW_STACK_DIR}/jwt-secret` exists. It signs user tokens, the anon key,
+  and the `SYSTEM_USER_TOKEN` in `plane-link-*.env` for the
+  `support@estuary.dev` system user. Anyone can forge a token of such a stack.
 - **`AGE-SECRET-KEY-1UX6ZHA…`** — SOPS age key used by reactor and dekaf; its
   public counterpart `age1z2qskpk…` is the config-encryption `KMS_KEY`.
 - **`AGE-SECRET-KEY-15HVSX9…`** — the second SOPS age key, which wraps
