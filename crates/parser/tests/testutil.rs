@@ -9,8 +9,6 @@ use serde_json::Value;
 use std::fs::File;
 use std::path::Path;
 
-use tempdir::TempDir;
-
 pub fn input_for_file(rel_path: impl AsRef<Path>) -> Input {
     let file = File::open(rel_path).expect("failed to open file");
     Input::File(file)
@@ -54,7 +52,10 @@ pub fn run_parser(config: &ParseConfig, input: Input, debug: bool) -> CommandRes
     use std::io::BufRead;
     use std::process::{Command, Stdio};
 
-    let tmp = TempDir::new("jsonl-parser-test").unwrap();
+    let tmp = tempfile::Builder::new()
+        .prefix("jsonl-parser-test")
+        .tempdir()
+        .unwrap();
     let cfg_path = tmp.path().join("config.json");
     let mut cfg_file = File::create(&cfg_path).unwrap();
     serde_json::to_writer_pretty(&mut cfg_file, config).expect("failed to write config");

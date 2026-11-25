@@ -58,5 +58,4 @@ regex = { workspace = true }
 zstd = { workspace = true }
 
 [dev-dependencies]
-tempdir = { workspace = true }
 insta = { workspace = true }
