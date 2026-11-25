@@ -13,13 +13,8 @@ use flow_client::{
     LOCAL_DATA_PLANE_FQDN, LOCAL_DATA_PLANE_HMAC, LOCAL_PG_PUBLIC_TOKEN,
 };
 use futures::TryStreamExt;
-use rustls::pki_types::CertificateDer;
-use std::{
-    fs::File,
-    io,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use std::{io, path::PathBuf, sync::Arc};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use url::Url;
@@ -365,8 +360,11 @@ async fn async_main(cli: Cli) -> anyhow::Result<()> {
             .serve(schema_router.into_make_service());
         tokio::spawn(async move { schema_server_task.await.unwrap() });
 
-        let certs = load_certs(&tls_cfg.certificate_file.unwrap())?;
-        let key = load_key(&tls_cfg.certificate_key_file.unwrap())?;
+        let certs = CertificateDer::pem_file_iter(tls_cfg.certificate_file.unwrap())
+            .and_then(|certs| certs.collect::<Result<Vec<_>, _>>())
+            .context("failed to read certificate file")?;
+        let key = PrivateKeyDer::from_pem_file(tls_cfg.certificate_key_file.unwrap())
+            .context("failed to read certificate key file")?;
 
         // Verify that our advertise-host is one of the cert's CNs
         if validate_certificate_name(&certs, &cli.advertise_host)? {
@@ -565,21 +563,6 @@ async fn serve(
     drop(permit);
 
     result
-}
-
-fn load_certs(path: &Path) -> io::Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
-    rustls_pemfile::certs(&mut io::BufReader::new(File::open(path)?)).collect()
-}
-
-fn load_key(path: &Path) -> io::Result<rustls::pki_types::PrivateKeyDer<'static>> {
-    Ok(
-        rustls_pemfile::private_key(&mut io::BufReader::new(File::open(path)?))
-            .unwrap()
-            .ok_or(io::Error::new(
-                io::ErrorKind::Other,
-                "no private key found".to_string(),
-            ))?,
-    )
 }
 
 fn validate_certificate_name(
