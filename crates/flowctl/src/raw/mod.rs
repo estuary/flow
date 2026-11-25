@@ -15,6 +15,7 @@ mod discover;
 mod materialize_fixture;
 mod oauth;
 pub(crate) mod preview_next;
+mod sandbox_exec;
 mod shards;
 mod spec;
 mod split_shards;
@@ -99,6 +100,10 @@ pub enum Command {
     // and the `tests/soak/**` comments), and then remove the alias itself.
     #[clap(hide = true)]
     PreviewNext(preview_next::Preview),
+    /// Run one command in a sandbox, relaying its stdio as frames over
+    /// stdin and stdout. Used by the control plane; not for interactive use.
+    #[clap(hide = true)]
+    SandboxExec(sandbox_exec::SandboxExec),
     /// Run your catalog's tests locally on the V2 runtime.
     ///
     /// Builds the specifications in --source, then runs their `tests` on a local
@@ -257,6 +262,15 @@ impl BearerLogs {
 }
 
 impl Advanced {
+    /// The `sandbox-exec` subcommand, which `Cli::run` dispatches before
+    /// building a CliContext.
+    pub(crate) fn sandbox_exec(&self) -> Option<&sandbox_exec::SandboxExec> {
+        match &self.cmd {
+            Command::SandboxExec(exec) => Some(exec),
+            _ => None,
+        }
+    }
+
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
             Command::Alerts(alerts) => alerts::do_alerts(ctx, alerts).await,
@@ -287,6 +301,7 @@ impl Advanced {
             Command::SyncNow(sync_now) => sync_now::do_sync_now(ctx, sync_now).await,
             Command::GazctlEnv(gazctl_env) => gazctl_env.run(ctx).await,
             Command::PreviewNext(preview) => preview.run(ctx).await,
+            Command::SandboxExec(_) => unreachable!("dispatched by Cli::run"),
             Command::Test(test) => test.run(ctx).await,
         }
     }

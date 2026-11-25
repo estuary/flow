@@ -211,6 +211,14 @@ impl CliContext {
 
 impl Cli {
     pub async fn run(&self, registry: service_kit::Registry) -> anyhow::Result<()> {
+        // `sandbox-exec` runs inside a sandbox with no profile or credentials.
+        // It must not do network I/O, and its stdout carries only frames.
+        if let Command::Raw(raw) = &self.cmd
+            && let Some(exec) = raw.sandbox_exec()
+        {
+            return exec.run().await;
+        }
+
         let config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
 
