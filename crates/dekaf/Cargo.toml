@@ -59,7 +59,6 @@ reqwest = { workspace = true }
 rsasl = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
-rustls-pemfile = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

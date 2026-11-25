@@ -2922,7 +2922,6 @@ dependencies = [
  "rsasl",
  "rustls",
  "rustls-native-certs",
- "rustls-pemfile",
  "schema_registry_converter",
  "schemars",
  "serde",
