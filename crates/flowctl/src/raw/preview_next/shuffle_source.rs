@@ -99,7 +99,7 @@ pub fn build(
     // survives rotation of both token layers.
     let factory = flow_client_next::workflows::user_collection_auth::new_journal_client_factory(
         ctx.rest.clone(),
-        models::authz::LegacyTier::Read,
+        models::authz::CapabilityBundle::Viewer,
         ctx.router.clone(),
         ctx.user_tokens.clone(),
     );

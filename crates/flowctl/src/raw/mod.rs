@@ -631,9 +631,9 @@ impl GazctlEnv {
             models::Prefix::new(&prefix),
             models::Name::new(&data_plane_name),
             if self.admin {
-                models::authz::LegacyTier::Admin
+                models::authz::CapabilityBundle::Admin
             } else {
-                models::authz::LegacyTier::Read
+                models::authz::CapabilityBundle::Viewer
             },
         )
         .await?;

@@ -216,7 +216,7 @@ async fn do_list_fragments(
         &ctx.user_tokens,
         &ctx.router,
         &selector.collection,
-        models::authz::LegacyTier::Read,
+        models::authz::CapabilityBundle::Viewer,
     )
     .await?;
 
@@ -262,7 +262,7 @@ async fn do_list_journals(
         &ctx.user_tokens,
         &ctx.router,
         &selector.collection,
-        models::authz::LegacyTier::Read,
+        models::authz::CapabilityBundle::Viewer,
     )
     .await?;
 
@@ -333,7 +333,7 @@ async fn do_split_journals(
         &ctx.user_tokens,
         &ctx.router,
         &selector.collection,
-        models::authz::LegacyTier::Admin,
+        models::authz::CapabilityBundle::Admin,
     )
     .await?;
 

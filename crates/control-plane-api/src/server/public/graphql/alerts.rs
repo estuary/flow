@@ -139,7 +139,8 @@ async fn fetch_alert_history_by_prefix(
     let env = ctx.data::<crate::Envelope>()?;
 
     // Verify user authorization to read alerts for the given prefix.
-    super::verify_authorization(env, [&by.prefix], models::authz::CapabilityBundle::Viewer).await?;
+    super::verify_authorization(env, [&by.prefix], models::authz::CapabilityBit::CatalogRead)
+        .await?;
 
     connection::query_with::<PaginatedAlertsCursor, _, _, _, _>(
         after,

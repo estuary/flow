@@ -321,13 +321,12 @@ impl From<CapabilityBundle> for CapabilityBits {
 // `grant_capability` column of grant and invite-link tables, and the GraphQL
 // `Capability` enum. Authorization works only in `CapabilityBits`: convert
 // with `bits` where a tier is read, and with `tier_of` where one is reported.
-// Doc comments here are published in the GraphQL and JSON schemas.
+// Doc comments here are published in the GraphQL schema.
 /// A legacy tier of the original authorization model: none, read, write, or
 /// admin. A tier conveys the capability bits of its equivalent bundle
 /// (`Viewer`, `Writer`, or `Admin`). Prefer capability bundles.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[schemars(rename = "Capability")]
 #[cfg_attr(
     feature = "sqlx-support",
     derive(sqlx::Type),

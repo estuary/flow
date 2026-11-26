@@ -116,9 +116,14 @@ pub struct UserCollectionAuthorizationRequest {
     /// # Collection name to be authorized.
     #[validate(nested)]
     pub collection: crate::Collection,
-    /// # Requested capability level of the authorization.
-    #[serde(default = "capability_read")]
-    pub capability: authz::LegacyTier,
+    /// # Requested capability bundle of the authorization.
+    #[serde(
+        default = "requested_bundle_default",
+        deserialize_with = "deserialize_requested_bundle",
+        rename = "capability"
+    )]
+    #[schemars(schema_with = "requested_bundle_schema")]
+    pub capability_bundle: authz::CapabilityBundle,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// If this is non-zero, it lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -142,7 +147,7 @@ pub struct UserCollectionAuthorization {
     pub broker_address: String,
     /// # JWT token which has been authorized for use with brokers.
     /// The token is authorized for journal operations of the
-    /// requested collection and capability.
+    /// requested collection and capability bundle.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub broker_token: String,
     /// # Prefix of collection Journal names.
@@ -165,9 +170,14 @@ pub struct UserPrefixAuthorizationRequest {
     /// # Name of the data-plane to be authorized.
     #[validate(nested)]
     pub data_plane: crate::Name,
-    /// # Requested capability level of the authorization.
-    #[serde(default = "capability_read")]
-    pub capability: authz::LegacyTier,
+    /// # Requested capability bundle of the authorization.
+    #[serde(
+        default = "requested_bundle_default",
+        deserialize_with = "deserialize_requested_bundle",
+        rename = "capability"
+    )]
+    #[schemars(schema_with = "requested_bundle_schema")]
+    pub capability_bundle: authz::CapabilityBundle,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// This timestamp lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -185,7 +195,7 @@ pub struct UserPrefixAuthorization {
     pub broker_address: String,
     /// # JWT token which has been authorized for use with brokers.
     /// The token is authorized for journal operations over the
-    /// requested prefix and capability.
+    /// requested prefix and capability bundle.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub broker_token: String,
     /// # Address of Reactors for the issued token.
@@ -193,7 +203,7 @@ pub struct UserPrefixAuthorization {
     pub reactor_address: String,
     /// # JWT token which has been authorized for use with reactors.
     /// The token is authorized for shard operations over the
-    /// requested prefix and capability.
+    /// requested prefix and capability bundle.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reactor_token: String,
     /// # Number of milliseconds to wait before retrying the request.
@@ -209,9 +219,14 @@ pub struct UserTaskAuthorizationRequest {
     /// # Task name to be authorized.
     #[validate(nested)]
     pub task: crate::Name,
-    /// # Requested capability level of the authorization.
-    #[serde(default = "capability_read")]
-    pub capability: authz::LegacyTier,
+    /// # Requested capability bundle of the authorization.
+    #[serde(
+        default = "requested_bundle_default",
+        deserialize_with = "deserialize_requested_bundle",
+        rename = "capability"
+    )]
+    #[schemars(schema_with = "requested_bundle_schema")]
+    pub capability_bundle: authz::CapabilityBundle,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// If this is non-zero, it lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -246,7 +261,7 @@ pub struct UserTaskAuthorization {
     pub reactor_address: String,
     /// # JWT token which has been authorized for use with reactors.
     /// The token is authorized for shard operations of the
-    /// requested task and capability.
+    /// requested task and capability bundle.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reactor_token: String,
     /// # Number of milliseconds to wait before retrying the request.
@@ -430,14 +445,195 @@ pub struct TaskUpdateConfig {
     pub retry_millis: u64,
 }
 
-const fn capability_read() -> authz::LegacyTier {
-    authz::LegacyTier::Read
+const fn requested_bundle_default() -> authz::CapabilityBundle {
+    authz::CapabilityBundle::Viewer
+}
+
+// Deployed clients request `read`, `write`, or `admin`: the legacy
+// tiers. `admin` is also a bundle name, and `read` and `write` are old names
+// of the `viewer` and `writer` bundles. Only these requests accept the old
+// names. A token capability mask rejects them (`authz::parse_capability_mask`).
+fn deserialize_requested_bundle<'de, D>(
+    deserializer: D,
+) -> Result<authz::CapabilityBundle, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let name = <String as serde::Deserialize>::deserialize(deserializer)?;
+
+    match name.as_str() {
+        "read" => Ok(authz::CapabilityBundle::Viewer),
+        "write" => Ok(authz::CapabilityBundle::Writer),
+        name => authz::parse_capability_bundle(name).map_err(serde::de::Error::custom),
+    }
+}
+
+fn requested_bundle_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let names: Vec<&str> = authz::public_bundles()
+        .map(<&str>::from)
+        .chain(["read", "write"])
+        .collect();
+
+    serde_json::from_value(serde_json::json!({
+        "type": "string",
+        "enum": names,
+        "description": "Name of a capability bundle. `read` and `write` are \
+            deprecated names of `viewer` and `writer`.",
+    }))
+    .unwrap()
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::authz::{CapabilityBit, CapabilityBits, CapabilityBundle, Subject};
+
+    #[test]
+    fn user_authorization_request_capability_bundles() {
+        let mut results = Vec::new();
+        for name in [
+            None,
+            Some("read"),
+            Some("write"),
+            Some("admin"),
+            Some("viewer"),
+            Some("editor"),
+            Some("billing"),
+            Some("none"),
+            Some("Viewer"),
+        ] {
+            let mut request = serde_json::json!({
+                "collection": "acmeCo/anvils",
+                "prefix": "acmeCo/",
+                "dataPlane": "ops/dp/public/plane-one",
+                "task": "acmeCo/source-anvils",
+                "startedUnix": 0,
+            });
+            if let Some(name) = name {
+                request["capability"] = name.into();
+            }
+            let collection =
+                serde_json::from_value::<UserCollectionAuthorizationRequest>(request.clone())
+                    .map(|request| request.capability_bundle);
+            let prefix = serde_json::from_value::<UserPrefixAuthorizationRequest>(request.clone())
+                .map(|request| request.capability_bundle);
+            let task = serde_json::from_value::<UserTaskAuthorizationRequest>(request)
+                .map(|request| request.capability_bundle);
+
+            assert_eq!(
+                (prefix.as_ref().ok(), task.as_ref().ok()),
+                (collection.as_ref().ok(), collection.as_ref().ok()),
+                "requests parse {name:?} alike",
+            );
+            results.push((name, collection.map_err(|err| err.to_string())));
+        }
+        insta::assert_json_snapshot!(results, @r#"
+        [
+          [
+            null,
+            {
+              "Ok": "viewer"
+            }
+          ],
+          [
+            "read",
+            {
+              "Ok": "viewer"
+            }
+          ],
+          [
+            "write",
+            {
+              "Ok": "writer"
+            }
+          ],
+          [
+            "admin",
+            {
+              "Ok": "admin"
+            }
+          ],
+          [
+            "viewer",
+            {
+              "Ok": "viewer"
+            }
+          ],
+          [
+            "editor",
+            {
+              "Ok": "editor"
+            }
+          ],
+          [
+            "billing",
+            {
+              "Ok": "billing"
+            }
+          ],
+          [
+            "none",
+            {
+              "Err": "Unknown capability bundle \"none\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
+            }
+          ],
+          [
+            "Viewer",
+            {
+              "Err": "Unknown capability bundle \"Viewer\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
+            }
+          ]
+        ]
+        "#);
+
+        // New clients send the bundle's own name.
+        let request = UserCollectionAuthorizationRequest {
+            collection: crate::Collection::new("acmeCo/anvils"),
+            capability_bundle: CapabilityBundle::Writer,
+            started_unix: 0,
+        };
+        insta::assert_json_snapshot!(request, @r#"
+        {
+          "collection": "acmeCo/anvils",
+          "capability": "writer",
+          "startedUnix": 0
+        }
+        "#);
+    }
+
+    #[test]
+    fn user_authorization_request_schema() {
+        let schema = schemars::schema_for!(UserCollectionAuthorizationRequest);
+        insta::assert_json_snapshot!(schema.as_value()["properties"]["capability"], @r#"
+        {
+          "default": "viewer",
+          "description": "Name of a capability bundle. `read` and `write` are deprecated names of `viewer` and `writer`.",
+          "enum": [
+            "viewer",
+            "writer",
+            "editor",
+            "admin",
+            "billing",
+            "team_admin",
+            "manage_service_accounts",
+            "manage_data_plane",
+            "create_sandbox",
+            "delegate",
+            "assume",
+            "view_billing",
+            "edit_billing",
+            "edit_secret",
+            "view_data_plane_private_networking",
+            "modify_data_plane_private_networking",
+            "catalog_read",
+            "read",
+            "write"
+          ],
+          "title": "Requested capability bundle of the authorization.",
+          "type": "string"
+        }
+        "#);
+    }
 
     #[test]
     fn restricted_token_masks() {
@@ -680,6 +876,19 @@ mod test {
           "Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read.",
           "Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read.",
           "Unknown capability bundle \"TeamAdmin\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
+        ]
+        "#);
+
+        // The old names of the `viewer` and `writer` bundles, which user
+        // authorization requests accept, are not bundle names.
+        let rejections: Vec<_> = ["read", "write"]
+            .into_iter()
+            .map(|name| authz::parse_capability_mask(&[name.to_string()]).unwrap_err())
+            .collect();
+        insta::assert_json_snapshot!(rejections, @r#"
+        [
+          "Unknown capability bundle \"read\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read.",
+          "Unknown capability bundle \"write\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
         ]
         "#);
 

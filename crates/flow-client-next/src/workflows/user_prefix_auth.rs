@@ -10,8 +10,8 @@ pub struct UserPrefixAuth {
     pub prefix: models::Prefix,
     /// Name of the data-plane to be authorized.
     pub data_plane: models::Name,
-    /// Requested capability level of the authorization.
-    pub capability: models::authz::LegacyTier,
+    /// Requested capability bundle of the authorization.
+    pub capability_bundle: models::authz::CapabilityBundle,
 }
 
 /// Build a Gazette journal Client using UserPrefixAuthorization tokens.
@@ -62,7 +62,7 @@ impl tokens::RestSource for UserPrefixAuth {
             started_unix: started.timestamp() as u64,
             data_plane: self.data_plane.clone(),
             prefix: self.prefix.clone(),
-            capability: self.capability,
+            capability_bundle: self.capability_bundle,
         };
         let user_token = self.user_tokens.ready().await.token();
 

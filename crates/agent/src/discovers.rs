@@ -181,6 +181,10 @@ impl DiscoverExecutor {
         // Data-plane authorization: unlike the capture check above, resolving
         // the plane consults what exists in the Snapshot, so an unauthorized
         // plane and a missing one are deliberately indistinguishable.
+        //
+        // TODO: no capability bit means "may use this data plane", so this
+        // requires the `Viewer` bundle. Such a bit would authorize deploying
+        // tasks into the data plane, and operating on them there.
         let Some(data_plane) = snapshot
             .is_user_authorized(
                 &subject,

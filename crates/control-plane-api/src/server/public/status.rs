@@ -30,7 +30,7 @@ pub(crate) async fn handle_get_status(
         env.snapshot(),
         env.subject()?,
         env.claims()?.email.as_deref(),
-        models::authz::CapabilityBundle::Viewer,
+        models::authz::CapabilityBit::CatalogRead,
         &name,
     );
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;
@@ -48,7 +48,11 @@ pub(crate) async fn handle_get_status(
         let filtered = unfiltered_names
             .into_iter()
             .filter(|name| {
-                snapshot.is_user_authorized(subject, name, models::authz::CapabilityBundle::Viewer)
+                snapshot.is_user_authorized(
+                    subject,
+                    name,
+                    models::authz::CapabilityBit::CatalogRead,
+                )
             })
             .collect::<Vec<_>>();
 

@@ -34,6 +34,9 @@ pub async fn update_l2_reporting(
 ) -> Result<axum::Json<Response>, crate::ApiError> {
     let claims = env.claims()?;
 
+    // TODO: no capability bit means "may manage platform reporting", so this
+    // requires the `Admin` bundle on `ops/`. Such a bit would authorize
+    // publishing the L2 reporting derivations.
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
         env.subject()?,

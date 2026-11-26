@@ -615,6 +615,9 @@ impl DataPlanesQuery {
                         return false;
                     }
                 }
+                // TODO: no capability bit means "may use this data plane", so this
+                // requires the `Viewer` bundle. Such a bit would authorize deploying
+                // tasks into the data plane, and operating on them there.
                 snapshot.is_user_authorized(
                     subject,
                     &dp.data_plane_name,

@@ -57,6 +57,16 @@ through the `Snapshot` (`is_user_authorized`, `user_capability_bits_at`,
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 
+`server/authorize_user_{collection,prefix,task}.rs` issue data-plane tokens
+for a requested `CapabilityBundle`. Its claim bits (`JournalRead`,
+`JournalAppend`, `SpecEdit`) pick the Gazette capabilities
+(`server::map_bundle_to_gazette`), and the caller must hold only those bits.
+APPLY also requires the full `Admin` bundle to `estuary_support/`
+(`server::evaluate_support_apply`). `server/authorize_task.rs` lets a running
+task read a collection with `JournalRead` or write it with `JournalAppend`.
+Publication (`publications::specs::spec_collection_denials`) and discover
+merges require the same bits, so a published spec may run.
+
 ## Sandboxes
 
 - `sandboxes/mod.rs`: `internal.sandboxes` records, each with one machine for

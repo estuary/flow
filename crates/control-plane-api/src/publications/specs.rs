@@ -675,69 +675,17 @@ pub async fn resolve_live_specs(
                 continue;
             }
             // Spec authz must always be checked, even if we're not checking user authz.
-            // The walk is the same one which authorizes running tasks
-            // (`authorize_task`), so a spec which verifies here is a spec the
-            // runtime will let run. Denials request an early Snapshot refresh:
-            // the needed role grant may postdate this Snapshot.
-            //
-            // Denial messages render the grants the spec holds by virtue of
-            // its own name: those whose `subject_role` prefixes it. This is
-            // only the directly-held grants, not the transitive reach of the
-            // walk, and exists solely to make the error actionable. Each grant
-            // names its `maximal_bundles`.
-            #[derive(serde::Serialize)]
-            struct SpecGrant<'a> {
-                subject_role: &'a models::Prefix,
-                object_role: &'a models::Prefix,
-                capability_bundles: Vec<models::authz::CapabilityBundle>,
+            // Denials request an early Snapshot refresh: the needed role grant
+            // may postdate this Snapshot.
+            let denials = spec_collection_denials(snapshot, catalog_name, &reads_from, &writes_to);
+            if !denials.is_empty() {
+                snapshot.request_refresh();
             }
-            let spec_grants = || {
-                serde_json::to_string_pretty(
-                    &snapshot
-                        .role_grants
-                        .iter()
-                        .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
-                        .map(|grant| SpecGrant {
-                            subject_role: &grant.subject_role,
-                            object_role: &grant.object_role,
-                            capability_bundles: maximal_bundles(grant.capability_bits),
-                        })
-                        .collect::<Vec<_>>(),
-                )
-                .unwrap()
-            };
-            for source in reads_from {
-                if !snapshot.is_role_authorized(
-                    catalog_name,
-                    source.as_str(),
-                    models::authz::CapabilityBundle::Viewer,
-                ) {
-                    snapshot.request_refresh();
-                    live.errors.push(tables::Error {
-                        scope: scope.clone(),
-                        error: anyhow::anyhow!(
-                            "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
-                            spec_grants(),
-                        ),
-                    });
-                }
-            }
-            for target in writes_to {
-                if !snapshot.is_role_authorized(
-                    catalog_name,
-                    target.as_str(),
-                    models::authz::CapabilityBundle::Writer,
-                ) {
-                    snapshot.request_refresh();
-                    live.errors.push(tables::Error {
-                        scope: scope.clone(),
-                        error: anyhow::anyhow!(
-                            "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
-                            spec_grants(),
-                        ),
-                    });
-                }
-            }
+            live.errors
+                .extend(denials.into_iter().map(|error| tables::Error {
+                    scope: scope.clone(),
+                    error,
+                }));
         // Ops collections are automatically injected, and the user does not need (or have) any
         // access capability to them as long as they are not drafted.
         } else if !ops_collection_names.contains(&spec_row.catalog_name) {
@@ -809,6 +757,74 @@ pub async fn resolve_live_specs(
         live,
         mapping_planes,
     })
+}
+
+/// Returns an error for each collection of `reads_from` or `writes_to` which
+/// spec `catalog_name` may not read or write.
+///
+/// The spec must hold `JournalRead` to each collection it reads, and
+/// `JournalAppend` to each it writes. These are the bits, and the role-grant
+/// walk, which `authorize_task` requires of the running task, so a spec which
+/// verifies here is a spec the runtime will let run.
+///
+/// Denial messages render the grants the spec holds by virtue of its own name:
+/// those whose `subject_role` prefixes it. This is only the directly-held
+/// grants, not the transitive reach of the walk, and exists solely to make the
+/// error actionable. Each grant names its `maximal_bundles`.
+pub(crate) fn spec_collection_denials(
+    snapshot: &crate::Snapshot,
+    catalog_name: &str,
+    reads_from: &BTreeSet<models::Collection>,
+    writes_to: &BTreeSet<models::Collection>,
+) -> Vec<anyhow::Error> {
+    #[derive(serde::Serialize)]
+    struct SpecGrant<'a> {
+        subject_role: &'a models::Prefix,
+        object_role: &'a models::Prefix,
+        capability_bundles: Vec<models::authz::CapabilityBundle>,
+    }
+    let spec_grants = || {
+        serde_json::to_string_pretty(
+            &snapshot
+                .role_grants
+                .iter()
+                .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                .map(|grant| SpecGrant {
+                    subject_role: &grant.subject_role,
+                    object_role: &grant.object_role,
+                    capability_bundles: maximal_bundles(grant.capability_bits),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    };
+    let mut denials = Vec::new();
+
+    for source in reads_from {
+        if !snapshot.is_role_authorized(
+            catalog_name,
+            source.as_str(),
+            models::authz::CapabilityBit::JournalRead,
+        ) {
+            denials.push(anyhow::anyhow!(
+                "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
+                spec_grants(),
+            ));
+        }
+    }
+    for target in writes_to {
+        if !snapshot.is_role_authorized(
+            catalog_name,
+            target.as_str(),
+            models::authz::CapabilityBit::JournalAppend,
+        ) {
+            denials.push(anyhow::anyhow!(
+                "Specification is not write-authorized to '{target}'.\nAvailable grants are: {}",
+                spec_grants(),
+            ));
+        }
+    }
+    denials
 }
 
 /// Returns the bundles covered by `bits` which no other covered bundle

@@ -120,6 +120,9 @@ pub async fn create(
             .inspect_err(|_| snapshot.request_refresh())?
             .to_owned()
     };
+    // TODO: no capability bit means "may use this data plane", so this
+    // requires the `Viewer` bundle. Such a bit would authorize deploying
+    // tasks into the data plane, and operating on them there.
     snapshot
         .is_user_authorized(
             subject,
@@ -477,9 +480,11 @@ impl DiscoverHandler {
         };
 
         // The merge creates and changes the target collections of the capture's
-        // bindings, which the capture must be authorized to write. A denial
-        // requests an early Snapshot refresh: the needed role grant may
-        // postdate this Snapshot.
+        // bindings, which the capture must be authorized to write. Writing
+        // requires `JournalAppend`, as publication and the running task do
+        // (`publications::specs::spec_collection_denials`). A denial requests
+        // an early Snapshot refresh: the needed role grant may postdate this
+        // Snapshot.
         let denied = merged
             .targets()
             .into_iter()
@@ -487,7 +492,7 @@ impl DiscoverHandler {
                 !snapshot.is_role_authorized(
                     capture_name.as_str(),
                     target.as_str(),
-                    models::authz::CapabilityBundle::Writer,
+                    models::authz::CapabilityBit::JournalAppend,
                 )
             })
             .map(|target| target.as_str())

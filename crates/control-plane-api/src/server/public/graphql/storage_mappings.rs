@@ -533,6 +533,9 @@ fn check_authorization(
     let user_email = user_email.unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
+    // TODO: no capability bit means "may manage storage mappings of this
+    // prefix", so this requires the `Admin` bundle. Such a bit would authorize
+    // creating and changing where the prefix's collections are stored.
     if !snapshot.is_user_authorized(
         subject,
         catalog_prefix,
@@ -545,6 +548,9 @@ fn check_authorization(
 
     for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
+        // TODO: no capability bit means "may use this data plane", so this
+        // requires the `Viewer` bundle. Such a bit would authorize deploying
+        // tasks into the data plane, and operating on them there.
         if !snapshot.is_role_authorized(
             catalog_prefix,
             data_plane_name,

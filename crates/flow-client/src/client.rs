@@ -339,7 +339,7 @@ pub async fn fetch_user_task_authorization(
                 &models::authorizations::UserTaskAuthorizationRequest {
                     started_unix,
                     task: models::Name::new(task),
-                    capability: models::authz::LegacyTier::Read,
+                    capability_bundle: models::authz::CapabilityBundle::Viewer,
                 },
             )
             .await?;
@@ -410,10 +410,10 @@ pub async fn fetch_user_collection_authorization(
                 &models::authorizations::UserCollectionAuthorizationRequest {
                     started_unix,
                     collection: models::Collection::new(collection),
-                    capability: if admin {
-                        models::authz::LegacyTier::Admin
+                    capability_bundle: if admin {
+                        models::authz::CapabilityBundle::Admin
                     } else {
-                        models::authz::LegacyTier::Read
+                        models::authz::CapabilityBundle::Viewer
                     },
                 },
             )

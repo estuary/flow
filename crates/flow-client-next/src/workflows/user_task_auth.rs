@@ -7,8 +7,8 @@ pub struct UserTaskAuth {
     pub user_tokens: tokens::PendingWatch<crate::user_auth::UserToken>,
     /// Task to be authorized.
     pub task: models::Name,
-    /// Requested capability level of the authorization.
-    pub capability: models::authz::LegacyTier,
+    /// Requested capability bundle of the authorization.
+    pub capability_bundle: models::authz::CapabilityBundle,
 }
 
 /// Build a Gazette journal Client using UserTaskAuthorization tokens.
@@ -58,7 +58,7 @@ impl tokens::RestSource for UserTaskAuth {
         let request = models::authorizations::UserTaskAuthorizationRequest {
             started_unix: started.timestamp() as u64,
             task: self.task.clone(),
-            capability: self.capability,
+            capability_bundle: self.capability_bundle,
         };
         let user_token = self.user_tokens.ready().await.token();
 

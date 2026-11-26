@@ -8,7 +8,7 @@ pub async fn authorize_user_prefix(
     super::Request(Request {
         prefix,
         data_plane,
-        capability,
+        capability_bundle,
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
@@ -25,7 +25,7 @@ pub async fn authorize_user_prefix(
         env.claims()?.email.as_deref(),
         &prefix,
         &data_plane,
-        capability,
+        capability_bundle,
     );
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
@@ -64,7 +64,7 @@ fn evaluate_authorization<'s>(
     user_email: Option<&str>,
     prefix: &models::Prefix,
     data_plane_name: &models::Name,
-    capability: models::authz::LegacyTier,
+    capability_bundle: models::authz::CapabilityBundle,
 ) -> tonic::Result<(
     Option<chrono::DateTime<chrono::Utc>>,
     (
@@ -76,27 +76,20 @@ fn evaluate_authorization<'s>(
     let user_id = subject.user_id;
     let user_email = user_email.unwrap_or("user");
 
-    if !snapshot.is_user_authorized(subject, prefix, capability.bits()) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not authorized to {prefix} for {capability:?}",
-        )));
-    }
+    let (claim_bits, cap) =
+        super::evaluate_user_claims(snapshot, subject, user_email, prefix, capability_bundle)?;
+    () = super::evaluate_support_apply(
+        snapshot,
+        subject,
+        user_email,
+        prefix,
+        capability_bundle,
+        claim_bits,
+    )?;
 
-    // For admin capability, require that the user has a transitive role grant to estuary_support/
-    if capability == models::authz::LegacyTier::Admin {
-        let has_support_access = snapshot.is_user_authorized(
-            subject,
-            "estuary_support/",
-            models::authz::CapabilityBundle::Admin,
-        );
-
-        if !has_support_access {
-            return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to {prefix} for Admin capability (requires estuary_support/ grant)",
-            )));
-        }
-    }
-
+    // TODO: no capability bit means "may use this data plane", so this
+    // requires the `Viewer` bundle. Such a bit would authorize deploying
+    // tasks into the data plane, and operating on them there.
     if !snapshot.is_user_authorized(
         subject,
         data_plane_name,
@@ -113,7 +106,7 @@ fn evaluate_authorization<'s>(
         )));
     };
     let broker_claims = proto_gazette::Claims {
-        cap: super::map_capability_to_gazette(capability),
+        cap,
         exp: 0, // Filled later.
         iat: 0, // Filled later.
         iss: data_plane.data_plane_fqdn.clone(),
@@ -130,7 +123,7 @@ fn evaluate_authorization<'s>(
     };
 
     let reactor_claims = proto_gazette::Claims {
-        cap: super::map_capability_to_gazette(capability) | proto_flow::capability::NETWORK_PROXY,
+        cap: cap | proto_flow::capability::NETWORK_PROXY,
         exp: 0, // Filled later.
         iat: 0, // Filled later.
         iss: data_plane.data_plane_fqdn.clone(),
@@ -162,7 +155,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -243,7 +236,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -324,17 +317,17 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/whoosh/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::authz::LegacyTier::Write,
+            models::authz::CapabilityBundle::Writer,
         );
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/whoosh/ for Write"
+            "error": "bob@bob is not authorized to acmeCo/whoosh/ for Writer"
           }
         }
-        "###);
+        "#);
     }
 
     #[test]
@@ -344,7 +337,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/private/something"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -364,7 +357,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-missing"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -378,23 +371,23 @@ mod tests {
     }
 
     #[test]
-    fn test_capability_too_high() {
+    fn test_capability_bundle_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::authz::LegacyTier::Write,
+            models::authz::CapabilityBundle::Writer,
         );
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/shared/stuff/ for Write"
+            "error": "bob@bob is not authorized to acmeCo/shared/stuff/ for Writer"
           }
         }
-        "###);
+        "#);
     }
 
     #[test]
@@ -405,14 +398,14 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::authz::LegacyTier::Admin,
+            models::authz::CapabilityBundle::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to bobCo/tires/ for Admin capability (requires estuary_support/ grant)"
+            "error": "bob@bob is not authorized to bobCo/tires/ for the Admin capability bundle (requires estuary_support/ grant)"
           }
         }
         "###);
@@ -426,7 +419,7 @@ mod tests {
             Some("alice@alice".to_string()),
             models::Prefix::new("aliceCo/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::authz::LegacyTier::Admin,
+            models::authz::CapabilityBundle::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -511,7 +504,7 @@ mod tests {
         email: Option<String>,
         prefix: models::Prefix,
         data_plane: models::Name,
-        capability: models::authz::LegacyTier,
+        capability_bundle: models::authz::CapabilityBundle,
     ) -> Outcome {
         let snapshot = crate::Snapshot::build_fixture(None);
         let subject = models::authz::Subject::unrestricted(user_id);
@@ -522,7 +515,7 @@ mod tests {
             email.as_deref(),
             &prefix,
             &data_plane,
-            capability,
+            capability_bundle,
         ) {
             Ok((_cordon_at, (data_plane, mut broker_claims, mut reactor_claims))) => {
                 // Zero out timestamps for stable snapshots.
@@ -569,7 +562,7 @@ mod tests {
             user_tokens: user_tokens.clone(),
             prefix: models::Prefix::new("aliceCo/"),
             data_plane: models::Name::new("ops/dp/public/aws-us-west-2-c1"),
-            capability: models::authz::LegacyTier::Write,
+            capability_bundle: models::authz::CapabilityBundle::Writer,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
@@ -611,7 +604,7 @@ mod tests {
             user_tokens: user_tokens.clone(),
             prefix: models::Prefix::new("Some/Other/Prefix/"),
             data_plane: models::Name::new("ops/dp/public/aws-us-west-2-c1"),
-            capability: models::authz::LegacyTier::Write,
+            capability_bundle: models::authz::CapabilityBundle::Writer,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
@@ -620,7 +613,7 @@ mod tests {
             @r#"
         Status {
             code: PermissionDenied,
-            message: "alice@example.com is not authorized to Some/Other/Prefix/ for Write",
+            message: "alice@example.com is not authorized to Some/Other/Prefix/ for Writer",
             source: None,
         }
         "#,

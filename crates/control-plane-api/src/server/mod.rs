@@ -366,26 +366,95 @@ fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
     )
 }
 
-const fn map_capability_to_gazette(capability: models::authz::LegacyTier) -> u32 {
-    match capability {
-        models::authz::LegacyTier::None => {
-            panic!("gazette capability mapping requires Read, Write, or Admin")
-        }
-        models::authz::LegacyTier::Read => {
-            proto_gazette::capability::LIST | proto_gazette::capability::READ
-        }
-        models::authz::LegacyTier::Write => {
-            proto_gazette::capability::LIST
-                | proto_gazette::capability::READ
-                | proto_gazette::capability::APPEND
-        }
-        models::authz::LegacyTier::Admin => {
-            proto_gazette::capability::LIST
-                | proto_gazette::capability::READ
-                | proto_gazette::capability::APPEND
-                | proto_gazette::capability::APPLY
+/// Maps a user's requested bundle to its claim bits, and to the Gazette
+/// capabilities those bits convey:
+///
+/// * `JournalRead` conveys LIST and READ.
+/// * `JournalAppend` conveys APPEND.
+/// * `SpecEdit` conveys APPLY.
+///
+/// Other bits of the bundle convey nothing, and are not claim bits.
+fn map_bundle_to_gazette(
+    bundle: models::authz::CapabilityBundle,
+) -> (models::authz::CapabilityBits, u32) {
+    use models::authz::CapabilityBit::{JournalAppend, JournalRead, SpecEdit};
+    use proto_gazette::capability::{APPEND, APPLY, LIST, READ};
+
+    let mut claim_bits = models::authz::CapabilityBits::empty();
+    let mut cap = 0;
+
+    for (bit, gazette) in [
+        (JournalRead, LIST | READ),
+        (JournalAppend, APPEND),
+        (SpecEdit, APPLY),
+    ] {
+        if bundle.bits().contains(bit) {
+            claim_bits |= bit;
+            cap |= gazette;
         }
     }
+    (claim_bits, cap)
+}
+
+/// Authorizes a user's request for `bundle` to `object_role_or_name`, and
+/// returns the request's claim bits and their Gazette capabilities
+/// (`map_bundle_to_gazette`). The user must hold the claim bits to the object,
+/// and only the claim bits: other bits of the bundle authorize nothing here.
+fn evaluate_user_claims(
+    snapshot: &Snapshot,
+    subject: &models::authz::Subject,
+    user_email: &str,
+    object_role_or_name: &str,
+    bundle: models::authz::CapabilityBundle,
+) -> tonic::Result<(models::authz::CapabilityBits, u32)> {
+    let (claim_bits, cap) = map_bundle_to_gazette(bundle);
+
+    if claim_bits.is_empty() {
+        return Err(tonic::Status::invalid_argument(format!(
+            "the {bundle} capability bundle conveys no journal or shard capability bits",
+        )));
+    }
+    if !snapshot.is_user_authorized(subject, object_role_or_name, claim_bits) {
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {object_role_or_name} for {bundle:?}",
+        )));
+    }
+    Ok((claim_bits, cap))
+}
+
+/// Requires the full `Admin` bundle to `estuary_support/` of a user whose
+/// claim bits include `SpecEdit`, and who would be issued APPLY.
+///
+/// This check is separate from `evaluate_user_claims`. There, `SpecEdit` to
+/// the object says the user may change its specs. Here, changing them directly
+/// on the data plane is restricted to support staff. Applying JournalSpecs and
+/// ShardSpecs directly bypasses the control plane's validation. It's not opened
+/// to users until we well understand what a user could do with it to themselves
+/// or to the platform.
+///
+/// It requires the full `Admin` bundle on purpose. A token narrowed by a
+/// capability mask then cannot obtain APPLY, unless its mask is `admin` itself.
+fn evaluate_support_apply(
+    snapshot: &Snapshot,
+    subject: &models::authz::Subject,
+    user_email: &str,
+    object_role_or_name: &str,
+    bundle: models::authz::CapabilityBundle,
+    claim_bits: models::authz::CapabilityBits,
+) -> tonic::Result<()> {
+    if !claim_bits.contains(models::authz::CapabilityBit::SpecEdit) {
+        return Ok(());
+    }
+    if !snapshot.is_user_authorized(
+        subject,
+        "estuary_support/",
+        models::authz::CapabilityBundle::Admin,
+    ) {
+        return Err(tonic::Status::permission_denied(format!(
+            "{user_email} is not authorized to {object_role_or_name} for the {bundle:?} capability bundle (requires estuary_support/ grant)",
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

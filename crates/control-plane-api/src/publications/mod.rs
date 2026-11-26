@@ -376,6 +376,9 @@ impl Publisher {
             .await?;
 
         // Resolve a data-plane name to its user-authorized Id.
+        // TODO: no capability bit means "may use this data plane", so this
+        // requires the `Viewer` bundle. Such a bit would authorize deploying
+        // tasks into the data plane, and operating on them there.
         let resolve = |data_plane_name: &str| {
             if let Some(data_plane) = snapshot
                 .is_user_authorized(

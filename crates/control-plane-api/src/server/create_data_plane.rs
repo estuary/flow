@@ -66,6 +66,9 @@ pub async fn create_data_plane(
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
     let claims = env.claims()?;
 
+    // TODO: no capability bit means "may provision data planes", so this
+    // requires the `Admin` bundle on `ops/`. Such a bit would authorize
+    // creating data planes and their grants.
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
         env.subject()?,

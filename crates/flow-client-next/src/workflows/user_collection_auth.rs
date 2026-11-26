@@ -7,8 +7,8 @@ pub struct UserCollectionAuth {
     pub user_tokens: tokens::PendingWatch<crate::user_auth::UserToken>,
     /// Collection for which to request authorization.
     pub collection: models::Collection,
-    /// Requested capability level of the authorization.
-    pub capability: models::authz::LegacyTier,
+    /// Requested capability bundle of the authorization.
+    pub capability_bundle: models::authz::CapabilityBundle,
 }
 
 /// Build a Gazette journal Client using UserCollectionAuthorization tokens.
@@ -46,7 +46,7 @@ pub fn new_journal_client(
 /// without a "/{generation_id}/" suffix -- these are supported as well.
 pub fn new_journal_client_factory(
     api_client: crate::rest::Client,
-    capability: models::authz::LegacyTier,
+    capability_bundle: models::authz::CapabilityBundle,
     router: gazette::Router,
     user_tokens: tokens::PendingWatch<crate::user_auth::UserToken>,
 ) -> gazette::journal::ClientFactory {
@@ -68,7 +68,7 @@ pub fn new_journal_client_factory(
             };
 
             let source = UserCollectionAuth {
-                capability,
+                capability_bundle,
                 collection: models::Collection::new(collection),
                 client: api_client.clone(),
                 user_tokens: user_tokens.clone(),
@@ -92,7 +92,7 @@ impl tokens::RestSource for UserCollectionAuth {
         let request = models::authorizations::UserCollectionAuthorizationRequest {
             started_unix: started.timestamp() as u64,
             collection: self.collection.clone(),
-            capability: self.capability,
+            capability_bundle: self.capability_bundle,
         };
         let user_token = self.user_tokens.ready().await.token();
 

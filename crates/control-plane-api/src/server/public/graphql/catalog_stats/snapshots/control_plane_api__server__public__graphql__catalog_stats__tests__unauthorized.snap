@@ -10,10 +10,16 @@ expression: response
         "code": "FORBIDDEN",
         "requiredBundleOptions": [
           [
+            "catalog_read"
+          ],
+          [
             "viewer"
           ],
           [
             "writer"
+          ],
+          [
+            "editor"
           ],
           [
             "admin"
@@ -26,7 +32,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope'. Requires capabilities: viewer or writer or admin",
+      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope'. Requires capabilities: catalog_read or viewer or writer or editor or admin",
       "path": [
         "catalogStats"
       ]

@@ -18,7 +18,7 @@ pub async fn handle_get_metrics(
         env.snapshot(),
         env.subject()?,
         env.claims()?.email.as_deref(),
-        models::authz::CapabilityBundle::Viewer,
+        models::authz::CapabilityBit::CatalogRead,
         [&prefix],
     );
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;

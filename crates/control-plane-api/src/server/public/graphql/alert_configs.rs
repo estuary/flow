@@ -1,9 +1,9 @@
 //! GraphQL API for per-prefix and per-task alert configuration stored in
 //! `public.alert_configs`.
 //!
-//! Query results are limited to rows under prefixes the caller can read.
-//! Updating a row requires admin access to its governing prefix. For exact
-//! catalog names, the governing prefix is the parent prefix.
+//! Query results are limited to rows under prefixes where the caller holds
+//! `CatalogRead`. Updating a row requires `ManageAlerts` to its governing
+//! prefix. For exact catalog names, the governing prefix is the parent prefix.
 
 use super::filters;
 use async_graphql::{
@@ -126,7 +126,7 @@ impl AlertConfigsQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 snapshot,
                 env.subject()?,
-                models::authz::CapabilityBundle::Viewer,
+                models::authz::CapabilityBit::CatalogRead,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",
             )?;
@@ -262,8 +262,12 @@ impl AlertConfigsMutation {
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
         let gov = governing_prefix(&catalog_prefix_or_name)?;
-        super::verify_authorization(env, [gov.as_str()], models::authz::CapabilityBundle::Admin)
-            .await?;
+        super::verify_authorization(
+            env,
+            [gov.as_str()],
+            models::authz::CapabilityBit::ManageAlerts,
+        )
+        .await?;
 
         if !catalog_prefix_or_name.ends_with('/') {
             let exists: bool = sqlx::query_scalar(
@@ -435,7 +439,7 @@ mod test {
             ".data.updateAlertConfig.id" => "[id]"
         });
 
-        // Alice is denied on a prefix she doesn't admin.
+        // Alice is denied on a prefix where she lacks `ManageAlerts`.
         let response: serde_json::Value = server
             .graphql(
                 &serde_json::json!({

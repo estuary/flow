@@ -34,23 +34,27 @@ pub async fn authorize_task(
     // Strip the request's AUTHORIZE capability from response claims.
     let cap = unverified.claims().cap & !proto_flow::capability::AUTHORIZE;
 
-    // Validate and match the requested capabilities to a corresponding role.
+    // Validate and match the requested capabilities to the bit they require.
     // NOTE: Because we pass through the claims after validating them here,
     // we need to explicitly enumerate and exactly match every case, as just
     // checking that the requested capability contains a particular grant isn't enough.
     // For example, we wouldn't want to allow a request for `REPLICATE` just
     // because it also requests `READ`.
+    //
+    // Publication requires these same bits of a spec for each collection it
+    // reads or writes (`publications::specs::spec_collection_denials`), so
+    // that a spec which publishes is a task which may run.
     use proto_gazette::capability::{APPEND, APPLY, LIST, READ};
-    let required_role = match cap {
+    let required = match cap {
         // Legacy go shuffle module obtains LIST and READ separately.
         // The `shuffle` crate and `dekaf` obtain LIST | READ jointly.
         cap if (cap == LIST) || (cap == READ) || (cap == (LIST | READ)) => {
-            models::authz::CapabilityBundle::Viewer
+            models::authz::CapabilityBit::JournalRead
         }
         // Legacy publisher separately obtains APPLY vs APPEND tokens.
         // The `publisher` crates obtains APPEND | APPLY | LIST jointly.
         cap if (cap == APPLY) || (cap == APPEND) || (cap == (APPEND | APPLY | LIST)) => {
-            models::authz::CapabilityBundle::Writer
+            models::authz::CapabilityBit::JournalAppend
         }
         cap => {
             return Err(tonic::Status::invalid_argument(format!(
@@ -67,7 +71,7 @@ pub async fn authorize_task(
         &unverified.claims().iss,
         &token,
         &journal_name_or_prefix,
-        required_role,
+        required,
     );
 
     // Legacy: return a custom 200 response for client-side retries.
@@ -129,7 +133,7 @@ fn evaluate_authorization<'s>(
     shard_data_plane_fqdn: &str,
     token: &str,
     journal_name_or_prefix: &str,
-    required_role: models::authz::CapabilityBundle,
+    required: models::authz::CapabilityBit,
 ) -> crate::AuthZResult<(&'s crate::snapshot::DataPlane, bool)> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
@@ -163,7 +167,7 @@ fn evaluate_authorization<'s>(
 
         // As a special case outside of the RBAC system, allow a task to write
         // to its designated partition within its ops collections.
-        let is_ops = required_role == models::authz::CapabilityBundle::Writer
+        let is_ops = required == models::authz::CapabilityBit::JournalAppend
             && (collection.collection_name == task_data_plane.ops_logs_name
                 || collection.collection_name == task_data_plane.ops_stats_name)
             && journal_name_or_prefix.ends_with(&super::ops_suffix(task));
@@ -174,21 +178,19 @@ fn evaluate_authorization<'s>(
         (false, task_data_plane, false)
     };
 
-    if !is_ops
-        && !snapshot.is_role_authorized(&task.task_name, &journal_name_or_prefix, required_role)
-    {
+    if !is_ops && !snapshot.is_role_authorized(&task.task_name, &journal_name_or_prefix, required) {
         tracing::warn!(
             %task.spec_type,
             %shard_id,
             %journal_name_or_prefix,
-            ?required_role,
+            ?required,
             ops_logs=%task_data_plane.ops_logs_name,
             ops_stats=%task_data_plane.ops_stats_name,
             ops_suffix=%super::ops_suffix(task),
             "task authorization rejection context"
         );
         return Err(tonic::Status::permission_denied(format!(
-            "task shard {shard_id} is not authorized to {journal_name_or_prefix} for {required_role:?}"
+            "task shard {shard_id} is not authorized to {journal_name_or_prefix} for {required:?}"
         )));
     }
 
@@ -232,7 +234,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/1122334455667788/pivot=00",
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             0, // iat offset - before snapshot
         );
 
@@ -253,7 +255,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00",
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             0, // iat offset - before snapshot
         );
 
@@ -274,7 +276,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "bobCo/bananas/1122334455667788/pivot=00",
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             0,
         );
 
@@ -282,7 +284,7 @@ mod tests {
         {
           "Err": {
             "status": 403,
-            "error": "task shard capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000 is not authorized to bobCo/bananas/1122334455667788/pivot=00 for Writer"
+            "error": "task shard capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000 is not authorized to bobCo/bananas/1122334455667788/pivot=00 for JournalAppend"
           }
         }
         "#);
@@ -294,7 +296,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/bananas/1122334455667788/pivot=00",
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             0,
         );
 
@@ -315,7 +317,7 @@ mod tests {
             "capture/acmeCo/source-banana/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/1122334455667788/pivot=00",
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             0,
         );
 
@@ -337,7 +339,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/88667755330099/pivot=00", // Not found - wrong generation ID.
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             2, // iat offset = 2 seconds after taken, which is > snapshot.taken (taken + 1)
         );
 
@@ -358,7 +360,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/88667755330099/pivot=00", // Not found - wrong generation ID.
-            models::authz::CapabilityBundle::Writer,
+            models::authz::CapabilityBit::JournalAppend,
             0, // iat offset = before snapshot
         );
 
@@ -371,6 +373,97 @@ mod tests {
           }
         }
         "###);
+    }
+
+    /// The runtime check and the publish-time check
+    /// (`publications::specs::spec_collection_denials`) agree. A role grant of
+    /// the `Editor` bundle holds `JournalRead` without the rest of `Viewer`,
+    /// and lacks `JournalAppend`: both checks allow the task to read, and
+    /// neither allows it to write. The fixture cordons `bobCo/widgets/`,
+    /// which doesn't bear on authorization.
+    #[test]
+    fn test_agrees_with_publication() {
+        let grant = tables::RoleGrant {
+            subject_role: models::Prefix::new("acmeCo/"),
+            object_role: models::Prefix::new("bobCo/widgets/"),
+            capability_bits: models::authz::CapabilityBundle::Editor.bits(),
+        };
+        let task = "acmeCo/materialize-pear";
+        let shard_id = "materialize/acmeCo/materialize-pear/0011223344556677/00000000-00000000";
+        let collection = models::Collection::new("bobCo/widgets/mangoes");
+        let journal = "bobCo/widgets/mangoes/1122334455667788/pivot=00";
+
+        let mut snapshot = crate::Snapshot::build_fixture(None);
+        snapshot.role_grants.insert(grant.clone());
+        let collections = std::collections::BTreeSet::from([collection]);
+        let none = std::collections::BTreeSet::new();
+
+        let publish_reads = crate::publications::specs::spec_collection_denials(
+            &snapshot,
+            task,
+            &collections,
+            &none,
+        );
+        let publish_writes = crate::publications::specs::spec_collection_denials(
+            &snapshot,
+            task,
+            &none,
+            &collections,
+        );
+        let run_reads = run_with(
+            &[grant.clone()],
+            shard_id,
+            "fqdn1",
+            journal,
+            models::authz::CapabilityBit::JournalRead,
+            0,
+        );
+        let run_writes = run_with(
+            &[grant],
+            shard_id,
+            "fqdn1",
+            journal,
+            models::authz::CapabilityBit::JournalAppend,
+            0,
+        );
+
+        let publish = |denials: Vec<anyhow::Error>| {
+            denials
+                .iter()
+                .map(|err| err.to_string().lines().next().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        insta::assert_json_snapshot!(
+            serde_json::json!({
+                "read": {"publish": publish(publish_reads), "run": run_reads},
+                "write": {"publish": publish(publish_writes), "run": run_writes},
+            }),
+            @r#"
+        {
+          "read": {
+            "publish": [],
+            "run": {
+              "Ok_Cordoned": {
+                "broker_address": "broker.2",
+                "data_plane_fqdn": "fqdn2",
+                "found": true
+              }
+            }
+          },
+          "write": {
+            "publish": [
+              "Specification is not write-authorized to 'bobCo/widgets/mangoes'."
+            ],
+            "run": {
+              "Err": {
+                "error": "task shard materialize/acmeCo/materialize-pear/0011223344556677/00000000-00000000 is not authorized to bobCo/widgets/mangoes/1122334455667788/pivot=00 for JournalAppend",
+                "status": 403
+              }
+            }
+          }
+        }
+        "#
+        );
     }
 
     #[derive(serde::Serialize)]
@@ -395,13 +488,36 @@ mod tests {
         shard_id: &str,
         shard_data_plane_fqdn: &str,
         journal_name_or_prefix: &str,
-        required_role: models::authz::CapabilityBundle,
+        required: models::authz::CapabilityBit,
+        iat_offset_seconds: i64,
+    ) -> Outcome {
+        run_with(
+            &[],
+            shard_id,
+            shard_data_plane_fqdn,
+            journal_name_or_prefix,
+            required,
+            iat_offset_seconds,
+        )
+    }
+
+    /// Like `run`, with `role_grants` added to the fixture.
+    fn run_with(
+        role_grants: &[tables::RoleGrant],
+        shard_id: &str,
+        shard_data_plane_fqdn: &str,
+        journal_name_or_prefix: &str,
+        required: models::authz::CapabilityBit,
         iat_offset_seconds: i64,
     ) -> Outcome {
         let taken = tokens::now();
         // Build snapshot with taken time 1 second in the future so that
         // iat_offset=0 is "before snapshot" and iat_offset=1+ is "same or after snapshot"
-        let snapshot = crate::Snapshot::build_fixture(Some(taken + chrono::Duration::seconds(1)));
+        let mut snapshot =
+            crate::Snapshot::build_fixture(Some(taken + chrono::Duration::seconds(1)));
+        for grant in role_grants {
+            snapshot.role_grants.insert(grant.clone());
+        }
 
         // Build and sign a proper JWT token for the request.
         let claims = proto_gazette::Claims {
@@ -432,7 +548,7 @@ mod tests {
             shard_data_plane_fqdn,
             &token,
             journal_name_or_prefix,
-            required_role,
+            required,
         ) {
             Ok((cordon_at, (data_plane, found))) => {
                 let output = SuccessOutput {
@@ -536,7 +652,7 @@ mod tests {
             @r#"
         Status {
             code: PermissionDenied,
-            message: "task shard capture/aliceCo/in/capture-foo/gen5678/00000000-00000000 is not authorized to some/other/collection/gen9999/pivot=00 for Writer",
+            message: "task shard capture/aliceCo/in/capture-foo/gen5678/00000000-00000000 is not authorized to some/other/collection/gen9999/pivot=00 for JournalAppend",
             source: None,
         }
         "#,

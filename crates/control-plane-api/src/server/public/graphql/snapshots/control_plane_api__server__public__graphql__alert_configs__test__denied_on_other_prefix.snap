@@ -10,6 +10,9 @@ expression: response
         "code": "FORBIDDEN",
         "requiredBundleOptions": [
           [
+            "team_admin"
+          ],
+          [
             "admin"
           ]
         ]
@@ -20,7 +23,7 @@ expression: response
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'. Requires capabilities: admin",
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'. Requires capabilities: team_admin or admin",
       "path": [
         "updateAlertConfig"
       ]

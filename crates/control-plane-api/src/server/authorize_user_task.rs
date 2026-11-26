@@ -7,7 +7,7 @@ pub async fn authorize_user_task(
     mut env: crate::Envelope,
     super::Request(Request {
         task,
-        capability,
+        capability_bundle,
         started_unix,
     }): super::Request<Request>,
 ) -> Result<axum::Json<Response>, crate::server::error::ApiError> {
@@ -23,7 +23,7 @@ pub async fn authorize_user_task(
         env.subject()?,
         env.claims()?.email.as_deref(),
         &task,
-        capability,
+        capability_bundle,
     );
 
     // Legacy: if `started_unix` was set then use a custom 200 response for client-side retries.
@@ -73,7 +73,7 @@ fn evaluate_authorization<'s>(
     subject: &models::authz::Subject,
     user_email: Option<&str>,
     task_name: &models::Name,
-    capability: models::authz::LegacyTier,
+    capability_bundle: models::authz::CapabilityBundle,
 ) -> tonic::Result<(
     Option<chrono::DateTime<chrono::Utc>>,
     (
@@ -88,26 +88,16 @@ fn evaluate_authorization<'s>(
     let user_id = subject.user_id;
     let user_email = user_email.unwrap_or("user");
 
-    if !snapshot.is_user_authorized(subject, task_name, capability.bits()) {
-        return Err(tonic::Status::permission_denied(format!(
-            "{user_email} is not authorized to {task_name} for {capability:?}",
-        )));
-    }
-
-    // For admin capability, require that the user has a transitive role grant to estuary_support/
-    if capability == models::authz::LegacyTier::Admin {
-        let has_support_access = snapshot.is_user_authorized(
-            subject,
-            "estuary_support/",
-            models::authz::CapabilityBundle::Admin,
-        );
-
-        if !has_support_access {
-            return Err(tonic::Status::permission_denied(format!(
-                "{user_email} is not authorized to {task_name} for Admin capability (requires estuary_support/ grant)",
-            )));
-        }
-    }
+    let (claim_bits, cap) =
+        super::evaluate_user_claims(snapshot, subject, user_email, task_name, capability_bundle)?;
+    () = super::evaluate_support_apply(
+        snapshot,
+        subject,
+        user_email,
+        task_name,
+        capability_bundle,
+        claim_bits,
+    )?;
 
     let Some(task) = snapshot.task_by_catalog_name(task_name) else {
         return Err(tonic::Status::not_found(format!(
@@ -150,7 +140,7 @@ fn evaluate_authorization<'s>(
     };
 
     let reactor_claims = proto_gazette::Claims {
-        cap: super::map_capability_to_gazette(capability) | proto_flow::capability::NETWORK_PROXY,
+        cap: cap | proto_flow::capability::NETWORK_PROXY,
         exp: 0, // Filled later.
         iat: 0, // Filled later.
         iss: data_plane.data_plane_fqdn.clone(),
@@ -187,7 +177,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -248,26 +238,26 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("acmeCo/other/thing"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to acmeCo/other/thing for Read"
+            "error": "bob@bob is not authorized to acmeCo/other/thing for Viewer"
           }
         }
-        "###);
+        "#);
     }
 
     #[test]
-    fn test_capability_too_high() {
+    fn test_capability_bundle_too_high() {
         let outcome = run(
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
-            models::authz::LegacyTier::Admin,
+            models::authz::CapabilityBundle::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -286,7 +276,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/not/found"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -305,7 +295,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/materialize-mango"),
-            models::authz::LegacyTier::Read,
+            models::authz::CapabilityBundle::Viewer,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -368,14 +358,14 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/tires/materialize-wheels"),
-            models::authz::LegacyTier::Admin,
+            models::authz::CapabilityBundle::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
         {
           "Err": {
             "status": 403,
-            "error": "bob@bob is not authorized to bobCo/tires/materialize-wheels for Admin capability (requires estuary_support/ grant)"
+            "error": "bob@bob is not authorized to bobCo/tires/materialize-wheels for the Admin capability bundle (requires estuary_support/ grant)"
           }
         }
         "###);
@@ -388,7 +378,7 @@ mod tests {
             uuid::Uuid::from_bytes([64; 16]),
             Some("alice@alice".to_string()),
             models::Name::new("aliceCo/wonderland/materialize-tea"),
-            models::authz::LegacyTier::Admin,
+            models::authz::CapabilityBundle::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -468,12 +458,18 @@ mod tests {
         user_id: uuid::Uuid,
         email: Option<String>,
         task: models::Name,
-        capability: models::authz::LegacyTier,
+        capability_bundle: models::authz::CapabilityBundle,
     ) -> Outcome {
         let snapshot = crate::Snapshot::build_fixture(None);
         let subject = models::authz::Subject::unrestricted(user_id);
 
-        match evaluate_authorization(&snapshot, &subject, email.as_deref(), &task, capability) {
+        match evaluate_authorization(
+            &snapshot,
+            &subject,
+            email.as_deref(),
+            &task,
+            capability_bundle,
+        ) {
             Ok((
                 cordon_at,
                 (
@@ -537,7 +533,7 @@ mod tests {
             client: server.rest_client(),
             user_tokens: user_tokens.clone(),
             task: models::Name::new("aliceCo/in/capture-foo"),
-            capability: models::authz::LegacyTier::Write,
+            capability_bundle: models::authz::CapabilityBundle::Writer,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
@@ -581,7 +577,7 @@ mod tests {
             client: server.rest_client(),
             user_tokens: user_tokens.clone(),
             task: models::Name::new("Some/Other/Task"),
-            capability: models::authz::LegacyTier::Write,
+            capability_bundle: models::authz::CapabilityBundle::Writer,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
@@ -590,7 +586,7 @@ mod tests {
             @r#"
         Status {
             code: PermissionDenied,
-            message: "alice@example.com is not authorized to Some/Other/Task for Write",
+            message: "alice@example.com is not authorized to Some/Other/Task for Writer",
             source: None,
         }
         "#,
