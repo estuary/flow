@@ -98,6 +98,34 @@ pub async fn get_user_id_for_email(email: &str, db: &sqlx::PgPool) -> sqlx::Resu
     .await
 }
 
+/// Select a page of `sorted`, which must be in ascending order of `key`.
+/// `after` and `before` are exclusive bounds. Within them, `first` keeps the
+/// leading rows, then `last` keeps the trailing rows of those. Returns the page,
+/// whether rows precede it, and whether rows follow it.
+pub(crate) fn paginate<T, K: Ord>(
+    mut sorted: Vec<T>,
+    key: impl Fn(&T) -> K,
+    after: Option<K>,
+    before: Option<K>,
+    first: Option<usize>,
+    last: Option<usize>,
+) -> (Vec<T>, bool, bool) {
+    let total = sorted.len();
+    let mut start = after.map_or(0, |after| sorted.partition_point(|row| key(row) <= after));
+    let mut end = before
+        .map_or(total, |before| {
+            sorted.partition_point(|row| key(row) < before)
+        })
+        .max(start);
+    if let Some(first) = first {
+        end = end.min(start.saturating_add(first));
+    }
+    if let Some(last) = last {
+        start = start.max(end.saturating_sub(last));
+    }
+    (sorted.drain(start..end).collect(), start > 0, end < total)
+}
+
 fn status_into_response(mut status: tonic::Status) -> axum::response::Response {
     let http_code = tokens::rest::grpc_status_code_to_http(status.code());
     let http_code = axum::http::StatusCode::from_u16(http_code).unwrap();
@@ -109,4 +137,93 @@ fn status_into_response(mut status: tonic::Status) -> axum::response::Response {
 
     let body = axum::body::Body::from(status.message().to_string());
     builder.body(body).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn paginates() {
+        fn page(
+            after: Option<&str>,
+            before: Option<&str>,
+            first: Option<usize>,
+            last: Option<usize>,
+        ) -> (Vec<&'static str>, bool, bool) {
+            super::paginate(
+                vec!["a", "b", "c", "d"],
+                |n| n.to_string(),
+                after.map(String::from),
+                before.map(String::from),
+                first,
+                last,
+            )
+        }
+
+        // Forward pagination: (rows, has_previous, has_next).
+        assert_eq!(
+            page(None, None, Some(2), None),
+            (vec!["a", "b"], false, true)
+        );
+        assert_eq!(
+            page(Some("b"), None, Some(2), None),
+            (vec!["c", "d"], true, false)
+        );
+        assert_eq!(
+            page(Some("b"), None, Some(10), None),
+            (vec!["c", "d"], true, false)
+        );
+        assert_eq!(page(Some("d"), None, Some(2), None), (vec![], true, false));
+
+        // Backward pagination.
+        assert_eq!(
+            page(None, None, None, Some(2)),
+            (vec!["c", "d"], true, false)
+        );
+        assert_eq!(
+            page(None, Some("d"), None, Some(2)),
+            (vec!["b", "c"], true, true)
+        );
+        assert_eq!(
+            page(None, Some("c"), None, Some(10)),
+            (vec!["a", "b"], false, true)
+        );
+
+        // Zero and absent limits.
+        assert_eq!(page(None, None, Some(0), None), (vec![], false, true));
+        assert_eq!(page(None, None, None, Some(0)), (vec![], true, false));
+        assert_eq!(
+            page(None, None, None, None),
+            (vec!["a", "b", "c", "d"], false, false)
+        );
+
+        // Both bounds, then both limits.
+        assert_eq!(
+            page(Some("a"), Some("d"), None, None),
+            (vec!["b", "c"], true, true)
+        );
+        assert_eq!(
+            page(Some("a"), Some("d"), Some(1), None),
+            (vec!["b"], true, true)
+        );
+        assert_eq!(
+            page(None, None, Some(3), Some(2)),
+            (vec!["b", "c"], true, true)
+        );
+
+        // Cursors outside the rows, then crossed cursors.
+        assert_eq!(
+            page(Some(""), None, Some(10), None),
+            (vec!["a", "b", "c", "d"], false, false)
+        );
+        assert_eq!(
+            page(Some("0"), None, Some(2), None),
+            (vec!["a", "b"], false, true)
+        );
+        assert_eq!(
+            page(None, Some("z"), None, Some(2)),
+            (vec!["c", "d"], true, false)
+        );
+        assert_eq!(page(None, Some(""), None, Some(2)), (vec![], false, true));
+        assert_eq!(page(Some("c"), Some("b"), None, None), (vec![], true, true));
+    }
 }

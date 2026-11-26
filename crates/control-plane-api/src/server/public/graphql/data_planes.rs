@@ -493,6 +493,8 @@ pub type PaginatedPublicDataPlanes = Connection<
 /// Applies cursor pagination over `sorted`, which must already be ordered by
 /// the unique `name` key that also serves as the cursor. Returns the page of
 /// rows plus has-previous-page / has-next-page indicators.
+/// Without `first` or `last`, takes `DEFAULT_PAGE_SIZE` rows, counting back from
+/// `before` when it is given.
 fn paginate_by_name<T>(
     sorted: Vec<T>,
     name: impl Fn(&T) -> &str,
@@ -501,32 +503,19 @@ fn paginate_by_name<T>(
     first: Option<usize>,
     last: Option<usize>,
 ) -> (Vec<T>, bool, bool) {
-    let limit = first.or(last).unwrap_or(DEFAULT_PAGE_SIZE);
-    if limit == 0 {
-        return (Vec::new(), false, false);
-    }
-
-    let total = sorted.len();
-
-    if before.is_some() || last.is_some() {
-        // Backward: the window ends at the first row not before the cursor.
-        let end = match before.as_ref() {
-            Some(b) => sorted.partition_point(|t| name(t) < b.as_str()),
-            None => total,
-        };
-        let skip = end.saturating_sub(limit);
-        let rows: Vec<T> = sorted.into_iter().take(end).skip(skip).collect();
-        (rows, skip > 0, end < total)
-    } else {
-        // Forward: the window starts just past the cursor.
-        let start = match after.as_ref() {
-            Some(a) => sorted.partition_point(|t| name(t) <= a.as_str()),
-            None => 0,
-        };
-        let rows: Vec<T> = sorted.into_iter().skip(start).take(limit).collect();
-        let has_next = (total - start) > limit;
-        (rows, start > 0, has_next)
-    }
+    let (first, last) = match (first, last) {
+        (None, None) if before.is_some() => (None, Some(DEFAULT_PAGE_SIZE)),
+        (None, None) => (Some(DEFAULT_PAGE_SIZE), None),
+        limits => limits,
+    };
+    crate::paginate(
+        sorted,
+        |row| name(row).to_string(),
+        after,
+        before,
+        first,
+        last,
+    )
 }
 
 #[derive(Debug, Default)]
@@ -2040,82 +2029,6 @@ mod tests {
             first_error_message(&response),
             "data plane 'ops/dp/private/aliceCo/aws-us-east-2-c9' not found",
         );
-    }
-
-    // Covers both directions of the shared cursor helper, including the
-    // forward over-report of has-next when a page ends exactly at the last
-    // row (no +1 lookahead; the follow-up fetch comes back empty).
-    #[test]
-    fn paginates_by_name() {
-        fn page(
-            after: Option<&str>,
-            before: Option<&str>,
-            first: Option<usize>,
-            last: Option<usize>,
-        ) -> (Vec<&'static str>, bool, bool) {
-            paginate_by_name(
-                vec!["a", "b", "c", "d"],
-                |n| *n,
-                after.map(String::from),
-                before.map(String::from),
-                first,
-                last,
-            )
-        }
-
-        // Forward pagination: (rows, has_previous, has_next).
-        assert_eq!(
-            page(None, None, Some(2), None),
-            (vec!["a", "b"], false, true)
-        );
-        assert_eq!(
-            page(Some("b"), None, Some(2), None),
-            (vec!["c", "d"], true, false)
-        );
-        assert_eq!(
-            page(Some("b"), None, Some(10), None),
-            (vec!["c", "d"], true, false)
-        );
-        assert_eq!(page(Some("d"), None, Some(2), None), (vec![], true, false));
-
-        // Backward pagination.
-        assert_eq!(
-            page(None, None, None, Some(2)),
-            (vec!["c", "d"], true, false)
-        );
-        assert_eq!(
-            page(None, Some("d"), None, Some(2)),
-            (vec!["b", "c"], true, true)
-        );
-        assert_eq!(
-            page(None, Some("c"), None, Some(10)),
-            (vec!["a", "b"], false, true)
-        );
-
-        // Zero and default limits.
-        assert_eq!(page(None, None, Some(0), None), (vec![], false, false));
-        assert_eq!(
-            page(None, None, None, None),
-            (vec!["a", "b", "c", "d"], false, false)
-        );
-
-        // empty `after` cursor should return the first page
-        assert_eq!(
-            page(Some(""), None, Some(10), None),
-            (vec!["a", "b", "c", "d"], false, false)
-        );
-        // `after` cursor that is before the first element should return the first page
-        assert_eq!(
-            page(Some("0"), None, Some(2), None),
-            (vec!["a", "b"], false, true)
-        );
-        // a `before` cursor past the last row excludes nothing
-        assert_eq!(
-            page(None, Some("z"), None, Some(2)),
-            (vec!["c", "d"], true, false)
-        );
-        // empty `before` cursor should exclude all results
-        assert_eq!(page(None, Some(""), None, Some(2)), (vec![], false, true));
     }
 
     #[test]

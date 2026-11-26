@@ -204,7 +204,7 @@ pub fn live_spec_refs(
 /// References and results must remain sorted by ascending catalog name, including
 /// when paginating backwards: https://relay.dev/graphql/connections.htm#sec-Edge-order
 pub async fn paginate_live_specs_refs(
-    mut all_refs: Vec<LiveSpecRef>,
+    all_refs: Vec<LiveSpecRef>,
     after: Option<String>,
     before: Option<String>,
     first: Option<i32>,
@@ -216,30 +216,16 @@ pub async fn paginate_live_specs_refs(
         first,
         last,
         |after, before, first, last| async move {
-            // Which direction to paginate in? Default to forward, if no parameters were given.
-            let (start_index, end_index) = if before.is_some() || last.is_some() {
-                let end = if let Some(before_name) = &before {
-                    all_refs.partition_point(|r| r.catalog_name.as_str() < before_name.as_str())
-                } else {
-                    all_refs.len()
-                };
-                let start = end.saturating_sub(last.unwrap_or(all_refs.len()));
-                (start, end)
-            } else {
-                let start = if let Some(after_name) = &after {
-                    all_refs.partition_point(|r| r.catalog_name.as_str() <= after_name.as_str())
-                } else {
-                    0
-                };
-                let end = start
-                    .saturating_add(first.unwrap_or(usize::MAX))
-                    .min(all_refs.len());
-                (start, end)
-            };
-            let has_prev = start_index > 0;
-            let has_next = end_index < all_refs.len();
-            let edges = all_refs
-                .drain(start_index..end_index)
+            let (refs, has_prev, has_next) = crate::paginate(
+                all_refs,
+                |r| r.catalog_name.to_string(),
+                after,
+                before,
+                first,
+                last,
+            );
+            let edges = refs
+                .into_iter()
                 .map(|r| connection::Edge::new(r.catalog_name.to_string(), r))
                 .collect();
             let mut conn = PaginatedLiveSpecsRefs::new(has_prev, has_next);
