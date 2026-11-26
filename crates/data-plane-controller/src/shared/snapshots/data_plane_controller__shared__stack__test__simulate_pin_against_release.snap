@@ -1,0 +1,148 @@
+---
+source: crates/data-plane-controller/src/shared/stack.rs
+expression: "&outcomes"
+---
+[
+  [
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v2",
+      "desired": 9,
+      "current": 9,
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v2",
+      "desired": 9,
+      "current": 9,
+      "rollout": {
+        "target": 0,
+        "step": 5
+      },
+      "tier": 50
+    },
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v1",
+      "desired": 5,
+      "current": 0,
+      "rollout": {
+        "target": 9,
+        "step": 5
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v2",
+      "desired": 4,
+      "current": 9,
+      "rollout": {
+        "target": 0,
+        "step": 5
+      },
+      "tier": 50
+    },
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v1",
+      "desired": 9,
+      "current": 5,
+      "rollout": {
+        "target": 9,
+        "step": 5
+      },
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v2",
+      "desired": 0,
+      "current": 4,
+      "rollout": {
+        "target": 0,
+        "step": 5
+      },
+      "tier": 50
+    },
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v1",
+      "desired": 9,
+      "current": 9,
+      "tier": 50
+    }
+  ],
+  [
+    {
+      "role": "gazette",
+      "template": {
+        "ami_image_id": "ami-01a8b7cc84780badb",
+        "instance_type": "r5d.large",
+        "provider": "aws",
+        "region": "us-west-2",
+        "zone": "a"
+      },
+      "oci_image": "ghcr.io/gazette/broker:v1",
+      "desired": 9,
+      "current": 9,
+      "tier": 50
+    }
+  ]
+]

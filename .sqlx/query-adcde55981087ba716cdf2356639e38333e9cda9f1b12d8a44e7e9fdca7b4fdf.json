@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            role,\n            max_tier,\n            image,\n            step,\n            data_plane_id != '00:00:00:00:00:00:00:00' AS \"plane_specific!\"\n        FROM data_plane_targets\n        WHERE active AND data_plane_id IN ($1, '00:00:00:00:00:00:00:00')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_plane_targets",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_tier",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "data_plane_targets",
+            "name": "max_tier"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "image",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "data_plane_targets",
+            "name": "image"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "step",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "data_plane_targets",
+            "name": "step"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "plane_specific!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Macaddr8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "adcde55981087ba716cdf2356639e38333e9cda9f1b12d8a44e7e9fdca7b4fdf"
+}
