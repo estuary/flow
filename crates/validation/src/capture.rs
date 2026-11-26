@@ -517,7 +517,8 @@ async fn walk_capture(
         &shard_id_prefix,
         recovery_stores,
     );
-    let has_disk = persistent_disk && matches!(endpoint, models::CaptureEndpoint::Python(_));
+    let has_disk =
+        persistent_disk.is_some() && matches!(endpoint, models::CaptureEndpoint::Python(_));
     let disk_journal_template = has_disk.then(|| {
         assemble::disk_journal_template(
             build_id,

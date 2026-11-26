@@ -1,6 +1,6 @@
 captures:
   acmeCo/disks/source:
-    persistentDisk: true
+    persistentDisk: {}
     endpoint:
       python:
         files: [pyproject.toml, source/__init__.py]
@@ -16,7 +16,7 @@ captures:
 
 materializations:
   acmeCo/disks/sink:
-    persistentDisk: true
+    persistentDisk: {}
     endpoint:
       python:
         files: [pyproject.toml, sink/__init__.py]
@@ -56,7 +56,7 @@ collections:
       required: [key]
     key: [/key]
     derive:
-      persistentDisk: true
+      persistentDisk: {}
       using:
         python:
           files: [pyproject.toml, counts/__init__.py]

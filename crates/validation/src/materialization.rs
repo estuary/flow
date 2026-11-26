@@ -734,7 +734,7 @@ async fn walk_materialization(
         recovery_stores,
     );
     let has_disk =
-        persistent_disk && matches!(endpoint, models::MaterializationEndpoint::Python(_));
+        persistent_disk.is_some() && matches!(endpoint, models::MaterializationEndpoint::Python(_));
     let disk_journal_template = has_disk.then(|| {
         assemble::disk_journal_template(
             build_id,

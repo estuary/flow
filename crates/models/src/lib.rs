@@ -73,7 +73,7 @@ pub use references::{
     Transform, tenant_from,
 };
 pub use schemas::Schema;
-pub use shards::{ENABLE_RUNTIME_V2, INDIRECT_SPECS, ShardTemplate};
+pub use shards::{ENABLE_RUNTIME_V2, INDIRECT_SPECS, PersistentDiskDef, ShardTemplate};
 pub use source::{FullSource, OnIncompatibleSchemaChange, PartitionSelector, Source};
 pub use source_capture::{SourceDef, SourceType, TargetNaming};
 pub use sync_schedule::SyncSchedule;

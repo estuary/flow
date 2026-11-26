@@ -268,7 +268,7 @@ expression: "&schema"
         "persistentDisk": {
           "title": "Give this capture a persistent disk.",
           "description": "Persistent disks are currently only supported for custom connectors.",
-          "type": "boolean"
+          "$ref": "#/$defs/PersistentDiskDef"
         },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in captured documents.",
@@ -641,7 +641,7 @@ expression: "&schema"
         "persistentDisk": {
           "title": "Give this derivation a persistent disk.",
           "description": "Persistent disks are currently only supported for custom connectors.",
-          "type": "boolean"
+          "$ref": "#/$defs/PersistentDiskDef"
         },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in derived documents.",
@@ -1127,7 +1127,7 @@ expression: "&schema"
         "persistentDisk": {
           "title": "Give this materialization a persistent disk.",
           "description": "Persistent disks are currently only supported for custom connectors.",
-          "type": "boolean"
+          "$ref": "#/$defs/PersistentDiskDef"
         },
         "reset": {
           "title": "Reset this materialization.",
@@ -1466,6 +1466,11 @@ expression: "&schema"
           }
         }
       ]
+    },
+    "PersistentDiskDef": {
+      "description": "Settings for a persistent disk. Use `{}` for the defaults.",
+      "type": "object",
+      "additionalProperties": false
     },
     "Projection": {
       "description": "Projections are named locations within a collection document which\nmay be used for logical partitioning or directly exposed to databases\ninto which collections are materialized.",

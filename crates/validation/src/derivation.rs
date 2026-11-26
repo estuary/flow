@@ -759,7 +759,7 @@ async fn walk_derivation(
         &shard_id_prefix,
         recovery_stores,
     );
-    let has_disk = persistent_disk
+    let has_disk = persistent_disk.is_some()
         && matches!(
             using,
             models::DeriveUsing::Python(models::DeriveUsingPython { module: None, .. })
