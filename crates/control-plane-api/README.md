@@ -48,10 +48,12 @@ before applying runtime defaults. A null hash preserves PostgREST publication
 behavior.
 
 `server/public/token_exchange.rs` handles refresh-token exchange and restricted
-access-token minting. `mint_restricted_token` requires an unrestricted token.
-Authorization applies the minted capability and prefix masks through
-`ControlClaims::subject` and the `Snapshot`'s grant walk (`is_user_authorized`,
-`user_reachable_prefixes`). PostgREST doesn't respect the
+access-token minting. `mint_restricted_token` requires an unrestricted token,
+and refuses masks that a verifier would reject. The `Envelope` extractor parses
+a bearer's masks once, through `ControlClaims::parse_subject`, and rejects the
+token if they don't parse. Handlers authorize the parsed `Envelope::subject`
+through the `Snapshot` (`is_user_authorized`, `user_reachable_prefixes`),
+which walks its grants. PostgREST doesn't respect the
 access restrictions, so restricted tokens use a nonexistent Postgres role to
 prevent PostgREST from accepting the token at all.
 

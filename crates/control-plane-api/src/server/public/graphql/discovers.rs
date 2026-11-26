@@ -23,7 +23,7 @@ impl Discover {
         ctx: &async_graphql::Context<'_>,
     ) -> async_graphql::Result<Vec<models::draft_error::Error>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         super::drafts::errors_for_draft(self.draft_id, user_id, &env.pg_pool).await
     }
 
@@ -53,7 +53,7 @@ impl DiscoversQuery {
         id: models::Id,
     ) -> async_graphql::Result<Option<Discover>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         let row = sqlx::query!(
             r#"
             SELECT di.id AS "id!: models::Id", di.draft_id AS "draft_id!: models::Id",
@@ -101,7 +101,7 @@ impl DiscoversMutation {
         data_plane: Option<String>,
     ) -> async_graphql::Result<Discover> {
         let env = ctx.data::<crate::Envelope>()?;
-        let subject = env.claims()?.subject();
+        let subject = env.subject()?;
 
         super::verify_authorization(
             env,
@@ -113,7 +113,7 @@ impl DiscoversMutation {
         let row = match crate::discovers::create(
             &env.pg_pool,
             env.snapshot(),
-            &subject,
+            subject,
             draft_id,
             capture_name.as_str(),
             data_plane.as_deref(),

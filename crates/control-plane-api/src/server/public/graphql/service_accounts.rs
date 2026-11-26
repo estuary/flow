@@ -124,7 +124,7 @@ impl ServiceAccountsQuery {
         // on a prefix covering the account's catalog_name.
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
             snapshot,
-            &env.claims()?.subject(),
+            env.subject()?,
             models::authz::CapabilityBit::QueryServiceAccounts,
             None,
         );

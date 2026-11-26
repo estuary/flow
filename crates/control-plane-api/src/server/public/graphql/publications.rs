@@ -31,7 +31,7 @@ impl Publication {
         }
 
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         super::drafts::errors_for_draft(self.draft_id, user_id, &env.pg_pool).await
     }
 
@@ -61,7 +61,7 @@ impl PublicationsQuery {
         id: models::Id,
     ) -> async_graphql::Result<Option<Publication>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         let row = sqlx::query!(
             r#"
             SELECT id AS "id!: models::Id", draft_id AS "draft_id!: models::Id", dry_run,
@@ -111,12 +111,12 @@ impl PublicationsMutation {
         detail: Option<String>,
     ) -> async_graphql::Result<Publication> {
         let env = ctx.data::<crate::Envelope>()?;
-        let subject = env.claims()?.subject();
+        let subject = env.subject()?;
 
         let (id, logs_token) = match crate::publications::submit::submit(
             &env.pg_pool,
             env.snapshot(),
-            &subject,
+            subject,
             draft_id,
             dry_run,
             default_data_plane.as_deref(),

@@ -99,7 +99,7 @@ pub(super) async fn check_authorized_consent(
     let required = models::authz::CapabilityBit::CatalogRead;
     let prefixes = super::authorized_prefixes::authorized_prefixes(
         env.snapshot(),
-        &env.claims()?.subject(),
+        env.subject()?,
         required,
         Some(tenant),
     );
@@ -167,7 +167,7 @@ impl LegalTermsMutation {
         let authorized = tables::UserGrant::is_authorized(
             &[],
             &env.snapshot().user_grants,
-            &claims.subject(),
+            env.subject()?,
             tenant.as_str(),
             required,
         );

@@ -36,7 +36,8 @@ pub async fn update_l2_reporting(
 
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
-        claims,
+        env.subject()?,
+        claims.email.as_deref(),
         models::Capability::Admin,
         ["ops/"],
     );
@@ -287,7 +288,7 @@ export class Derivation extends Types.IDerivation {"#
 
     let logs_token = uuid::Uuid::new_v4();
     let publication = DraftPublication {
-        subject: claims.subject(),
+        subject: env.subject()?.clone(),
         logs_token,
         draft,
         dry_run,

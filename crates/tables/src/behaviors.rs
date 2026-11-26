@@ -1829,10 +1829,6 @@ mod test {
             subject.capability_mask = Some(authz::CapabilityBits::empty());
             assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
         }
-        // An empty prefix in the mask normalizes to `/`, not unrestricted authority.
-        let mut empty = Subject::unrestricted(user_id);
-        empty.prefix_mask = Some(vec!["/".to_string()]);
-        assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &empty).is_empty());
     }
 
     #[test]
@@ -1893,7 +1889,7 @@ mod test {
                     "sub": user_id, "role": "authenticated", "prefix_mask": prefixes,
                 }))
                 .unwrap();
-            let mut subject = claims.subject();
+            let mut subject = claims.parse_subject().unwrap();
             let reachable = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
             results.push(
                 reachable

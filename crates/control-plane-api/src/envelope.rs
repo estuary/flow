@@ -1,22 +1,37 @@
 use std::sync::Arc;
 
-/// MaybeControlClaims wraps an optional Verified<ControlClaims> and represents
-/// the presence or absence of a verified control-plane bearer token.
+/// MaybeControlClaims represents the presence or absence of a verified
+/// control-plane bearer token. When present, it holds the token's claims and
+/// the authorization Subject parsed from them.
 #[derive(Debug)]
-pub struct MaybeControlClaims(Option<tokens::jwt::Verified<crate::ControlClaims>>);
+pub struct MaybeControlClaims(
+    Option<(
+        tokens::jwt::Verified<crate::ControlClaims>,
+        models::authz::Subject,
+    )>,
+);
 
 impl MaybeControlClaims {
-    pub fn with_verified(verified: tokens::jwt::Verified<crate::ControlClaims>) -> Self {
-        Self(Some(verified))
+    /// Parses the Subject of verified claims. Claims whose masks don't parse
+    /// are an authentication failure: the token is rejected whole.
+    pub fn with_verified(
+        verified: tokens::jwt::Verified<crate::ControlClaims>,
+    ) -> tonic::Result<Self> {
+        let subject = verified.claims().parse_subject().map_err(|err| {
+            tonic::Status::unauthenticated(format!(
+                "authorization bearer has an invalid mask: {err}"
+            ))
+        })?;
+        Ok(Self(Some((verified, subject))))
     }
 
     pub fn with_unauthenticated() -> Self {
         Self(None)
     }
 
-    pub fn result(&self) -> tonic::Result<&crate::ControlClaims> {
+    pub fn result(&self) -> tonic::Result<(&crate::ControlClaims, &models::authz::Subject)> {
         match &self.0 {
-            Some(verified) => Ok(verified.claims()),
+            Some((verified, subject)) => Ok((verified.claims(), subject)),
             None => Err(tonic::Status::unauthenticated(
                 "This is an authenticated API but the request is missing a required Authorization: Bearer token",
             )),
@@ -75,7 +90,12 @@ pub struct Envelope {
 impl Envelope {
     /// Returns verified ControlClaims or an unauthenticated error.
     pub fn claims(&self) -> tonic::Result<&crate::ControlClaims> {
-        self.maybe_claims.result()
+        Ok(self.maybe_claims.result()?.0)
+    }
+
+    /// Returns the Subject of verified ControlClaims or an unauthenticated error.
+    pub fn subject(&self) -> tonic::Result<&models::authz::Subject> {
+        Ok(self.maybe_claims.result()?.1)
     }
 
     /// Returns the request's associated Snapshot.
@@ -260,7 +280,7 @@ impl axum::extract::FromRequestParts<Arc<crate::App>> for Envelope {
                         .into());
                     }
 
-                    MaybeControlClaims::with_verified(verified)
+                    MaybeControlClaims::with_verified(verified)?
                 }
                 None => MaybeControlClaims::with_unauthenticated(),
             };

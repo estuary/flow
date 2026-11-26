@@ -1788,7 +1788,8 @@ impl TestHarness {
             .expect("failed to verify test JWT");
 
         let envelope = control_plane_api::Envelope {
-            maybe_claims: control_plane_api::MaybeControlClaims::with_verified(verified),
+            maybe_claims: control_plane_api::MaybeControlClaims::with_verified(verified)
+                .expect("test claims have no masks"),
             original_uri: axum::http::Uri::from_static("/graphql"),
             pg_pool: self.pool.clone(),
             refresh: app.snapshot.token(),

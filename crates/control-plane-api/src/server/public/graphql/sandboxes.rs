@@ -227,8 +227,9 @@ impl SandboxesMutation {
 
         crate::sandboxes::credentials::validate(&workspace, &name, duration_minutes)
             .map_err(async_graphql::Error::new)?;
-        let capability_mask = crate::sandboxes::credentials::capability_mask(capability_mask)
-            .map_err(async_graphql::Error::new)?;
+        let capability_mask =
+            crate::server::public::token_exchange::normalize_capability_mask(capability_mask)
+                .map_err(async_graphql::Error::new)?;
         let tenants = crate::sandboxes::credentials::consent_tenants(&prefix_mask)
             .map_err(async_graphql::Error::new)?;
 

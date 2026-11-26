@@ -94,7 +94,7 @@ impl Draft {
         first: Option<i32>,
     ) -> async_graphql::Result<DraftSpecConnection> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
 
         connection::query_with::<String, _, _, _, async_graphql::Error>(
             after,
@@ -176,7 +176,7 @@ impl Draft {
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Vec<models::draft_error::Error>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         errors_for_draft(self.id, user_id, &env.pg_pool).await
     }
 }
@@ -192,7 +192,7 @@ impl DraftsQuery {
         id: models::Id,
     ) -> async_graphql::Result<Option<Draft>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
 
         let row = sqlx::query_as!(
             Draft,
@@ -227,7 +227,7 @@ impl DraftsQuery {
         first: Option<i32>,
     ) -> async_graphql::Result<DraftConnection> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
 
         connection::query_with::<models::Id, _, _, _, async_graphql::Error>(
             after,
@@ -287,7 +287,7 @@ impl DraftsMutation {
         detail: Option<String>,
     ) -> async_graphql::Result<Draft> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
 
         let row = sqlx::query!(
             r#"
@@ -324,7 +324,7 @@ impl DraftsMutation {
         specs: Vec<DraftSpecInput>,
     ) -> async_graphql::Result<Vec<models::Name>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         let mut txn = env.pg_pool.begin().await?;
 
         if !owns_draft(draft_id, user_id, &mut txn).await? {
@@ -369,7 +369,7 @@ impl DraftsMutation {
         catalog_names: Vec<models::Name>,
     ) -> async_graphql::Result<Vec<models::Name>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
         let mut txn = env.pg_pool.begin().await?;
 
         if !owns_draft(draft_id, user_id, &mut txn).await? {
@@ -401,7 +401,7 @@ impl DraftsMutation {
         id: models::Id,
     ) -> async_graphql::Result<models::Id> {
         let env = ctx.data::<crate::Envelope>()?;
-        let user_id = env.claims()?.subject().user_id;
+        let user_id = env.subject()?.user_id;
 
         let deleted = sqlx::query_scalar!(
             r#"

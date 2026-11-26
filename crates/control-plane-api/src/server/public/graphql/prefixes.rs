@@ -91,14 +91,13 @@ impl PrefixesQuery {
 
         connection::query(after, None, first, None, |after, _, first, _| async move {
             let snapshot = env.snapshot();
-            let subject = env.claims()?.subject();
+            let subject = env.subject()?;
 
-            let min_bits: models::authz::CapabilityBits = by
-                .map(|by| by.min_capability.into())
-                .unwrap_or_default();
+            let min_bits: models::authz::CapabilityBits =
+                by.map(|by| by.min_capability.into()).unwrap_or_default();
             let under = starts_with.as_deref().unwrap_or_default();
 
-            let reachable = snapshot.user_reachable_prefixes(&subject);
+            let reachable = snapshot.user_reachable_prefixes(subject);
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
             // prefix (or to `startsWith`, if later), rather than iterating

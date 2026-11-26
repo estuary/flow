@@ -60,7 +60,8 @@ where
     let required = required.into();
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
-        env.claims()?,
+        env.subject()?,
+        env.claims()?.email.as_deref(),
         required,
         prefixes_or_names,
     );

@@ -185,11 +185,11 @@ pub fn live_spec_refs(
     env: &crate::Envelope,
     all_names: impl IntoIterator<Item = String>,
 ) -> async_graphql::Result<impl Iterator<Item = LiveSpecRef>> {
-    let subject = env.claims()?.subject();
+    let subject = env.subject()?;
     Ok(all_names.into_iter().map(move |name| {
-        let user_capability = env.snapshot().user_capability(&subject, &name);
+        let user_capability = env.snapshot().user_capability(subject, &name);
         let can_read = env.snapshot().is_user_authorized(
-            &subject,
+            subject,
             &name,
             models::authz::CapabilityBit::CatalogRead,
         );

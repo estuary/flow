@@ -41,31 +41,6 @@ pub fn validate(workspace: &str, name: &str, duration_minutes: i32) -> Result<()
     Ok(())
 }
 
-/// Returns the capability mask of an approval: bundle names in snake case,
-/// without duplicates.
-///
-/// A token's unknown bundle names grant nothing (`ControlClaims::subject`),
-/// so an approval which stored one would mint tokens narrower than its
-/// approver was shown.
-pub fn capability_mask(mask: Vec<String>) -> Result<Vec<String>, String> {
-    let known = || {
-        <models::authz::CapabilityBundle as strum::VariantArray>::VARIANTS
-            .iter()
-            .map(|bundle| heck::ToSnakeCase::to_snake_case(format!("{bundle:?}").as_str()))
-    };
-    let mask = crate::server::public::token_exchange::normalize_capability_mask(mask);
-
-    for name in &mask {
-        if !known().any(|bundle| &bundle == name) {
-            return Err(format!(
-                "Unknown capability bundle {name:?}: use any of {}.",
-                itertools::Itertools::join(&mut known(), ", ")
-            ));
-        }
-    }
-    Ok(mask)
-}
-
 /// Returns the tenants which must have accepted the sandbox agreement before
 /// tokens restricted to `prefix_mask` may be minted for sandbox commands.
 ///
@@ -75,16 +50,10 @@ pub fn capability_mask(mask: Vec<String>) -> Result<Vec<String>, String> {
 pub fn consent_tenants(
     prefix_mask: &[String],
 ) -> Result<std::collections::BTreeSet<String>, String> {
+    models::authz::parse_prefix_mask(prefix_mask)?;
     let mut tenants = std::collections::BTreeSet::new();
 
     for prefix in prefix_mask {
-        // CATALOG_PREFIX_RE also matches the empty string.
-        if prefix.is_empty() || validator::Validate::validate(&models::Prefix::new(prefix)).is_err()
-        {
-            return Err(format!(
-                "Invalid prefix {prefix:?}: use a nonempty catalog prefix ending in '/'."
-            ));
-        }
         let parts: Vec<&str> = prefix.split('/').collect();
 
         if parts.starts_with(&["ops", "dp", "public"]) {

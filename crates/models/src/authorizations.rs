@@ -24,13 +24,18 @@ pub struct ControlClaims {
     pub email: Option<String>,
     // Capability bundles limiting which granted capabilities the token may use.
     // Omitted or null means no mask; an empty list means identity only.
-    // Bundles are unioned, and unknown names are ignored so that tokens minted
-    // by a newer service still verify. Only capability bits are masked; a
-    // grant's legacy `capability` value is not attenuated.
+    // Bundles are unioned. Only capability bits are masked; a grant's legacy
+    // `capability` value is not attenuated.
+    //
+    // A verifier rejects a token naming a bundle it doesn't know. Bundle names
+    // are stable, and a new bundle is accepted by every replica before any
+    // minter may name it, so a verifier never legitimately meets an unknown
+    // name. Clients decode these as strings, so they needn't know every bundle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability_mask: Option<Vec<String>>,
     /// Limits the user's reachable authority to the union of these prefixes.
     /// Omitted or null is unrestricted; an empty list denies all access.
+    /// A verifier rejects a token with a prefix that isn't a catalog prefix.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix_mask: Option<Vec<String>>,
 }
@@ -41,39 +46,23 @@ impl ControlClaims {
         self.capability_mask.is_some() || self.prefix_mask.is_some()
     }
 
-    /// Converts these claims into the authorization subject used by grant evaluation.
-    pub fn subject(&self) -> crate::authz::Subject {
-        use serde::{Deserialize, de::value};
-        crate::authz::Subject {
+    /// Parses these claims into the authorization subject used by grant
+    /// evaluation. A mask with an unknown bundle or an invalid prefix is an
+    /// error: the token is malformed, and is not narrowed to its valid parts.
+    pub fn parse_subject(&self) -> Result<authz::Subject, String> {
+        Ok(authz::Subject {
             user_id: self.sub,
-            prefix_mask: self.prefix_mask.as_ref().map(|prefixes| {
-                let mut prefixes: Vec<String> = prefixes
-                    .iter()
-                    .map(|prefix| {
-                        let mut prefix = prefix.clone();
-                        if !prefix.ends_with('/') {
-                            prefix.push('/');
-                        }
-                        prefix
-                    })
-                    .collect();
-                // Remove duplicates and child prefixes if their ancestor is in the list
-                prefixes.sort_unstable();
-                prefixes.dedup_by(|prefix, previous| prefix.starts_with(previous.as_str()));
-                prefixes
-            }),
-            capability_mask: self.capability_mask.as_ref().map(|mask| {
-                mask.iter()
-                    .filter_map(|name| {
-                        authz::CapabilityBundle::deserialize(
-                            value::StrDeserializer::<value::Error>::new(name),
-                        )
-                        .ok()
-                    })
-                    .map(|bundle| bundle.bits())
-                    .fold(authz::CapabilityBits::empty(), |set, bits| set | bits)
-            }),
-        }
+            capability_mask: self
+                .capability_mask
+                .as_deref()
+                .map(authz::parse_capability_mask)
+                .transpose()?,
+            prefix_mask: self
+                .prefix_mask
+                .as_deref()
+                .map(authz::parse_prefix_mask)
+                .transpose()?,
+        })
     }
 
     pub fn time_remaining(&self) -> time::Duration {
@@ -488,7 +477,8 @@ mod test {
         assert!(
             serde_json::from_value::<ControlClaims>(payload.clone())
                 .unwrap()
-                .subject()
+                .parse_subject()
+                .unwrap()
                 .prefix_mask
                 .is_none()
         );
@@ -496,41 +486,59 @@ mod test {
         for prefix_mask in [
             serde_json::Value::Null,
             serde_json::json!([]),
-            serde_json::json!([""]),
-            serde_json::json!(["acmeCo/team", "otherCo/", "acmeCo/team/"]),
+            serde_json::json!(["acmeCo/team/", "otherCo/"]),
             serde_json::json!(["acmeCo/team/", "acmeCo/", "acmeCo/team/"]),
-            serde_json::json!([
-                "acmeCo/teammate/",
-                "acmeCo/team/nested/",
-                "acmeCo/team",
-                "acmeCo/team/"
-            ]),
+            serde_json::json!(["acmeCo/teammate/", "acmeCo/team/nested/", "acmeCo/team/"]),
+            // Any invalid prefix fails the whole mask.
+            serde_json::json!([""]),
+            serde_json::json!(["acmeCo/team", "otherCo/"]),
+            serde_json::json!(["otherCo/", "/"]),
+            serde_json::json!(["otherCo/", "acme Co/"]),
         ] {
             payload["prefix_mask"] = prefix_mask;
             let claims: ControlClaims = serde_json::from_value(payload.clone()).unwrap();
-            results.push(claims.subject().prefix_mask.clone());
+            results.push(claims.parse_subject().map(|subject| subject.prefix_mask));
             let round_trip: ControlClaims =
                 serde_json::from_value(serde_json::to_value(&claims).unwrap()).unwrap();
-            assert_eq!(round_trip.subject(), claims.subject());
+            assert_eq!(round_trip.parse_subject(), claims.parse_subject());
         }
         insta::assert_json_snapshot!(results, @r#"
         [
-          null,
-          [],
-          [
-            "/"
-          ],
-          [
-            "acmeCo/team/",
-            "otherCo/"
-          ],
-          [
-            "acmeCo/"
-          ],
-          [
-            "acmeCo/team/",
-            "acmeCo/teammate/"
-          ]
+          {
+            "Ok": null
+          },
+          {
+            "Ok": []
+          },
+          {
+            "Ok": [
+              "acmeCo/team/",
+              "otherCo/"
+            ]
+          },
+          {
+            "Ok": [
+              "acmeCo/"
+            ]
+          },
+          {
+            "Ok": [
+              "acmeCo/team/",
+              "acmeCo/teammate/"
+            ]
+          },
+          {
+            "Err": "Invalid prefix \"\": use a nonempty catalog prefix ending in '/'."
+          },
+          {
+            "Err": "Invalid prefix \"acmeCo/team\": use a nonempty catalog prefix ending in '/'."
+          },
+          {
+            "Err": "Invalid prefix \"/\": use a nonempty catalog prefix ending in '/'."
+          },
+          {
+            "Err": "Invalid prefix \"acme Co/\": use a nonempty catalog prefix ending in '/'."
+          }
         ]
         "#);
         for malformed in [
@@ -586,6 +594,7 @@ mod test {
                 }"#,
                 Some(CapabilityBits::empty()),
             ),
+            // Bundles are unioned.
             (
                 r#"{
                     "aud": "authenticated",
@@ -593,20 +602,7 @@ mod test {
                     "exp": 1700003600,
                     "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
                     "role": "authenticated",
-                    "capability_mask": ["future_bundle"]
-                }"#,
-                Some(CapabilityBits::empty()),
-            ),
-            // Known bundles are unioned; unknown names from a newer minter
-            // are ignored rather than failing deserialization.
-            (
-                r#"{
-                    "aud": "authenticated",
-                    "iat": 1700000000,
-                    "exp": 1700003600,
-                    "sub": "d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a",
-                    "role": "authenticated",
-                    "capability_mask": ["viewer", "delegate", "future_bundle"]
+                    "capability_mask": ["viewer", "delegate"]
                 }"#,
                 Some(viewer | CapabilityBit::Delegate),
             ),
@@ -654,15 +650,38 @@ mod test {
         for (payload, expected_mask) in cases {
             let claims: ControlClaims = serde_json::from_str(payload).unwrap();
             assert_eq!(
-                claims.subject(),
-                Subject {
+                claims.parse_subject(),
+                Ok(Subject {
                     user_id,
                     capability_mask: *expected_mask,
                     prefix_mask: None,
-                },
+                }),
                 "{payload}"
             );
         }
+
+        // An unknown name fails the whole mask, even alongside known names.
+        // So do names in any case but snake_case.
+        let mut rejections = Vec::new();
+        for mask in [
+            serde_json::json!(["future_bundle"]),
+            serde_json::json!(["viewer", "delegate", "future_bundle"]),
+            serde_json::json!(["TeamAdmin"]),
+        ] {
+            let claims: ControlClaims = serde_json::from_value(serde_json::json!({
+                "aud": "authenticated", "iat": 0, "exp": 0,
+                "sub": user_id, "role": "authenticated", "capability_mask": mask,
+            }))
+            .unwrap();
+            rejections.push(claims.parse_subject().unwrap_err());
+        }
+        insta::assert_json_snapshot!(rejections, @r#"
+        [
+          "Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read.",
+          "Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read.",
+          "Unknown capability bundle \"TeamAdmin\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
+        ]
+        "#);
 
         // A mask that isn't a list of strings is a malformed token.
         let malformed = r#"{

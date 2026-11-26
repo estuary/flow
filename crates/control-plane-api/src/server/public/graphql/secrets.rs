@@ -68,7 +68,7 @@ impl SecretsQuery {
         let (view_prefixes, name_starts_with, name_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
                 snapshot,
-                &env.claims()?.subject(),
+                env.subject()?,
                 models::authz::CapabilityBit::ViewSecret,
                 filter.and_then(|f| f.catalog_name),
                 "filter.catalogName",

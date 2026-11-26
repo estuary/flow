@@ -121,13 +121,11 @@ impl AlertConfigsQuery {
         first: Option<i32>,
     ) -> async_graphql::Result<PaginatedAlertConfigs> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
-
         let snapshot = env.snapshot();
         let (read_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
                 snapshot,
-                &claims.subject(),
+                env.subject()?,
                 models::Capability::Read,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",

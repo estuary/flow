@@ -190,18 +190,26 @@ pub(crate) async fn verify_may_mint(
     Ok(())
 }
 
-/// Bundle names of a capability mask, in snake case and without duplicates.
-pub(crate) fn normalize_capability_mask(mask: Vec<String>) -> Vec<String> {
-    mask.into_iter()
+/// Returns the bundle names of a capability mask to be minted, in snake case
+/// and without duplicates. Callers may name bundles in any case, as GraphQL
+/// does (`TeamAdmin`). Each name must be a known `CapabilityBundle`, since a
+/// verifier rejects a token naming any other.
+pub(crate) fn normalize_capability_mask(mask: Vec<String>) -> Result<Vec<String>, String> {
+    let mask: Vec<String> = mask
+        .into_iter()
         .map(|name| heck::ToSnakeCase::to_snake_case(name.as_str()))
         .unique()
-        .collect()
+        .collect();
+
+    models::authz::parse_capability_mask(&mask)?;
+    Ok(mask)
 }
 
 /// Mint a restricted access token for the authenticated caller, issued at
 /// `issued_at` (usually now) and expiring at `expires_at`.
 ///
-/// Capability and prefix masks narrow the user's grants.
+/// Capability and prefix masks narrow the user's grants. A mask which a
+/// verifier would reject is refused here, rather than signed.
 pub(crate) async fn mint_restricted_token(
     claims: &crate::ControlClaims,
     capability_mask: Option<Vec<String>>,
@@ -217,7 +225,13 @@ pub(crate) async fn mint_restricted_token(
             "At least one of capability_mask or prefix_mask is required",
         )));
     }
-    let capability_mask = capability_mask.map(normalize_capability_mask);
+    let capability_mask = capability_mask
+        .map(normalize_capability_mask)
+        .transpose()
+        .map_err(tonic::Status::invalid_argument)?;
+    if let Some(prefix_mask) = &prefix_mask {
+        models::authz::parse_prefix_mask(prefix_mask).map_err(tonic::Status::invalid_argument)?;
+    }
 
     let claims = models::authorizations::ControlClaims {
         aud: claims.aud.clone(),
@@ -292,17 +306,17 @@ mod test {
 
         for (prefix_mask, capability_mask, allowed) in [
             (
-                serde_json::json!(["aliceCo/in", "aliceCo/out/"]),
+                serde_json::json!(["aliceCo/in/", "aliceCo/out/"]),
                 serde_json::Value::Null,
                 true,
             ),
             (
-                serde_json::json!(["aliceCo/in", "aliceCo/out/"]),
+                serde_json::json!(["aliceCo/in/", "aliceCo/out/"]),
                 serde_json::json!(["admin"]),
                 true,
             ),
             (
-                serde_json::json!(["aliceCo/in", "aliceCo/out/"]),
+                serde_json::json!(["aliceCo/in/", "aliceCo/out/"]),
                 serde_json::json!(["viewer"]),
                 false,
             ),
@@ -438,31 +452,74 @@ mod test {
         let alice = uuid::Uuid::from_bytes([0x11; 16]);
         let alice_token = server.make_access_token(alice, Some("alice@example.test"));
 
-        let minted = server
-            .rest_client()
-            .post(
-                "/api/v1/auth/token",
-                &serde_json::json!({
-                    "grant_type": "token_exchange",
-                    "capability_mask": ["FutureBundle"],
-                }),
-                Some(&alice_token),
-            )
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(minted.status(), reqwest::StatusCode::OK);
-        let body: serde_json::Value = minted.json().await.unwrap();
-        let claims = server.verify_access_token(body["access_token"].as_str().unwrap());
-        insta::assert_json_snapshot!(claims.capability_mask, @r#"
+        // === A mask a verifier would reject is refused, not signed ===
+        // Any unknown bundle or invalid prefix fails the whole request.
+        let mut refusals = Vec::new();
+        for request in [
+            serde_json::json!({"capability_mask": ["viewer", "FutureBundle"]}),
+            serde_json::json!({"prefix_mask": ["aliceCo/", "aliceCo"]}),
+            serde_json::json!({"prefix_mask": [""]}),
+            serde_json::json!({"capability_mask": ["viewer"], "prefix_mask": ["/aliceCo/"]}),
+        ] {
+            let mut body = request.clone();
+            body["grant_type"] = "token_exchange".into();
+            let refused = server
+                .rest_client()
+                .post("/api/v1/auth/token", &body, Some(&alice_token))
+                .send()
+                .await
+                .unwrap();
+            refusals.push(serde_json::json!({
+                "request": request,
+                "status": refused.status().as_u16(),
+                "message": refused.text().await.unwrap(),
+            }));
+        }
+        insta::assert_json_snapshot!(refusals, @r#"
         [
-          "future_bundle"
+          {
+            "message": "Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read.",
+            "request": {
+              "capability_mask": [
+                "viewer",
+                "FutureBundle"
+              ]
+            },
+            "status": 400
+          },
+          {
+            "message": "Invalid prefix \"aliceCo\": use a nonempty catalog prefix ending in '/'.",
+            "request": {
+              "prefix_mask": [
+                "aliceCo/",
+                "aliceCo"
+              ]
+            },
+            "status": 400
+          },
+          {
+            "message": "Invalid prefix \"\": use a nonempty catalog prefix ending in '/'.",
+            "request": {
+              "prefix_mask": [
+                ""
+              ]
+            },
+            "status": 400
+          },
+          {
+            "message": "Invalid prefix \"/aliceCo/\": use a nonempty catalog prefix ending in '/'.",
+            "request": {
+              "capability_mask": [
+                "viewer"
+              ],
+              "prefix_mask": [
+                "/aliceCo/"
+              ]
+            },
+            "status": 400
+          }
         ]
         "#);
-        assert_eq!(
-            claims.subject().capability_mask,
-            Some(models::authz::CapabilityBits::empty())
-        );
 
         // === Bundle names are normalized in the minted token ===
         let minted = server
@@ -471,7 +528,7 @@ mod test {
                 "/api/v1/auth/token",
                 &serde_json::json!({
                     "grant_type": "token_exchange",
-                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "FutureBundle", "TEAM_ADMIN", "team_admin", "future_bundle"],
+                    "capability_mask": ["viewer", "Admin", "TeamAdmin", "TEAM_ADMIN", "team_admin"],
                 }),
                 Some(&alice_token),
             )
@@ -505,8 +562,7 @@ mod test {
           "capability_mask": [
             "viewer",
             "admin",
-            "team_admin",
-            "future_bundle"
+            "team_admin"
           ]
         }
         "#);
@@ -852,6 +908,145 @@ mod test {
             widened.text().await.unwrap(),
             @"Restricted tokens cannot mint new tokens"
         );
+    }
+
+    /// A presented token whose mask names an unknown bundle or an invalid
+    /// prefix fails authentication. It is not honored as a token narrowed to
+    /// the mask's valid parts, which alone would be authorized here.
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../fixtures", scripts("data_planes", "alice"))
+    )]
+    async fn test_malformed_mask_rejects_token(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+
+        let server = test_server::TestServer::start(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+        )
+        .await;
+
+        let alice = uuid::Uuid::from_bytes([0x11; 16]);
+        let read_data = serde_json::json!({
+            "query": r#"query {
+                liveSpecs(by: { prefix: "aliceCo/data/" }) {
+                    edges { node { catalogName } }
+                }
+            }"#,
+        });
+        let strings = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+
+        let mut outcomes = Vec::new();
+        for (capability_mask, prefix_mask) in [
+            (Some(strings(&["viewer"])), Some(strings(&["aliceCo/"]))),
+            (Some(strings(&["viewer", "future_bundle"])), None),
+            (
+                Some(strings(&["viewer"])),
+                Some(strings(&["aliceCo/", "aliceCo"])),
+            ),
+            (None, Some(strings(&["aliceCo/", ""]))),
+        ] {
+            let token = server.make_restricted_access_token(
+                alice,
+                Some("alice@example.test"),
+                capability_mask.clone(),
+                prefix_mask.clone(),
+            );
+
+            let read = server
+                .rest_client()
+                .post("/api/graphql", &read_data, Some(&token))
+                .send()
+                .await
+                .unwrap();
+            let read_status = read.status().as_u16();
+            let read_body = read.text().await.unwrap();
+
+            let mint = server
+                .rest_client()
+                .post(
+                    "/api/v1/auth/token",
+                    &serde_json::json!({"grant_type": "token_exchange", "capability_mask": []}),
+                    Some(&token),
+                )
+                .send()
+                .await
+                .unwrap();
+
+            outcomes.push(serde_json::json!({
+                "capability_mask": capability_mask,
+                "prefix_mask": prefix_mask,
+                "graphql": [read_status, read_body],
+                "mint": [mint.status().as_u16(), mint.text().await.unwrap()],
+            }));
+        }
+        insta::assert_json_snapshot!(outcomes, @r#"
+        [
+          {
+            "capability_mask": [
+              "viewer"
+            ],
+            "graphql": [
+              200,
+              "{\"data\":{\"liveSpecs\":{\"edges\":[{\"node\":{\"catalogName\":\"aliceCo/data/foo\"}}]}}}"
+            ],
+            "mint": [
+              403,
+              "Restricted tokens cannot mint new tokens"
+            ],
+            "prefix_mask": [
+              "aliceCo/"
+            ]
+          },
+          {
+            "capability_mask": [
+              "viewer",
+              "future_bundle"
+            ],
+            "graphql": [
+              401,
+              "authorization bearer has an invalid mask: Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
+            ],
+            "mint": [
+              401,
+              "authorization bearer has an invalid mask: Unknown capability bundle \"future_bundle\": use any of viewer, writer, editor, admin, billing, team_admin, manage_service_accounts, manage_data_plane, create_sandbox, delegate, assume, view_billing, edit_billing, edit_secret, view_data_plane_private_networking, modify_data_plane_private_networking, catalog_read."
+            ],
+            "prefix_mask": null
+          },
+          {
+            "capability_mask": [
+              "viewer"
+            ],
+            "graphql": [
+              401,
+              "authorization bearer has an invalid mask: Invalid prefix \"aliceCo\": use a nonempty catalog prefix ending in '/'."
+            ],
+            "mint": [
+              401,
+              "authorization bearer has an invalid mask: Invalid prefix \"aliceCo\": use a nonempty catalog prefix ending in '/'."
+            ],
+            "prefix_mask": [
+              "aliceCo/",
+              "aliceCo"
+            ]
+          },
+          {
+            "capability_mask": null,
+            "graphql": [
+              401,
+              "authorization bearer has an invalid mask: Invalid prefix \"\": use a nonempty catalog prefix ending in '/'."
+            ],
+            "mint": [
+              401,
+              "authorization bearer has an invalid mask: Invalid prefix \"\": use a nonempty catalog prefix ending in '/'."
+            ],
+            "prefix_mask": [
+              "aliceCo/",
+              ""
+            ]
+          }
+        ]
+        "#);
     }
 
     #[sqlx::test(

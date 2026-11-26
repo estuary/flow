@@ -98,9 +98,13 @@ impl std::fmt::Display for CapabilityBit {
     Hash,
     Serialize,
     Deserialize,
+    strum::Display,
+    strum::EnumString,
+    strum::IntoStaticStr,
     strum::VariantArray,
 )]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 #[cfg_attr(
     feature = "sqlx-support",
     derive(sqlx::Type),
@@ -226,6 +230,50 @@ impl CapabilityBundle {
     }
 }
 
+/// Parses the snake_case name of any `CapabilityBundle`.
+pub fn parse_capability_bundle(name: &str) -> Result<CapabilityBundle, String> {
+    name.parse().map_err(|_| {
+        let known: Vec<&str> = <CapabilityBundle as strum::VariantArray>::VARIANTS
+            .iter()
+            .map(<&str>::from)
+            .collect();
+        format!(
+            "Unknown capability bundle {name:?}: use any of {}.",
+            known.join(", ")
+        )
+    })
+}
+
+/// Parses a token's capability mask into the union of its named bundles.
+pub fn parse_capability_mask(names: &[String]) -> Result<CapabilityBits, String> {
+    names
+        .iter()
+        .try_fold(CapabilityBits::empty(), |bits, name| {
+            Ok(bits | parse_capability_bundle(name)?.bits())
+        })
+}
+
+/// Parses a token's prefix mask. Each prefix must be a nonempty catalog prefix.
+/// The result is sorted, and drops duplicates and prefixes nested under
+/// another listed prefix, since they add no authority.
+pub fn parse_prefix_mask(prefixes: &[String]) -> Result<Vec<String>, String> {
+    for prefix in prefixes {
+        // CATALOG_PREFIX_RE also matches the empty string, which would be a
+        // prefix of every name.
+        if prefix.is_empty() || validator::Validate::validate(&crate::Prefix::new(prefix)).is_err()
+        {
+            return Err(format!(
+                "Invalid prefix {prefix:?}: use a nonempty catalog prefix ending in '/'."
+            ));
+        }
+    }
+    let mut prefixes = prefixes.to_vec();
+    prefixes.sort_unstable();
+    prefixes.dedup_by(|prefix, previous| prefix.starts_with(previous.as_str()));
+
+    Ok(prefixes)
+}
+
 /// Returns bundles whose bits are all contained in `bits`.
 pub fn bundles_covering(bits: CapabilityBits) -> impl Iterator<Item = CapabilityBundle> {
     <CapabilityBundle as strum::VariantArray>::VARIANTS
@@ -321,5 +369,15 @@ mod tests {
           ]
         ]
         "#);
+    }
+
+    #[test]
+    fn bundle_names_are_serde_names() {
+        for bundle in <super::CapabilityBundle as strum::VariantArray>::VARIANTS {
+            let name: &str = bundle.into();
+            assert_eq!(serde_json::to_value(bundle).unwrap(), name);
+            assert_eq!(bundle.to_string(), name);
+            assert_eq!(super::parse_capability_bundle(name), Ok(*bundle));
+        }
     }
 }

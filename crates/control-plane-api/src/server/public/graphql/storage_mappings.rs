@@ -208,7 +208,8 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<CreateStorageMappingResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
+        // Reject an unauthenticated caller before examining its inputs.
+        env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -216,7 +217,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -348,7 +349,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -485,7 +486,8 @@ impl StorageMappingsMutation {
         spec: async_graphql::Json<models::StorageDef>,
     ) -> async_graphql::Result<ConnectionHealthTestResult> {
         let env = ctx.data::<crate::Envelope>()?;
-        let claims = env.claims()?;
+        // Reject an unauthenticated caller before examining its inputs.
+        env.claims()?;
         let snapshot = env.snapshot();
         let async_graphql::Json(spec) = spec;
 
@@ -493,7 +495,7 @@ impl StorageMappingsMutation {
         validate_inputs(&catalog_prefix, &spec)?;
 
         // Verify user has admin capability to the catalog prefix and read capability to named data planes.
-        evaluate_authorization(env, claims, &catalog_prefix, &spec.data_planes).await?;
+        evaluate_authorization(env, &catalog_prefix, &spec.data_planes).await?;
 
         let data_planes = resolve_data_planes(&snapshot, &spec.data_planes)?;
 
@@ -509,30 +511,31 @@ impl StorageMappingsMutation {
 
 async fn evaluate_authorization(
     env: &crate::Envelope,
-    claims: &crate::ControlClaims,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> Result<(), crate::ApiError> {
-    let policy_result =
-        check_authorization(&env.snapshot(), claims, catalog_prefix, data_plane_names);
+    let policy_result = check_authorization(
+        &env.snapshot(),
+        env.subject()?,
+        env.claims()?.email.as_deref(),
+        catalog_prefix,
+        data_plane_names,
+    );
     env.authorization_outcome(policy_result).await?;
     Ok(())
 }
 
 fn check_authorization(
     snapshot: &crate::Snapshot,
-    claims: &crate::ControlClaims,
+    subject: &models::authz::Subject,
+    user_email: Option<&str>,
     catalog_prefix: &models::Prefix,
     data_plane_names: &[String],
 ) -> crate::AuthZResult<()> {
-    let subject = claims.subject();
-    let models::authorizations::ControlClaims {
-        email: user_email, ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+    let user_email = user_email.unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
-    if !snapshot.is_user_authorized(&subject, catalog_prefix, models::Capability::Admin) {
+    if !snapshot.is_user_authorized(subject, catalog_prefix, models::Capability::Admin) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
         )));
@@ -643,7 +646,7 @@ impl StorageMapping {
         ctx: &Context<'_>,
     ) -> async_graphql::Result<Vec<super::data_planes::DataPlane>> {
         let env = ctx.data::<crate::Envelope>()?;
-        let subject = env.claims()?.subject();
+        let subject = env.subject()?;
         let snapshot = env.snapshot();
 
         let data_plane_names = self.spec.data_planes.iter();
@@ -673,7 +676,7 @@ impl StorageMapping {
                 // users that have access to the storage mapping are assumed to have read access
                 // to the associated data planes, even if they don't have an explicit grant
                 let capability = snapshot
-                    .user_capability(&subject, name)
+                    .user_capability(subject, name)
                     .unwrap_or(models::Capability::None);
 
                 let details = details_map.get(&key);
@@ -841,7 +844,7 @@ impl StorageMappingsQuery {
         let (read_prefixes, under_prefix, exact_prefixes) =
             super::authorized_prefixes::filtered_authorized_prefixes(
                 snapshot,
-                &env.claims()?.subject(),
+                env.subject()?,
                 models::authz::CapabilityBit::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
@@ -905,12 +908,12 @@ impl StorageMappingsQuery {
             .await?;
 
         let snapshot = env.snapshot();
-        let claims = env.claims()?;
+        let subject = env.subject()?;
         let edges = rows
             .into_iter()
             .map(|row| {
                 let user_capability = snapshot
-                    .user_capability(&claims.subject(), &row.catalog_prefix)
+                    .user_capability(subject, &row.catalog_prefix)
                     .ok_or_else(|| {
                         async_graphql::Error::new(format!(
                             "missing capability for catalog prefix '{}'",

@@ -554,7 +554,7 @@ impl DataPlanesQuery {
         last: Option<i32>,
     ) -> async_graphql::Result<PaginatedDataPlanes> {
         let env = ctx.data::<crate::Envelope>()?;
-        let subject = env.claims()?.subject();
+        let subject = env.subject()?;
         let snapshot = env.snapshot();
 
         let DataPlanesFilter {
@@ -610,7 +610,7 @@ impl DataPlanesQuery {
                     }
                 }
                 snapshot.is_user_authorized(
-                    &subject,
+                    subject,
                     &dp.data_plane_name,
                     models::Capability::Read,
                 )
@@ -654,7 +654,7 @@ impl DataPlanesQuery {
             .into_iter()
             .map(|dp| {
                 let user_capability = snapshot
-                    .user_capability(&subject, &dp.data_plane_name)
+                    .user_capability(subject, &dp.data_plane_name)
                     .expect("capability guaranteed by pre-filter");
                 let node =
                     DataPlane::build(dp, user_capability, details_map.get(&dp.data_plane_name))

@@ -68,7 +68,8 @@ pub async fn create_data_plane(
 
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
-        claims,
+        env.subject()?,
+        claims.email.as_deref(),
         models::Capability::Admin,
         ["ops/"],
     );
@@ -278,7 +279,7 @@ pub async fn create_data_plane(
         .into();
 
     let publication = DraftPublication {
-        subject: claims.subject(),
+        subject: env.subject()?.clone(),
         logs_token: insert.logs_token,
         draft,
         dry_run: false,

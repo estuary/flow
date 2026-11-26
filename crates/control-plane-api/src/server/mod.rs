@@ -107,8 +107,9 @@ pub(crate) async fn wake_tenant_controller(
     Ok(res.rows_affected() > 0u64)
 }
 
-/// Evaluate whether the user identified by `claims` holds the `required`
-/// capability bits to all of the enumerated `prefixes_or_names`.
+/// Evaluate whether `subject` holds the `required` capability bits to all of
+/// the enumerated `prefixes_or_names`. `user_email` names the subject in a
+/// denial.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
 ///
 /// `required` accepts any value that converts into a `CapabilityBits`:
@@ -116,7 +117,8 @@ pub(crate) async fn wake_tenant_controller(
 /// `models::authz::CapabilityBit` bit, or an explicit `CapabilityBits`.
 pub fn evaluate_names_authorization<S>(
     snapshot: &Snapshot,
-    claims: &crate::ControlClaims,
+    subject: &models::authz::Subject,
+    user_email: Option<&str>,
     required: impl Into<models::authz::CapabilityBits>,
     prefixes_or_names: impl IntoIterator<Item = S>,
 ) -> AuthZResult<()>
@@ -124,14 +126,10 @@ where
     S: AsRef<str> + std::fmt::Display,
 {
     let required = required.into();
-    let subject = claims.subject();
-    let models::authorizations::ControlClaims {
-        email: user_email, ..
-    } = claims;
-    let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
+    let user_email = user_email.unwrap_or("user");
 
     for prefix_or_name in prefixes_or_names.into_iter() {
-        if !snapshot.is_user_authorized(&subject, prefix_or_name.as_ref(), required) {
+        if !snapshot.is_user_authorized(subject, prefix_or_name.as_ref(), required) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}'",
             )));
@@ -395,27 +393,16 @@ mod tests {
     use super::*;
     use crate::test_server::snapshot_of_grants;
 
-    fn claims(user_id: uuid::Uuid) -> crate::ControlClaims {
-        models::authorizations::ControlClaims {
-            iat: 0,
-            exp: u64::MAX,
-            sub: user_id,
-            role: "authenticated".to_string(),
-            aud: "authenticated".to_string(),
-            email: Some("user@example.test".to_string()),
-            capability_mask: None,
-            prefix_mask: None,
-        }
-    }
-
     /// The `ops/` admin gate of the /admin/* endpoints, expressed as
     /// evaluate_names_authorization over the Snapshot's grant walk.
     #[test]
     fn test_evaluate_ops_admin_gate() {
         use models::Capability::{Admin, Read};
         let user = uuid::Uuid::from_bytes([0x11; 16]);
+        let subject = models::authz::Subject::unrestricted(user);
+        let email = Some("user@example.test");
         let evaluate = |snapshot: &Snapshot| {
-            evaluate_names_authorization(snapshot, &claims(user), Admin, ["ops/"])
+            evaluate_names_authorization(snapshot, &subject, email, Admin, ["ops/"])
         };
 
         // A direct admin grant to `ops/` is authorized.
@@ -434,7 +421,8 @@ mod tests {
         // Capability bits stay internal even when the caller checks one directly.
         let bit_denial = evaluate_names_authorization(
             &snapshot,
-            &claims(user),
+            &subject,
+            email,
             models::authz::CapabilityBit::EditBilling,
             ["ops/"],
         )
