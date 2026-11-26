@@ -274,7 +274,8 @@ mod test {
                 "free_trial_ending",
                 "free_trial_stalled",
                 "missing_payment_method",
-                "bindings_auto_disabled"
+                "bindings_auto_disabled",
+                "billing_threshold_exceeded"
               ]
             }
           }
@@ -428,7 +429,8 @@ mod test {
                 "free_trial_ending",
                 "free_trial_stalled",
                 "missing_payment_method",
-                "bindings_auto_disabled"
+                "bindings_auto_disabled",
+                "billing_threshold_exceeded"
               ],
               "catalogPrefix": "aliceCo/",
               "destination": "mailto:alice@example.test",

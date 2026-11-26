@@ -220,6 +220,7 @@ enum AlertType {
 	task_auto_disabled_idle
 	background_publication_failed
 	bindings_auto_disabled
+	billing_threshold_exceeded
 }
 
 """
@@ -2075,6 +2076,9 @@ type MutationRoot {
 	
 	If `detail` is omitted or `null` on update, the existing `detail`
 	value is preserved.
+	
+	`billingThresholdExceeded` is accepted only on a tenant prefix, since
+	invoices are per tenant.
 	"""
 	updateAlertConfig(catalogPrefixOrName: String!, config: JSON!, detail: String): UpdateAlertConfigResult!
 	"""

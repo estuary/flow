@@ -36,6 +36,7 @@ pub enum AlertType {
     TaskAutoDisabledIdle,
     BackgroundPublicationFailed,
     BindingsAutoDisabled,
+    BillingThresholdExceeded,
 }
 
 impl std::fmt::Display for AlertType {
@@ -68,6 +69,7 @@ impl AlertType {
             AlertType::TaskAutoDisabledIdle => "task_auto_disabled_idle",
             AlertType::BackgroundPublicationFailed => "background_publication_failed",
             AlertType::BindingsAutoDisabled => "bindings_auto_disabled",
+            AlertType::BillingThresholdExceeded => "billing_threshold_exceeded",
         }
     }
 
@@ -86,6 +88,7 @@ impl AlertType {
             AlertType::MissingPaymentMethod,
             AlertType::BackgroundPublicationFailed,
             AlertType::BindingsAutoDisabled,
+            AlertType::BillingThresholdExceeded,
         ]
     }
 
@@ -106,6 +109,7 @@ impl AlertType {
             AlertType::TaskAutoDisabledIdle => false,
             AlertType::BackgroundPublicationFailed => false,
             AlertType::BindingsAutoDisabled => false,
+            AlertType::BillingThresholdExceeded => true,
         }
     }
 
@@ -125,6 +129,7 @@ impl AlertType {
             AlertType::TaskAutoDisabledIdle => "Task Auto-Disabled (Idle)",
             AlertType::BackgroundPublicationFailed => "Background Publication Failed",
             AlertType::BindingsAutoDisabled => "Bindings Auto-Disabled",
+            AlertType::BillingThresholdExceeded => "Billing Threshold Exceeded",
         }
     }
 
@@ -170,6 +175,9 @@ impl AlertType {
             AlertType::BindingsAutoDisabled => {
                 "Reports each batch of materialization bindings automatically disabled because of an incompatible schema change."
             }
+            AlertType::BillingThresholdExceeded => {
+                "Triggers when month-to-date charges reach the configured amount."
+            }
         }
     }
 
@@ -189,6 +197,8 @@ impl AlertType {
             AlertType::BackgroundPublicationFailed => false,
             // The alert is the only notification that a binding was disabled.
             AlertType::BindingsAutoDisabled => true,
+            // The alert can't fire until a tenant sets an amount.
+            AlertType::BillingThresholdExceeded => true,
             AlertType::DataMovementStalled => true,
             AlertType::FreeTrial => true,
             AlertType::FreeTrialEnding => true,
@@ -208,6 +218,7 @@ impl AlertType {
             AlertType::AutoDiscoverFailed => false,
             AlertType::BackgroundPublicationFailed => false,
             AlertType::BindingsAutoDisabled => false,
+            AlertType::BillingThresholdExceeded => false,
             AlertType::DataMovementStalled => false,
             AlertType::FreeTrial => true,
             AlertType::FreeTrialEnding => true,

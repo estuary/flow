@@ -99,9 +99,11 @@ impl ControllerConfig {
     ///
     /// `dataMovementStalled` is omitted because its threshold is inherently
     /// per-task (different tasks have different expected data frequencies)
-    /// and there is no sensible global default.
+    /// and there is no sensible global default. `billingThresholdExceeded` is
+    /// omitted because it's off until a tenant sets an amount.
     pub fn alert_config_defaults(&self) -> models::AlertConfig {
         models::AlertConfig {
+            billing_threshold_exceeded: None,
             data_movement_stalled: None,
             shard_failed: Some(models::ShardFailedConfig {
                 enabled: Some(true),
@@ -202,6 +204,8 @@ impl ResolvedAlertConfig {
     /// that field participates in runtime alert evaluation.
     pub fn from_effective(config: models::AlertConfig) -> anyhow::Result<Self> {
         let models::AlertConfig {
+            // Tenant controllers evaluate this from the tenant's own prefix.
+            billing_threshold_exceeded: _,
             data_movement_stalled,
             shard_failed,
             task_chronically_failing,
