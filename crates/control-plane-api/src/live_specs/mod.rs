@@ -18,16 +18,10 @@ fn partition_by_authorization<'n>(
     required: models::authz::CapabilityBits,
     snapshot: &crate::Snapshot,
 ) -> (Vec<&'n str>, Vec<&'n str>) {
-    let (mut authorized, mut denied): (Vec<&str>, Vec<&str>) =
-        names.iter().map(String::as_str).partition(|name| {
-            tables::UserGrant::is_authorized(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                subject,
-                name,
-                required,
-            )
-        });
+    let (mut authorized, mut denied): (Vec<&str>, Vec<&str>) = names
+        .iter()
+        .map(String::as_str)
+        .partition(|name| snapshot.is_user_authorized(subject, name, required));
 
     authorized.sort();
     authorized.dedup();

@@ -193,6 +193,17 @@ impl Snapshot {
         )
     }
 
+    /// Returns each prefix reachable for `subject`, mapped to the union of
+    /// capability bits it holds there and the maximal legacy `capability`,
+    /// evaluated against this Snapshot's grants.
+    pub fn user_reachable_prefixes<'s>(
+        &'s self,
+        subject: &'s models::authz::Subject,
+    ) -> std::collections::BTreeMap<&'s str, (models::authz::CapabilityBits, models::Capability)>
+    {
+        tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, subject)
+    }
+
     /// Returns whether the role or spec named `subject_role_or_name` holds
     /// the `required` capability bits to `object_role_or_name`, evaluated
     /// against this Snapshot's role grants. This walks the full grant graph — the same

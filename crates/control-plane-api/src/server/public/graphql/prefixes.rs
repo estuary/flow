@@ -86,11 +86,7 @@ impl PrefixesQuery {
             let min_bits: models::authz::CapabilityBits = by.min_capability.into();
             let under = starts_with.as_deref().unwrap_or_default();
 
-            let reachable = tables::UserGrant::reachable_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
-                &subject,
-            );
+            let reachable = snapshot.user_reachable_prefixes(&subject);
             // Cursor pagination: BTreeMap::range jumps directly to the
             // first key strictly greater than the previous page's last
             // prefix (or to `startsWith`, if later), rather than iterating

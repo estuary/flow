@@ -79,13 +79,7 @@ fn evaluate_authorization<'s>(
     } = claims;
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        &subject,
-        prefix,
-        capability,
-    ) {
+    if !snapshot.is_user_authorized(&subject, prefix, capability) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {prefix} for {capability:?}",
         )));
@@ -93,13 +87,8 @@ fn evaluate_authorization<'s>(
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
     if capability == models::Capability::Admin {
-        let has_support_access = tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            &subject,
-            "estuary_support/",
-            models::Capability::Admin,
-        );
+        let has_support_access =
+            snapshot.is_user_authorized(&subject, "estuary_support/", models::Capability::Admin);
 
         if !has_support_access {
             return Err(tonic::Status::permission_denied(format!(
@@ -108,13 +97,7 @@ fn evaluate_authorization<'s>(
         }
     }
 
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        &subject,
-        data_plane_name,
-        models::Capability::Read,
-    ) {
+    if !snapshot.is_user_authorized(&subject, data_plane_name, models::Capability::Read) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {data_plane_name}",
         )));

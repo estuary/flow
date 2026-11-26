@@ -98,8 +98,7 @@ pub(super) async fn check_authorized_consent(
 ) -> async_graphql::Result<bool> {
     let required = models::authz::CapabilityBit::CatalogRead;
     let prefixes = super::authorized_prefixes::authorized_prefixes(
-        &env.snapshot().role_grants,
-        &env.snapshot().user_grants,
+        env.snapshot(),
         &env.claims()?.subject(),
         required,
         Some(tenant),

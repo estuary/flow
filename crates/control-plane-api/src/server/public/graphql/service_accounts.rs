@@ -123,8 +123,7 @@ impl ServiceAccountsQuery {
         // Service accounts are visible to callers holding QueryServiceAccounts
         // on a prefix covering the account's catalog_name.
         let user_accessible_prefixes = super::authorized_prefixes::authorized_prefixes(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
+            snapshot,
             &env.claims()?.subject(),
             models::authz::CapabilityBit::QueryServiceAccounts,
             None,

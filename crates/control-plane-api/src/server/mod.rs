@@ -131,13 +131,7 @@ where
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     for prefix_or_name in prefixes_or_names.into_iter() {
-        if !tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            &subject,
-            prefix_or_name.as_ref(),
-            required,
-        ) {
+        if !snapshot.is_user_authorized(&subject, prefix_or_name.as_ref(), required) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}'",
             )));

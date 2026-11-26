@@ -47,13 +47,7 @@ pub(crate) async fn handle_get_status(
         let filtered = unfiltered_names
             .into_iter()
             .filter(|name| {
-                tables::UserGrant::is_authorized(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    &claims.subject(),
-                    name,
-                    models::Capability::Read,
-                )
+                snapshot.is_user_authorized(&claims.subject(), name, models::Capability::Read)
             })
             .collect::<Vec<_>>();
 

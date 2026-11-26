@@ -74,13 +74,7 @@ fn may_access(
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
     let snapshot = env.snapshot();
-    Ok(tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        &env.claims()?.subject(),
-        name,
-        required,
-    ))
+    Ok(snapshot.is_user_authorized(&env.claims()?.subject(), name, required))
 }
 
 /// A JSON object, the shape of which is opaque to the graphql schema

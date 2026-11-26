@@ -532,13 +532,7 @@ fn check_authorization(
     let user_email = user_email.as_ref().map(String::as_str).unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
-    if !tables::UserGrant::is_authorized(
-        &snapshot.role_grants,
-        &snapshot.user_grants,
-        &subject,
-        catalog_prefix,
-        models::Capability::Admin,
-    ) {
+    if !snapshot.is_user_authorized(&subject, catalog_prefix, models::Capability::Admin) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
         )));
@@ -546,12 +540,7 @@ fn check_authorization(
 
     for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
-        if !tables::RoleGrant::is_authorized(
-            &snapshot.role_grants,
-            catalog_prefix,
-            data_plane_name,
-            models::Capability::Read,
-        ) {
+        if !snapshot.is_role_authorized(catalog_prefix, data_plane_name, models::Capability::Read) {
             return Err(tonic::Status::permission_denied(format!(
                 "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
             )));
@@ -850,8 +839,7 @@ impl StorageMappingsQuery {
         let snapshot = env.snapshot();
         let (read_prefixes, under_prefix, exact_prefixes) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
+                snapshot,
                 &env.claims()?.subject(),
                 models::authz::CapabilityBit::CatalogRead,
                 prefix_filter,
@@ -920,18 +908,14 @@ impl StorageMappingsQuery {
         let edges = rows
             .into_iter()
             .map(|row| {
-                let user_capability = tables::UserGrant::get_user_capability(
-                    &snapshot.role_grants,
-                    &snapshot.user_grants,
-                    &claims.subject(),
-                    &row.catalog_prefix,
-                )
-                .ok_or_else(|| {
-                    async_graphql::Error::new(format!(
-                        "missing capability for catalog prefix '{}'",
-                        row.catalog_prefix
-                    ))
-                })?;
+                let user_capability = snapshot
+                    .user_capability(&claims.subject(), &row.catalog_prefix)
+                    .ok_or_else(|| {
+                        async_graphql::Error::new(format!(
+                            "missing capability for catalog prefix '{}'",
+                            row.catalog_prefix
+                        ))
+                    })?;
 
                 Ok(connection::Edge::new(
                     row.catalog_prefix.clone(),

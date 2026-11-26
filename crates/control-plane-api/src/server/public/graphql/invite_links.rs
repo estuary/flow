@@ -79,8 +79,7 @@ impl InviteLinksQuery {
         let snapshot = env.snapshot();
         let (admin_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
+                snapshot,
                 &env.claims()?.subject(),
                 models::authz::CapabilityBit::ManageInviteLinks,
                 filter.and_then(|f| f.catalog_prefix),

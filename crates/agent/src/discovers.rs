@@ -154,9 +154,7 @@ impl DiscoverExecutor {
         // function of the grant graph and the requested name, never of whether
         // a spec exists at that name, so its outcome discloses nothing about
         // other tenants' catalogs.
-        if !tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
+        if !snapshot.is_user_authorized(
             &subject,
             &row.capture_name,
             models::authz::CapabilityBit::SpecEdit,
@@ -183,16 +181,12 @@ impl DiscoverExecutor {
         // Data-plane authorization: unlike the capture check above, resolving
         // the plane consults what exists in the Snapshot, so an unauthorized
         // plane and a missing one are deliberately indistinguishable.
-        let Some(data_plane) = tables::UserGrant::is_authorized(
-            &snapshot.role_grants,
-            &snapshot.user_grants,
-            &subject,
-            &row.data_plane_name,
-            models::Capability::Read,
-        )
-        .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
-        .flatten()
-        .filter(|data_plane| data_plane.can_sign()) else {
+        let Some(data_plane) = snapshot
+            .is_user_authorized(&subject, &row.data_plane_name, models::Capability::Read)
+            .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
+            .flatten()
+            .filter(|data_plane| data_plane.can_sign())
+        else {
             // Request an early background refresh: the plane, its grant, or its
             // HMAC keys may have landed after this Snapshot was taken, and
             // cancelling narrows the staleness window for a manual retry.

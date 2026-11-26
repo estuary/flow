@@ -173,12 +173,7 @@ fn evaluate_authorization<'s>(
     };
 
     if !is_ops
-        && !tables::RoleGrant::is_authorized(
-            &snapshot.role_grants,
-            &task.task_name,
-            &journal_name_or_prefix,
-            required_role,
-        )
+        && !snapshot.is_role_authorized(&task.task_name, &journal_name_or_prefix, required_role)
     {
         tracing::warn!(
             %task.spec_type,

@@ -126,8 +126,7 @@ impl AlertConfigsQuery {
         let snapshot = env.snapshot();
         let (read_prefixes, prefix_starts_with, prefix_in) =
             super::authorized_prefixes::filtered_authorized_prefixes(
-                &snapshot.role_grants,
-                &snapshot.user_grants,
+                snapshot,
                 &claims.subject(),
                 models::Capability::Read,
                 filter.and_then(|f| f.catalog_prefix_or_name),

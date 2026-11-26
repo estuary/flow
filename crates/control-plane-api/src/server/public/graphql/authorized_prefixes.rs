@@ -9,8 +9,7 @@
 /// bidirectional check lets callers query with a filter that is either broader
 /// or narrower than their grants.
 pub(super) fn authorized_prefixes(
-    role_grants: &tables::RoleGrants,
-    user_grants: &tables::UserGrants,
+    snapshot: &crate::Snapshot,
     subject: &models::authz::Subject,
     required: impl Into<models::authz::CapabilityBits>,
     prefix_filter: Option<&str>,
@@ -19,7 +18,8 @@ pub(super) fn authorized_prefixes(
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
-    let prefixes = tables::UserGrant::reachable_prefixes(role_grants, user_grants, subject)
+    let prefixes = snapshot
+        .user_reachable_prefixes(subject)
         .into_iter()
         .filter(|(prefix, _)| {
             prefix_filter.is_none_or(|pf| prefix.starts_with(pf) || pf.starts_with(*prefix))
@@ -50,8 +50,7 @@ pub(super) fn authorized_prefixes(
 /// `PrefixFilter::narrow_to_exact_set` — so the narrow-only invariant (a filter
 /// can only remove authorized prefixes, never add them) has a single owner.
 pub(super) fn filtered_authorized_prefixes(
-    role_grants: &tables::RoleGrants,
-    user_grants: &tables::UserGrants,
+    snapshot: &crate::Snapshot,
     subject: &models::authz::Subject,
     required: impl Into<models::authz::CapabilityBits>,
     filter: Option<super::filters::PrefixFilter>,
@@ -61,13 +60,7 @@ pub(super) fn filtered_authorized_prefixes(
         Some(cp) => cp.into_parts(field)?,
         None => (None, None),
     };
-    let mut prefixes = authorized_prefixes(
-        role_grants,
-        user_grants,
-        subject,
-        required,
-        starts_with.as_deref(),
-    );
+    let mut prefixes = authorized_prefixes(snapshot, subject, required, starts_with.as_deref());
     if let Some(exact) = r#in.as_deref() {
         super::filters::PrefixFilter::narrow_to_exact_set(&mut prefixes, exact);
     }
@@ -78,14 +71,14 @@ pub(super) fn filtered_authorized_prefixes(
 mod tests {
     use super::super::filters::PrefixFilter;
     use super::{authorized_prefixes, filtered_authorized_prefixes};
-    use crate::test_server::make_grants;
+    use crate::test_server::snapshot_of_grants;
     use models::Capability::{Admin, Read, Write};
 
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
     #[test]
     fn no_filter_returns_all_holding_required_bits() {
-        let (ug, rg) = make_grants(
+        let snapshot = snapshot_of_grants(
             &[
                 (ALICE, "acmeCo/", Admin),
                 (ALICE, "widgets/", Write),
@@ -95,8 +88,7 @@ mod tests {
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             None,
@@ -104,8 +96,7 @@ mod tests {
         assert_eq!(result, vec!["acmeCo/"]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Write,
             None,
@@ -113,8 +104,7 @@ mod tests {
         assert_eq!(result, vec!["acmeCo/", "widgets/"]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Read,
             None,
@@ -126,11 +116,10 @@ mod tests {
     fn filter_narrower_than_grant() {
         // Grant is on "acmeCo/", filter is "acmeCo/data/" — the grant covers
         // the filter, so "acmeCo/" is included.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
+        let snapshot = snapshot_of_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some("acmeCo/data/"),
@@ -142,11 +131,10 @@ mod tests {
     fn filter_broader_than_grant() {
         // Grant is on "acmeCo/data/", filter is "acmeCo/" — the grant starts
         // with the filter, so "acmeCo/data/" is included.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/data/", Admin)], &[]);
+        let snapshot = snapshot_of_grants(&[(ALICE, "acmeCo/data/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some("acmeCo/"),
@@ -156,11 +144,11 @@ mod tests {
 
     #[test]
     fn filter_excludes_non_overlapping() {
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "other/", Admin)], &[]);
+        let snapshot =
+            snapshot_of_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "other/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some("acmeCo/"),
@@ -170,11 +158,10 @@ mod tests {
 
     #[test]
     fn no_grants_returns_empty() {
-        let (ug, rg) = make_grants(&[], &[]);
+        let snapshot = snapshot_of_grants(&[], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             None,
@@ -185,14 +172,13 @@ mod tests {
     #[test]
     fn includes_transitive_roles() {
         // Alice has Admin on "acmeCo/", which transitively grants Write on "shared/".
-        let (ug, rg) = make_grants(
+        let snapshot = snapshot_of_grants(
             &[(ALICE, "acmeCo/", Admin)],
             &[("acmeCo/", "shared/", Write)],
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Write,
             None,
@@ -201,8 +187,7 @@ mod tests {
 
         // Admin threshold excludes the transitive Write grant.
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             None,
@@ -214,14 +199,13 @@ mod tests {
     fn omits_child_prefixes_covered_by_parent() {
         // Alice has Admin on "acmeCo/" and a direct grant on "acmeCo/data/".
         // The child prefix should be pruned.
-        let (ug, rg) = make_grants(
+        let snapshot = snapshot_of_grants(
             &[(ALICE, "acmeCo/", Admin), (ALICE, "acmeCo/data/", Admin)],
             &[],
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             None,
@@ -233,14 +217,13 @@ mod tests {
     fn omits_transitive_child_prefixes() {
         // Alice has Admin on "acmeCo/", which grants Write on "acmeCo/team/".
         // "acmeCo/team/" is already covered by "acmeCo/" so it should be pruned.
-        let (ug, rg) = make_grants(
+        let snapshot = snapshot_of_grants(
             &[(ALICE, "acmeCo/", Admin)],
             &[("acmeCo/", "acmeCo/team/", Write)],
         );
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Write,
             None,
@@ -251,11 +234,10 @@ mod tests {
     #[test]
     fn different_user_sees_nothing() {
         let bob = uuid::Uuid::from_bytes([0x22; 16]);
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
+        let snapshot = snapshot_of_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(bob),
             Read,
             None,
@@ -352,15 +334,16 @@ mod tests {
                 bundles: vec![CapabilityBundle::Writer],
             },
         ]);
-        let rg = tables::RoleGrants::new();
+        let mut snapshot = crate::Snapshot::empty();
+        snapshot.user_grants = ug;
+        snapshot.role_grants = tables::RoleGrants::new();
 
         // min=Admin: parent acmeCo/ qualifies; acmeCo/data/ is pruned as a
         // child of the qualifying parent. If the union were across
         // ancestors, acmeCo/data/ would qualify on its own (Writer +
         // inherited Admin bits) — it does not.
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             None,
@@ -369,8 +352,7 @@ mod tests {
 
         // min=Write: both qualify on their own bits; parent prunes child.
         let result = authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Write,
             None,
@@ -380,11 +362,11 @@ mod tests {
 
     #[test]
     fn filtered_no_filter_returns_all_prefixes_and_no_parts() {
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
+        let snapshot =
+            snapshot_of_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             None,
@@ -398,15 +380,15 @@ mod tests {
 
     #[test]
     fn filtered_starts_with_narrows_by_subtree_and_returns_part() {
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
+        let snapshot =
+            snapshot_of_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
         let filter = PrefixFilter {
             starts_with: Some("acmeCo/".to_string()),
             r#in: None,
         };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some(filter),
@@ -423,15 +405,15 @@ mod tests {
         // `authorized_prefixes` runs with no subtree filter (startsWith is None
         // when `in` is set), so both grants come back; `narrow_to_exact_set`
         // then drops everything not overlapping the `in` set.
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
+        let snapshot =
+            snapshot_of_grants(&[(ALICE, "acmeCo/", Admin), (ALICE, "beta/", Admin)], &[]);
 
         let filter = PrefixFilter {
             starts_with: None,
             r#in: Some(vec!["acmeCo/".to_string()]),
         };
         let (prefixes, starts_with, r#in) = filtered_authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some(filter),
@@ -445,15 +427,14 @@ mod tests {
 
     #[test]
     fn filtered_propagates_mutual_exclusion_error() {
-        let (ug, rg) = make_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
+        let snapshot = snapshot_of_grants(&[(ALICE, "acmeCo/", Admin)], &[]);
 
         let filter = PrefixFilter {
             starts_with: Some("acmeCo/".to_string()),
             r#in: Some(vec!["acmeCo/".to_string()]),
         };
         let err = filtered_authorized_prefixes(
-            &rg,
-            &ug,
+            &snapshot,
             &models::authz::Subject::unrestricted(ALICE),
             Admin,
             Some(filter),
