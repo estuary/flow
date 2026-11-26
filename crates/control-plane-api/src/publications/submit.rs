@@ -39,7 +39,7 @@ pub async fn submit(
     // deleting a nonexistent one, telling the caller which it is. Names are
     // sorted, so the first denial is deterministic.
     if let Some(name) = staged_names.iter().flatten().find(|name| {
-        !snapshot.is_user_authorized(subject, name, models::authz::Capability::SpecEdit)
+        !snapshot.is_user_authorized(subject, name, models::authz::CapabilityBit::SpecEdit)
     }) {
         anyhow::bail!(tonic::Status::permission_denied(format!(
             "User is not authorized to create or change '{name}'"
@@ -71,14 +71,14 @@ pub async fn submit(
         .collect::<std::collections::HashSet<_>>();
     let ops_collection_names = super::specs::get_ops_collection_names();
     for name in draft.all_catalog_names() {
-        let (capability, action) = if drafted_names.contains(name) {
-            (models::authz::Capability::SpecEdit, "create or change")
+        let (required, action) = if drafted_names.contains(name) {
+            (models::authz::CapabilityBit::SpecEdit, "create or change")
         } else if ops_collection_names.contains(name) {
             continue;
         } else {
-            (models::authz::Capability::CatalogRead, "read")
+            (models::authz::CapabilityBit::CatalogRead, "read")
         };
-        if !snapshot.is_user_authorized(subject, name, capability) {
+        if !snapshot.is_user_authorized(subject, name, required) {
             anyhow::bail!(tonic::Status::permission_denied(format!(
                 "User is not authorized to {action} '{name}'"
             )));

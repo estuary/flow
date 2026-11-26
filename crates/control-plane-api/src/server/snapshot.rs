@@ -176,39 +176,38 @@ impl Snapshot {
         )
     }
 
-    /// Returns whether `subject` is authorized for `capability` on
-    /// `object_role_or_name`,
-    /// evaluated against this Snapshot's grants.
+    /// Returns whether `subject` holds the `required` capability bits on
+    /// `object_role_or_name`, evaluated against this Snapshot's grants.
     pub fn is_user_authorized(
         &self,
         subject: &models::authz::Subject,
         object_role_or_name: &str,
-        capability: impl Into<models::authz::CapabilitySet>,
+        required: impl Into<models::authz::CapabilityBits>,
     ) -> bool {
         tables::UserGrant::is_authorized(
             &self.role_grants,
             &self.user_grants,
             subject,
             object_role_or_name,
-            capability,
+            required,
         )
     }
 
     /// Returns whether the role or spec named `subject_role_or_name` holds
-    /// `capability` to `object_role_or_name`, evaluated against this
-    /// Snapshot's role grants. This walks the full grant graph — the same
+    /// the `required` capability bits to `object_role_or_name`, evaluated
+    /// against this Snapshot's role grants. This walks the full grant graph — the same
     /// walk which authorizes running tasks (`authorize_task`).
     pub fn is_role_authorized(
         &self,
         subject_role_or_name: &str,
         object_role_or_name: &str,
-        capability: impl Into<models::authz::CapabilitySet>,
+        required: impl Into<models::authz::CapabilityBits>,
     ) -> bool {
         tables::RoleGrant::is_authorized(
             &self.role_grants,
             subject_role_or_name,
             object_role_or_name,
-            capability,
+            required,
         )
     }
 

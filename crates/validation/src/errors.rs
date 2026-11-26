@@ -398,12 +398,12 @@ pub enum Error {
     },
 
     #[error(
-        "{entity} {name} uses `{capability}`, which requires the V2 task runtime: set `{flag}: \"true\"` under its `shards.flags`"
+        "{entity} {name} uses `{feature}`, which requires the V2 task runtime: set `{flag}: \"true\"` under its `shards.flags`"
     )]
     RequireRuntimeV2 {
         entity: &'static str,
         name: String,
-        capability: &'static str,
+        feature: &'static str,
         flag: &'static str,
     },
     #[error(

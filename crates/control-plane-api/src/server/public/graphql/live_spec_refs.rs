@@ -191,7 +191,7 @@ pub fn live_spec_refs(
         let can_read = env.snapshot().is_user_authorized(
             &subject,
             &name,
-            models::authz::Capability::CatalogRead,
+            models::authz::CapabilityBit::CatalogRead,
         );
         LiveSpecRef {
             catalog_name: models::Name::new(name),
@@ -297,7 +297,7 @@ impl LiveSpecsQuery {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             env.claims()?,
-            models::authz::Capability::CatalogRead,
+            models::authz::CapabilityBit::CatalogRead,
             names
                 .iter()
                 .map(models::Name::as_str)

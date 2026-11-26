@@ -159,7 +159,7 @@ impl DiscoverExecutor {
             &snapshot.user_grants,
             &subject,
             &row.capture_name,
-            models::authz::Capability::SpecEdit,
+            models::authz::CapabilityBit::SpecEdit,
         ) {
             // Request an early background refresh: the grant may have been
             // committed after this Snapshot was taken, and cancelling narrows
@@ -281,7 +281,7 @@ async fn prepare_discover<'a>(
     let live = live_specs::get_live_specs_filtered(
         &subject,
         name,
-        models::authz::Capability::CatalogRead,
+        models::authz::CapabilityBit::CatalogRead,
         snapshot,
         pool,
     )

@@ -630,7 +630,7 @@ async fn expansion_is_authorized_against_the_token(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts", "storage_mappings")
     )
 )]
-async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
+async fn submission_enforces_token_capability_masks(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     let (server, draft_id, alice) = setup(&pool).await;
     stage(
@@ -714,7 +714,7 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
             "error": response["errors"][0]["message"],
         }));
     }
-    insta::assert_json_snapshot!("publication_token_capabilities", outcomes);
+    insta::assert_json_snapshot!("publication_token_capability_masks", outcomes);
 }
 
 #[sqlx::test(

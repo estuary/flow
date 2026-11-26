@@ -70,8 +70,8 @@ impl ControlClaims {
                         )
                         .ok()
                     })
-                    .map(|bundle| bundle.capabilities())
-                    .fold(authz::CapabilitySet::empty(), |set, bits| set | bits)
+                    .map(|bundle| bundle.bits())
+                    .fold(authz::CapabilityBits::empty(), |set, bits| set | bits)
             }),
         }
     }
@@ -448,7 +448,7 @@ const fn capability_read() -> crate::Capability {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::authz::{Capability, CapabilityBundle, CapabilitySet, Subject};
+    use crate::authz::{CapabilityBit, CapabilityBits, CapabilityBundle, Subject};
 
     #[test]
     fn restricted_token_masks() {
@@ -547,9 +547,9 @@ mod test {
     #[test]
     fn subject_from_deserialized_token_payload() {
         let user_id = uuid::Uuid::parse_str("d4b7c5a0-9e2f-4c1b-8a3d-6f5e4d3c2b1a").unwrap();
-        let viewer = CapabilityBundle::Viewer.capabilities();
+        let viewer = CapabilityBundle::Viewer.bits();
 
-        let cases: &[(&str, Option<CapabilitySet>)] = &[
+        let cases: &[(&str, Option<CapabilityBits>)] = &[
             // No claim at all: unmasked.
             (
                 r#"{
@@ -584,7 +584,7 @@ mod test {
                     "role": "authenticated",
                     "capability_mask": []
                 }"#,
-                Some(CapabilitySet::empty()),
+                Some(CapabilityBits::empty()),
             ),
             (
                 r#"{
@@ -595,7 +595,7 @@ mod test {
                     "role": "authenticated",
                     "capability_mask": ["future_bundle"]
                 }"#,
-                Some(CapabilitySet::empty()),
+                Some(CapabilityBits::empty()),
             ),
             // Known bundles are unioned; unknown names from a newer minter
             // are ignored rather than failing deserialization.
@@ -608,7 +608,7 @@ mod test {
                     "role": "authenticated",
                     "capability_mask": ["viewer", "delegate", "future_bundle"]
                 }"#,
-                Some(viewer | Capability::Delegate),
+                Some(viewer | CapabilityBit::Delegate),
             ),
             (
                 r#"{
@@ -619,7 +619,7 @@ mod test {
                     "role": "authenticated",
                     "capability_mask": ["create_sandbox"]
                 }"#,
-                Some(Capability::CreateSandbox.into()),
+                Some(CapabilityBit::CreateSandbox.into()),
             ),
             // Unrelated claims that we don't model are tolerated.
             (
@@ -633,7 +633,7 @@ mod test {
                     "app_metadata": {"provider": "google"},
                     "capability_mask": ["team_admin"]
                 }"#,
-                Some(CapabilityBundle::TeamAdmin.capabilities()),
+                Some(CapabilityBundle::TeamAdmin.bits()),
             ),
             // Verifying deduplication
             (
@@ -647,7 +647,7 @@ mod test {
                     "app_metadata": {"provider": "google"},
                     "capability_mask": ["team_admin", "team_admin"]
                 }"#,
-                Some(CapabilityBundle::TeamAdmin.capabilities()),
+                Some(CapabilityBundle::TeamAdmin.bits()),
             ),
         ];
 

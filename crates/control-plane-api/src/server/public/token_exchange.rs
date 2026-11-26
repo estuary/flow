@@ -7,7 +7,7 @@ pub enum TokenRequest {
     #[serde(rename = "token_exchange")]
     /// Requires one or both masks to be provided.
     TokenExchange {
-        /// None is unrestricted, empty list means no capabilities are allowed
+        /// None is unrestricted, empty list means no capability bits are allowed
         capability_mask: Option<Vec<String>>,
         /// None is unrestricted, empty list means no prefixes are allowed
         prefix_mask: Option<Vec<String>>,
@@ -461,7 +461,7 @@ mod test {
         "#);
         assert_eq!(
             claims.subject().capability_mask,
-            Some(models::authz::CapabilitySet::empty())
+            Some(models::authz::CapabilityBits::empty())
         );
 
         // === Bundle names are normalized in the minted token ===

@@ -27,7 +27,7 @@ pub async fn authorize_user_secret(
     let policy_result = super::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
-        models::authz::Capability::DecryptSecret,
+        models::authz::CapabilityBit::DecryptSecret,
         [name.as_str()],
     );
 

@@ -147,7 +147,7 @@ impl Draft {
                         let may_read_live = super::may_access(
                             ctx,
                             row.catalog_name.as_str(),
-                            models::authz::Capability::CatalogRead,
+                            models::authz::CapabilityBit::CatalogRead,
                         )?;
                         let spec = DraftSpec {
                             catalog_name: row.catalog_name,

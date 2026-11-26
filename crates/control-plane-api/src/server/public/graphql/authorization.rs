@@ -3,7 +3,7 @@
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub(super) struct AuthorizationDenied {
-    pub capability: models::authz::Capability,
+    pub capability_bit: models::authz::CapabilityBit,
     pub message: String,
 }
 
@@ -28,7 +28,7 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
             let Some(denial) = error.source::<AuthorizationDenied>() else {
                 continue;
             };
-            let options = bundles_containing_capability_bit(denial.capability);
+            let options = bundles_containing_capability_bit(denial.capability_bit);
             let descriptions: Vec<_> = options.iter().map(|option| option.join(" + ")).collect();
             error.message.push_str(&format!(
                 ". Requires capabilities: {}",
@@ -47,12 +47,12 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
 pub(super) async fn verify_authorization(
     env: &crate::Envelope,
     prefix: &str,
-    capability: models::authz::Capability,
+    required: models::authz::CapabilityBit,
 ) -> async_graphql::Result<()> {
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
-        capability,
+        required,
         [prefix],
     );
     match env.authorization_outcome(policy_result).await {
@@ -61,7 +61,7 @@ pub(super) async fn verify_authorization(
             if matches!(&error, crate::ApiError::Status(status) if status.code() == tonic::Code::PermissionDenied)
             {
                 return Err(async_graphql::Error::new_with_source(AuthorizationDenied {
-                    capability,
+                    capability_bit: required,
                     message: async_graphql::Error::from(error).message,
                 }));
             }
@@ -70,13 +70,13 @@ pub(super) async fn verify_authorization(
     }
 }
 
-fn bundles_containing_capability_bit(required: models::authz::Capability) -> Vec<Vec<String>> {
+fn bundles_containing_capability_bit(required: models::authz::CapabilityBit) -> Vec<Vec<String>> {
     use models::authz::CapabilityBundle;
     let mut options: Vec<_> = <CapabilityBundle as strum::VariantArray>::VARIANTS
         .iter()
         .filter_map(|bundle| {
-            let capabilities = bundle.capabilities();
-            if !capabilities.contains(required) {
+            let bits = bundle.bits();
+            if !bits.contains(required) {
                 return None;
             }
             let name = serde_json::to_value(bundle)
@@ -84,10 +84,10 @@ fn bundles_containing_capability_bit(required: models::authz::Capability) -> Vec
                 .as_str()
                 .expect("bundle is a string")
                 .to_owned();
-            Some((capabilities.len(), vec![name]))
+            Some((bits.len(), vec![name]))
         })
         .collect();
-    // Prefer the bundles that grant the fewest capabilities.
+    // Prefer the bundles that grant the fewest capability bits.
     options.sort();
     options.into_iter().map(|(_, names)| names).collect()
 }
@@ -101,7 +101,7 @@ mod tests {
         async fn denied(&self) -> async_graphql::Result<Option<bool>> {
             Err(async_graphql::Error::new_with_source(
                 super::AuthorizationDenied {
-                    capability: models::authz::Capability::EditBilling,
+                    capability_bit: models::authz::CapabilityBit::EditBilling,
                     message: "billing access denied".to_owned(),
                 },
             ))
@@ -110,7 +110,7 @@ mod tests {
         async fn hidden(&self) -> async_graphql::Result<Option<bool>> {
             Err(super::super::service_accounts::hide_denial_as_not_found(
                 async_graphql::Error::new_with_source(super::AuthorizationDenied {
-                    capability: models::authz::Capability::CreateApiKey,
+                    capability_bit: models::authz::CapabilityBit::CreateApiKey,
                     message: "key access denied".to_owned(),
                 }),
             ))

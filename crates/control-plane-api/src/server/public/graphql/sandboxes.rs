@@ -164,7 +164,7 @@ impl SandboxesMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::CreateSandbox,
+            models::authz::CapabilityBit::CreateSandbox,
         )
         .await?;
 
@@ -578,13 +578,13 @@ mod test {
         };
         let approve = |workspace: &str,
                        name: &str,
-                       capabilities: &str,
+                       capability_mask: &str,
                        prefixes: &str,
                        minutes: i32| {
             format!(
                 r#"mutation {{ sandboxCredentialApprove(
                     catalogName: "acmeCo/sandbox", workspace: "{workspace}", name: "{name}",
-                    capabilityMask: {capabilities}, prefixMask: {prefixes}, durationMinutes: {minutes}
+                    capabilityMask: {capability_mask}, prefixMask: {prefixes}, durationMinutes: {minutes}
                 ) {{ workspace name capabilityMask prefixMask }} }}"#
             )
         };

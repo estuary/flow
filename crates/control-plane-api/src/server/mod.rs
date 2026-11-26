@@ -107,23 +107,23 @@ pub(crate) async fn wake_tenant_controller(
     Ok(res.rows_affected() > 0u64)
 }
 
-/// Evaluate whether the user identified by `claims` is authorized to access all
-/// of the enumerated `prefixes_or_names` with at least `min_capability`.
+/// Evaluate whether the user identified by `claims` holds the `required`
+/// capability bits to all of the enumerated `prefixes_or_names`.
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
 ///
-/// `min_capability` accepts any value that converts into a `CapabilitySet`:
+/// `required` accepts any value that converts into a `CapabilityBits`:
 /// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
-/// `models::authz::Capability` bit, or an explicit `CapabilitySet`.
+/// `models::authz::CapabilityBit` bit, or an explicit `CapabilityBits`.
 pub fn evaluate_names_authorization<'r, Iter, S, C>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
-    min_capability: C,
+    required: C,
     prefixes_or_names: Iter,
 ) -> AuthZResult<()>
 where
     Iter: IntoIterator<Item = S>,
     S: AsRef<str> + std::fmt::Display,
-    C: Into<models::authz::CapabilitySet> + Copy,
+    C: Into<models::authz::CapabilityBits> + Copy,
 {
     let subject = claims.subject();
     let models::authorizations::ControlClaims {
@@ -137,7 +137,7 @@ where
             &snapshot.user_grants,
             &subject,
             prefix_or_name.as_ref(),
-            min_capability,
+            required,
         ) {
             return Err(tonic::Status::permission_denied(format!(
                 "{user_email} is not authorized to access prefix or name '{prefix_or_name}'",
@@ -442,7 +442,7 @@ mod tests {
         let bit_denial = evaluate_names_authorization(
             &snapshot,
             &claims(user),
-            models::authz::Capability::EditBilling,
+            models::authz::CapabilityBit::EditBilling,
             ["ops/"],
         )
         .unwrap_err();

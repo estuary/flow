@@ -123,7 +123,7 @@ pub fn walk_model(
         Error::RequireRuntimeV2 {
             entity,
             name: name.to_string(),
-            capability: "secrets",
+            feature: "secrets",
             flag: models::ENABLE_RUNTIME_V2,
         }
         .push(scope, errors);

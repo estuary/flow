@@ -226,7 +226,7 @@ impl AlertConfigsQuery {
         let policy_result = crate::server::evaluate_names_authorization(
             env.snapshot(),
             claims,
-            models::authz::Capability::CatalogRead,
+            models::authz::CapabilityBit::CatalogRead,
             [catalog_prefix_or_name.as_str()],
         );
         env.authorization_outcome(policy_result).await?;

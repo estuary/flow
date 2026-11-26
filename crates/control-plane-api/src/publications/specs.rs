@@ -661,7 +661,7 @@ pub async fn resolve_live_specs(
                 && !snapshot.is_user_authorized(
                     subject,
                     catalog_name,
-                    models::authz::Capability::SpecEdit,
+                    models::authz::CapabilityBit::SpecEdit,
                 )
             {
                 snapshot.request_refresh();
@@ -731,7 +731,7 @@ pub async fn resolve_live_specs(
                 && !snapshot.is_user_authorized(
                     subject,
                     &spec_row.catalog_name,
-                    models::authz::Capability::CatalogRead,
+                    models::authz::CapabilityBit::CatalogRead,
                 )
             {
                 snapshot.request_refresh();

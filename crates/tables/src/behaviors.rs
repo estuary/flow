@@ -56,10 +56,10 @@ impl super::Import {
 fn effective_bits(
     legacy: models::Capability,
     bundles: &[authz::CapabilityBundle],
-) -> authz::CapabilitySet {
+) -> authz::CapabilityBits {
     let mut bits = authz::bits_for_legacy(legacy);
     for b in bundles {
-        bits |= b.capabilities();
+        bits |= b.bits();
     }
     bits
 }
@@ -72,12 +72,12 @@ fn effective_bits(
 fn any_path_satisfies<'a>(
     nodes: impl IntoIterator<Item = super::NodeRef<'a>>,
     object_role_or_name: &str,
-    required: impl Into<authz::CapabilitySet>,
+    required: impl Into<authz::CapabilityBits>,
 ) -> bool {
     let mut remaining = required.into();
     for node in nodes {
         if object_role_or_name.starts_with(node.object_role) {
-            remaining -= node.capabilities;
+            remaining -= node.capability_bits;
             if remaining.is_empty() {
                 return true;
             }
@@ -93,7 +93,7 @@ impl super::RoleGrant {
     ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
         let seed = super::NodeRef {
             object_role: role_or_name,
-            capabilities: EnumSet::from(authz::Capability::Assume),
+            capability_bits: EnumSet::from(authz::CapabilityBit::Assume),
             legacy: models::Capability::None,
         };
         pathfinding::directed::bfs::bfs_reach(seed, move |f| {
@@ -106,19 +106,19 @@ impl super::RoleGrant {
         role_grants: &'a [super::RoleGrant],
         subject_role_or_name: &'a str,
         object_role_or_name: &'a str,
-        capability: impl Into<authz::CapabilitySet>,
+        required: impl Into<authz::CapabilityBits>,
     ) -> bool {
         any_path_satisfies(
             Self::reachable_nodes(role_grants, subject_role_or_name),
             object_role_or_name,
-            capability,
+            required,
         )
     }
 
-    fn to_node_ref<'a>(&'a self, delegatable: authz::CapabilitySet) -> super::NodeRef<'a> {
+    fn to_node_ref<'a>(&'a self, delegatable: authz::CapabilityBits) -> super::NodeRef<'a> {
         super::NodeRef {
             object_role: self.object_role.as_str(),
-            capabilities: effective_bits(self.capability, &self.bundles) & delegatable,
+            capability_bits: effective_bits(self.capability, &self.bundles) & delegatable,
             legacy: self.capability,
         }
     }
@@ -145,7 +145,7 @@ impl super::UserGrant {
         let user_id = subject.user_id;
         let seed = super::NodeRef {
             object_role: "",
-            capabilities: EnumSet::from(authz::Capability::Assume),
+            capability_bits: EnumSet::from(authz::CapabilityBit::Assume),
             legacy: models::Capability::None,
         };
         let capability_mask = subject.capability_mask;
@@ -188,23 +188,23 @@ impl super::UserGrant {
         role_grants: &'a [super::RoleGrant],
         user_grants: &'a [super::UserGrant],
         subject: &'a authz::Subject,
-    ) -> std::collections::BTreeMap<&'a str, (authz::CapabilitySet, models::Capability)> {
+    ) -> std::collections::BTreeMap<&'a str, (authz::CapabilityBits, models::Capability)> {
         let mut out: std::collections::BTreeMap<
             &'a str,
-            (authz::CapabilitySet, models::Capability),
+            (authz::CapabilityBits, models::Capability),
         > = Default::default();
 
         for node in Self::reachable_nodes(role_grants, user_grants, subject) {
             // Keep empty nodes in the walk for legacy capability reporting.
             // Hide them from capability-masked listings to avoid revealing unusable grants.
-            if node.capabilities.is_empty() && subject.capability_mask.is_some() {
+            if node.capability_bits.is_empty() && subject.capability_mask.is_some() {
                 continue;
             }
             let entry = out
                 .entry(node.object_role)
-                .or_insert((authz::CapabilitySet::empty(), models::Capability::None));
+                .or_insert((authz::CapabilityBits::empty(), models::Capability::None));
 
-            entry.0 |= node.capabilities;
+            entry.0 |= node.capability_bits;
             if node.legacy > entry.1 {
                 entry.1 = node.legacy;
             }
@@ -230,19 +230,19 @@ impl super::UserGrant {
         user_grants: &'a [super::UserGrant],
         subject: &'a authz::Subject,
         object_role_or_name: &'a str,
-        capability: impl Into<authz::CapabilitySet>,
+        required: impl Into<authz::CapabilityBits>,
     ) -> bool {
         any_path_satisfies(
             Self::reachable_nodes(role_grants, user_grants, subject),
             object_role_or_name,
-            capability,
+            required,
         )
     }
 
-    fn to_node_ref<'a>(&'a self, delegatable: authz::CapabilitySet) -> super::NodeRef<'a> {
+    fn to_node_ref<'a>(&'a self, delegatable: authz::CapabilityBits) -> super::NodeRef<'a> {
         super::NodeRef {
             object_role: self.object_role.as_str(),
-            capabilities: effective_bits(self.capability, &self.bundles) & delegatable,
+            capability_bits: effective_bits(self.capability, &self.bundles) & delegatable,
             legacy: self.capability,
         }
     }
@@ -250,31 +250,33 @@ impl super::UserGrant {
 
 // Expand a BFS node into its neighbors. A node is terminal (no expansion)
 // unless it carries Delegate or Assume. Delegate passes only the node's own
-// capabilities through to neighbors (the child receives `edge_bits & parent_bits`);
-// Assume passes all capabilities through unfiltered, modeling identity takeover.
+// bits through to neighbors (the child receives `edge_bits & parent_bits`);
+// Assume passes all bits through unfiltered, modeling identity takeover.
 //
 // Perf note: bfs_reach keys on the whole NodeRef, so the same object_role
-// reached with different capability subsets produces distinct BFS nodes —
+// reached with different capability bits produces distinct BFS nodes —
 // up to 2^N per prefix where N is the number of capability bits. If deep
 // grant graphs cause latency, replace bfs_reach with a manual BFS that keys
-// visited state on object_role alone and prunes dominated capability subsets.
+// visited state on object_role alone and prunes dominated bit subsets.
 //
 // The mask bounds what any edge may convey, including what Assume restores,
-// so a node's restricted capabilities also decide its own later expansion.
+// so a node's restricted bits also decide its own later expansion.
 fn next_neighbors<'a>(
     from: super::NodeRef<'a>,
     role_edges: &'a [super::RoleGrant],
     user_edges: &'a [super::UserGrant],
     user_id: uuid::Uuid,
-    capability_mask: Option<authz::CapabilitySet>,
+    capability_mask: Option<authz::CapabilityBits>,
 ) -> impl Iterator<Item = super::NodeRef<'a>> + 'a {
-    let has_delegate = from.capabilities.contains(authz::Capability::Delegate);
-    let has_assume = from.capabilities.contains(authz::Capability::Assume);
+    let has_delegate = from
+        .capability_bits
+        .contains(authz::CapabilityBit::Delegate);
+    let has_assume = from.capability_bits.contains(authz::CapabilityBit::Assume);
     let is_terminal = !has_delegate && !has_assume;
     let delegatable = if has_assume {
         EnumSet::all()
     } else {
-        from.capabilities
+        from.capability_bits
     };
 
     let (user_edges, role_edges, prefixes) = match (is_terminal, from.object_role) {
@@ -288,7 +290,7 @@ fn next_neighbors<'a>(
             (&user_edges[range], &role_edges[..0], None)
         }
         // We've delegated authority at `role_or_name`, and are projecting
-        // through role_grants to identify other roles and capabilities we
+        // through role_grants to identify other roles and capability bits we
         // take on.
         (_, role_or_name) => {
             // Expand to all roles having a subject_role prefixed by role_or_name.
@@ -340,7 +342,7 @@ fn next_neighbors<'a>(
 
     p1.chain(p2).chain(p3).map(move |mut node| {
         if let Some(mask) = capability_mask {
-            node.capabilities = mask & node.capabilities;
+            node.capability_bits = mask & node.capability_bits;
         }
         node
     })
@@ -371,7 +373,7 @@ impl super::StorageMappings {
 mod test {
     use crate::{Import, Imports, RoleGrant, RoleGrants, UserGrant, UserGrants};
     use enumset::EnumSet;
-    use models::authz::{self, Capability, CapabilityBundle, Subject};
+    use models::authz::{self, CapabilityBit, CapabilityBundle, Subject};
 
     #[test]
     fn test_intersect_prefixes() {
@@ -772,15 +774,15 @@ mod test {
         role_grants: &RoleGrants,
         user_grants: &UserGrants,
         subject: &Subject,
-        expected: Vec<(&str, EnumSet<Capability>)>,
+        expected: Vec<(&str, EnumSet<CapabilityBit>)>,
     ) {
         let mut nodes: Vec<_> = UserGrant::reachable_nodes(role_grants, user_grants, subject)
-            .map(|n| (n.object_role.to_string(), n.capabilities))
+            .map(|n| (n.object_role.to_string(), n.capability_bits))
             .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
         nodes.dedup();
 
-        let expected: Vec<(String, EnumSet<Capability>)> = expected
+        let expected: Vec<(String, EnumSet<CapabilityBit>)> = expected
             .into_iter()
             .map(|(prefix, caps)| (prefix.to_string(), caps))
             .collect();
@@ -793,7 +795,7 @@ mod test {
         user_grants: &UserGrants,
         user_id: uuid::Uuid,
         name: &str,
-        required: EnumSet<Capability>,
+        required: EnumSet<CapabilityBit>,
     ) {
         assert!(
             UserGrant::is_authorized(
@@ -812,7 +814,7 @@ mod test {
         user_grants: &UserGrants,
         user_id: uuid::Uuid,
         name: &str,
-        required: EnumSet<Capability>,
+        required: EnumSet<CapabilityBit>,
     ) {
         assert!(
             !UserGrant::is_authorized(
@@ -828,7 +830,7 @@ mod test {
 
     #[test]
     fn test_reachable_nodes_delegate_propagation() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -869,28 +871,21 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | Delegate,
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits() | Delegate,
                 ),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | Delegate,
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits() | Delegate,
                 ),
-                (
-                    "carolCo/data/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("daveCo/sink/", CapabilityBundle::Viewer.capabilities()),
+                ("carolCo/data/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("daveCo/sink/", CapabilityBundle::Viewer.bits()),
             ],
         );
     }
 
     #[test]
     fn test_reachable_nodes_no_delegate_is_terminal() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -908,11 +903,8 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("bobCo/shared/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("bobCo/shared/", CapabilityBundle::Viewer.bits()),
             ],
         );
 
@@ -932,27 +924,27 @@ mod test {
             &role_grants,
             &user_grants,
             &Subject::unrestricted(user_id),
-            vec![("acmeCo/", CapabilityBundle::Viewer.capabilities())],
+            vec![("acmeCo/", CapabilityBundle::Viewer.bits())],
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "bobCo/shared/",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "carolCo/",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
     }
 
     #[test]
     fn test_assume_behavior() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![("acmeCo/", vec![CapabilityBundle::Assume])],
@@ -975,9 +967,9 @@ mod test {
                 ("acmeCo/", EnumSet::from(Assume)),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | CapabilityBundle::TeamAdmin.capabilities(),
+                    CapabilityBundle::Viewer.bits()
+                        | CapabilityBundle::Billing.bits()
+                        | CapabilityBundle::TeamAdmin.bits(),
                 ),
             ],
         );
@@ -987,14 +979,14 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/shared/nested/",
-            CapabilityBundle::Viewer.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+            CapabilityBundle::Viewer.bits() | CapabilityBundle::TeamAdmin.bits(),
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "acmeCo/",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
 
         let (role_grants, user_grants, user_id) = build_scenario(
@@ -1017,20 +1009,20 @@ mod test {
             &user_grants,
             user_id,
             "acmeCo/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Writer.bits(),
         );
         assert_not_authorized(
             &role_grants,
             &user_grants,
             user_id,
             "bobCo/shared/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Writer.bits(),
         );
     }
 
     #[test]
     fn test_assume_supersedes_delegate() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1059,13 +1051,13 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Assume | Delegate,
+                    CapabilityBundle::Viewer.bits() | Assume | Delegate,
                 ),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | CapabilityBundle::TeamAdmin.capabilities(),
+                    CapabilityBundle::Viewer.bits()
+                        | CapabilityBundle::Billing.bits()
+                        | CapabilityBundle::TeamAdmin.bits(),
                 ),
             ],
         );
@@ -1092,15 +1084,12 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("bobCo/shared/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("bobCo/shared/", CapabilityBundle::Viewer.bits()),
             ],
         );
 
-        // Assume does not add capabilities to the following edge
+        // Assume does not add bits to the following edge
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
                 "acmeCo/",
@@ -1122,20 +1111,20 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                ("acmeCo/", CapabilityBundle::Writer.capabilities() | Assume),
+                ("acmeCo/", CapabilityBundle::Writer.bits() | Assume),
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | CapabilityBundle::TeamAdmin.capabilities(),
+                    CapabilityBundle::Viewer.bits()
+                        | CapabilityBundle::Billing.bits()
+                        | CapabilityBundle::TeamAdmin.bits(),
                 ),
             ],
         );
     }
 
     #[test]
-    fn test_inherited_capabilities() {
-        use Capability::*;
+    fn test_inherited_capability_bits() {
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
@@ -1157,19 +1146,19 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::Viewer.bits()),
                 (
                     "acmeCo/interns/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
+                    CapabilityBundle::Writer.bits() | Delegate,
                 ),
-                ("betaCo/shareable/", CapabilityBundle::Writer.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::Writer.bits()),
             ],
         );
     }
 
     #[test]
-    fn test_descendent_capabilities() {
-        use Capability::*;
+    fn test_descendent_capability_bits() {
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
@@ -1191,19 +1180,19 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::Viewer.bits()),
                 (
                     "acmeCo/interns/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
+                    CapabilityBundle::Writer.bits() | Delegate,
                 ),
-                ("betaCo/shareable/", CapabilityBundle::Writer.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::Writer.bits()),
             ],
         );
     }
 
     #[test]
-    fn test_parent_child_capabilities() {
-        use Capability::*;
+    fn test_parent_child_capability_bits() {
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1235,10 +1224,10 @@ mod test {
             vec![
                 (
                     "acmeCo/interns/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
+                    CapabilityBundle::Writer.bits() | Delegate,
                 ),
-                ("betaCo/shareable/", CapabilityBundle::Viewer.capabilities()),
-                ("betaCo/shareable/", CapabilityBundle::Writer.capabilities()),
+                ("betaCo/shareable/", CapabilityBundle::Viewer.bits()),
+                ("betaCo/shareable/", CapabilityBundle::Writer.bits()),
             ],
         );
 
@@ -1247,7 +1236,7 @@ mod test {
             &user_grants,
             user_id,
             "betaCo/shareable/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Writer.bits(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1260,7 +1249,7 @@ mod test {
 
     #[test]
     fn test_multi_path() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
@@ -1288,19 +1277,10 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                (
-                    "betaCo/",
-                    CapabilityBundle::Writer.capabilities() | Delegate,
-                ),
-                ("charlieCo/", CapabilityBundle::Writer.capabilities()),
-                (
-                    "charlieCo/shareable/",
-                    CapabilityBundle::Viewer.capabilities(),
-                ),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("betaCo/", CapabilityBundle::Writer.bits() | Delegate),
+                ("charlieCo/", CapabilityBundle::Writer.bits()),
+                ("charlieCo/shareable/", CapabilityBundle::Viewer.bits()),
             ],
         );
 
@@ -1309,7 +1289,7 @@ mod test {
             &user_grants,
             user_id,
             "charlieCo/shareable/",
-            CapabilityBundle::Writer.capabilities(),
+            CapabilityBundle::Writer.bits(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1322,7 +1302,7 @@ mod test {
 
     #[test]
     fn test_is_authorized() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1352,7 +1332,7 @@ mod test {
             &user_grants,
             user_id,
             "acmeCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1367,7 +1347,7 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/shared/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
         assert_not_authorized(
             &role_grants,
@@ -1382,7 +1362,7 @@ mod test {
             &user_grants,
             user_id,
             "carolCo/data/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
 
         let unknown = uuid::Uuid::from_bytes([9; 16]);
@@ -1391,13 +1371,13 @@ mod test {
             &user_grants,
             unknown,
             "acmeCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
     }
 
     #[test]
     fn test_mixed_legacy_and_bundles() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let user_id = uuid::Uuid::from_bytes([1; 16]);
         let user_grants = UserGrants::from_iter(vec![UserGrant {
@@ -1415,20 +1395,19 @@ mod test {
         let node = &nodes[0];
         assert_eq!(node.object_role, "acmeCo/");
 
-        let expected =
-            CapabilityBundle::Writer.capabilities() | CapabilityBundle::TeamAdmin.capabilities();
-        assert_eq!(node.capabilities, expected);
+        let expected = CapabilityBundle::Writer.bits() | CapabilityBundle::TeamAdmin.bits();
+        assert_eq!(node.capability_bits, expected);
 
-        assert!(node.capabilities.contains(CatalogRead));
-        assert!(node.capabilities.contains(JournalAppend));
-        assert!(node.capabilities.contains(CreateGrant));
-        assert!(!node.capabilities.contains(SpecEdit));
-        assert!(!node.capabilities.contains(Delegate));
+        assert!(node.capability_bits.contains(CatalogRead));
+        assert!(node.capability_bits.contains(JournalAppend));
+        assert!(node.capability_bits.contains(CreateGrant));
+        assert!(!node.capability_bits.contains(SpecEdit));
+        assert!(!node.capability_bits.contains(Delegate));
     }
 
     #[test]
-    fn test_assume_propagates_full_capability_set() {
-        use Capability::*;
+    fn test_assume_propagates_full_capability_bits() {
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1451,12 +1430,10 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Assume),
                 (
                     "bobCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | Delegate,
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits() | Delegate,
                 ),
             ],
         );
@@ -1466,13 +1443,13 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
     }
 
     #[test]
     fn test_assume_vs_delegate_capability_filtering() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1495,11 +1472,8 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                (
-                    "acmeCo/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("bobCo/", CapabilityBundle::Viewer.bits() | Delegate),
             ],
         );
 
@@ -1524,13 +1498,13 @@ mod test {
             &user_grants,
             user_id,
             "bobCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
     }
 
     #[test]
     fn test_assume_chains_through_edges() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1560,17 +1534,14 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Assume),
                 (
                     "bobCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | Assume,
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits() | Assume,
                 ),
                 (
                     "carolCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities(),
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits(),
                 ),
             ],
         );
@@ -1578,7 +1549,7 @@ mod test {
 
     #[test]
     fn test_assume_does_not_chain_without_edge_delegate() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![(
@@ -1604,9 +1575,9 @@ mod test {
             &user_grants,
             &Subject::unrestricted(user_id),
             vec![
-                ("acmeCo/", CapabilityBundle::Viewer.capabilities() | Assume),
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Delegate),
-                ("carolCo/", CapabilityBundle::Viewer.capabilities()),
+                ("acmeCo/", CapabilityBundle::Viewer.bits() | Assume),
+                ("bobCo/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("carolCo/", CapabilityBundle::Viewer.bits()),
             ],
         );
     }
@@ -1623,15 +1594,15 @@ mod test {
     fn assert_role_reachable(
         role_grants: &RoleGrants,
         role_or_name: &str,
-        expected: Vec<(&str, EnumSet<Capability>)>,
+        expected: Vec<(&str, EnumSet<CapabilityBit>)>,
     ) {
         let mut nodes: Vec<_> = RoleGrant::reachable_nodes(role_grants, role_or_name)
-            .map(|n| (n.object_role.to_string(), n.capabilities))
+            .map(|n| (n.object_role.to_string(), n.capability_bits))
             .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.as_u32().cmp(&b.1.as_u32())));
         nodes.dedup();
 
-        let expected: Vec<(String, EnumSet<Capability>)> = expected
+        let expected: Vec<(String, EnumSet<CapabilityBit>)> = expected
             .into_iter()
             .map(|(prefix, caps)| (prefix.to_string(), caps))
             .collect();
@@ -1643,7 +1614,7 @@ mod test {
         role_grants: &RoleGrants,
         subject: &str,
         object: &str,
-        required: EnumSet<Capability>,
+        required: EnumSet<CapabilityBit>,
     ) {
         assert!(
             RoleGrant::is_authorized(role_grants, subject, object, required),
@@ -1655,7 +1626,7 @@ mod test {
         role_grants: &RoleGrants,
         subject: &str,
         object: &str,
-        required: EnumSet<Capability>,
+        required: EnumSet<CapabilityBit>,
     ) {
         assert!(
             !RoleGrant::is_authorized(role_grants, subject, object, required),
@@ -1665,7 +1636,7 @@ mod test {
 
     #[test]
     fn test_role_reachable_nodes_delegate_propagation() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let role_grants = build_role_scenario(vec![
             (
@@ -1695,15 +1666,10 @@ mod test {
             vec![
                 (
                     "bobCo/shared/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | Delegate,
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits() | Delegate,
                 ),
-                (
-                    "carolCo/data/",
-                    CapabilityBundle::Viewer.capabilities() | Delegate,
-                ),
-                ("daveCo/sink/", CapabilityBundle::Viewer.capabilities()),
+                ("carolCo/data/", CapabilityBundle::Viewer.bits() | Delegate),
+                ("daveCo/sink/", CapabilityBundle::Viewer.bits()),
             ],
         );
     }
@@ -1718,13 +1684,13 @@ mod test {
         assert_role_reachable(
             &role_grants,
             "acmeCo/",
-            vec![("bobCo/shared/", CapabilityBundle::Viewer.capabilities())],
+            vec![("bobCo/shared/", CapabilityBundle::Viewer.bits())],
         );
     }
 
     #[test]
-    fn test_role_assume_propagates_all_capabilities() {
-        use Capability::*;
+    fn test_role_assume_propagates_all_capability_bits() {
+        use CapabilityBit::*;
 
         let role_grants = build_role_scenario(vec![
             (
@@ -1747,12 +1713,10 @@ mod test {
             &role_grants,
             "acmeCo/",
             vec![
-                ("bobCo/", CapabilityBundle::Viewer.capabilities() | Assume),
+                ("bobCo/", CapabilityBundle::Viewer.bits() | Assume),
                 (
                     "carolCo/",
-                    CapabilityBundle::Viewer.capabilities()
-                        | CapabilityBundle::Billing.capabilities()
-                        | Delegate,
+                    CapabilityBundle::Viewer.bits() | CapabilityBundle::Billing.bits() | Delegate,
                 ),
             ],
         );
@@ -1761,7 +1725,7 @@ mod test {
             &role_grants,
             "acmeCo/",
             "carolCo/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
     }
 
@@ -1788,19 +1752,19 @@ mod test {
             &role_grants,
             "acmeCo/",
             "bobCo/shared/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
         assert_role_authorized(
             &role_grants,
             "acmeCo/",
             "carolCo/data/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
         assert_role_not_authorized(
             &role_grants,
             "acmeCo/",
             "unknown/thing",
-            CapabilityBundle::Viewer.capabilities(),
+            CapabilityBundle::Viewer.bits(),
         );
     }
 
@@ -1856,13 +1820,13 @@ mod test {
                         &user_grants,
                         &subject,
                         name,
-                        Capability::CatalogRead
+                        CapabilityBit::CatalogRead
                     ),
                     expected.iter().any(|prefix| name.starts_with(*prefix)),
                     "prefix {prefix}, name {name}"
                 );
             }
-            subject.capability_mask = Some(authz::CapabilitySet::empty());
+            subject.capability_mask = Some(authz::CapabilityBits::empty());
             assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
         }
         // An empty prefix in the mask normalizes to `/`, not unrestricted authority.
@@ -1872,7 +1836,7 @@ mod test {
     }
 
     #[test]
-    fn test_prefix_mask_preserves_user_capabilities_and_excludes_unreachable_roles() {
+    fn test_prefix_mask_preserves_user_capability_bits_and_excludes_unreachable_roles() {
         let (role_grants, user_grants, user_id) = build_scenario(
             vec![
                 ("acmeCo/a/", vec![CapabilityBundle::Editor]),
@@ -1895,15 +1859,18 @@ mod test {
             &role_grants,
             &user_grants,
             &subject,
-            vec![("acmeCo/b/", CapabilityBundle::Editor.capabilities())],
+            vec![("acmeCo/b/", CapabilityBundle::Editor.bits())],
         );
         // Retain delegation so the mask still reaches B, but strips edit authority.
-        subject.capability_mask = Some(Capability::CatalogRead | Capability::Delegate);
+        subject.capability_mask = Some(CapabilityBit::CatalogRead | CapabilityBit::Delegate);
         assert_reachable(
             &role_grants,
             &user_grants,
             &subject,
-            vec![("acmeCo/b/", Capability::CatalogRead | Capability::Delegate)],
+            vec![(
+                "acmeCo/b/",
+                CapabilityBit::CatalogRead | CapabilityBit::Delegate,
+            )],
         );
         subject.capability_mask = None;
         subject.prefix_mask = Some(vec!["acmeCo/scope/".to_string()]);
@@ -1948,7 +1915,7 @@ mod test {
                         &user_grants,
                         &Subject::unrestricted(user_id),
                         name,
-                        Capability::CatalogRead,
+                        CapabilityBit::CatalogRead,
                     );
                 assert_eq!(
                     UserGrant::is_authorized(
@@ -1956,14 +1923,17 @@ mod test {
                         &user_grants,
                         &subject,
                         name,
-                        Capability::CatalogRead
+                        CapabilityBit::CatalogRead
                     ),
                     expected
                 );
             }
-            subject.capability_mask = Some(Capability::CatalogRead.into());
+            subject.capability_mask = Some(CapabilityBit::CatalogRead.into());
             for node in UserGrant::reachable_nodes(&role_grants, &user_grants, &subject) {
-                assert!(node.capabilities.is_subset(Capability::CatalogRead.into()));
+                assert!(
+                    node.capability_bits
+                        .is_subset(CapabilityBit::CatalogRead.into())
+                );
             }
         }
         insta::assert_json_snapshot!(results, @r#"
@@ -2007,7 +1977,7 @@ mod test {
 
     #[test]
     fn test_masked_walk_unmasked_parity() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
         assert_reachable(
@@ -2017,14 +1987,13 @@ mod test {
             vec![
                 (
                     "acmeCo/",
-                    CapabilityBundle::Editor.capabilities()
-                        | CapabilityBundle::Writer.capabilities(),
+                    CapabilityBundle::Editor.bits() | CapabilityBundle::Writer.bits(),
                 ),
-                ("bobCo/shared/", CapabilityBundle::Editor.capabilities()),
+                ("bobCo/shared/", CapabilityBundle::Editor.bits()),
                 // Viewer bits clamped by the delegating Editor edge, which
                 // lacks ViewDataPlanePrivateNetworking.
                 ("carolCo/upstream/", CatalogRead | JournalRead),
-                ("daveCo/", CapabilityBundle::Admin.capabilities()),
+                ("daveCo/", CapabilityBundle::Admin.bits()),
                 ("supportCo/", EnumSet::from(Assume)),
             ],
         );
@@ -2032,10 +2001,10 @@ mod test {
 
     #[test]
     fn test_masked_walk_empty_mask_denies_all() {
-        // An empty mask leaves only direct-grant nodes, with no capabilities;
+        // An empty mask leaves only direct-grant nodes, with no bits;
         // the walk stops there and no prefix is listed.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilitySet::empty();
+        let mask = authz::CapabilityBits::empty();
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2048,7 +2017,7 @@ mod test {
                 &user_grants,
                 &subject,
                 object,
-                Capability::CatalogRead,
+                CapabilityBit::CatalogRead,
             ));
         }
         assert!(UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject).is_empty());
@@ -2056,12 +2025,12 @@ mod test {
 
     #[test]
     fn test_masked_walk_without_delegate_is_direct_only() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         // Masking away Delegate and Assume makes the direct grants terminal, so
         // nothing beyond them is reached even though the underlying grants delegate.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilitySet::from(CatalogRead | JournalRead | SpecEdit);
+        let mask = authz::CapabilityBits::from(CatalogRead | JournalRead | SpecEdit);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2082,20 +2051,20 @@ mod test {
             &user_grants,
             &subject,
             "bobCo/shared/thing",
-            Capability::CatalogRead,
+            CapabilityBit::CatalogRead,
         ));
     }
 
     #[test]
     fn test_masked_walk_multi_hop_with_delegate() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         // With Delegate in the mask the chain traverses, and every hop is
         // clamped: bobCo/ keeps only the Editor bits inside the mask
         // (CatalogRead | Delegate), and carolCo/ receives Viewer bits
         // clamped to CatalogRead alone.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
+        let mask = authz::CapabilityBits::from(CatalogRead | Delegate);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2118,27 +2087,27 @@ mod test {
             &user_grants,
             &subject,
             "carolCo/upstream/thing",
-            Capability::CatalogRead,
+            CapabilityBit::CatalogRead,
         ));
         assert!(!UserGrant::is_authorized(
             &role_grants,
             &user_grants,
             &subject,
             "carolCo/upstream/thing",
-            Capability::JournalRead,
+            CapabilityBit::JournalRead,
         ));
     }
 
     #[test]
     fn test_masked_walk_assume_containment() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         // Assume makes ALL of an edge's bits delegatable as it passes
-        // through — which must not restore capabilities outside the mask.
+        // through — which must not restore bits outside the mask.
         // With Assume in the mask, daveCo/ is reached through the takeover
         // edge but its Admin bundle is still clamped to the mask.
         let (role_grants, user_grants, user_id) = masked_walk_scenario();
-        let mask = authz::CapabilitySet::from(CatalogRead | Assume);
+        let mask = authz::CapabilityBits::from(CatalogRead | Assume);
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2160,13 +2129,13 @@ mod test {
             &user_grants,
             &subject,
             "daveCo/thing",
-            Capability::SpecEdit,
+            CapabilityBit::SpecEdit,
         ));
     }
 
     #[test]
     fn test_masked_walk_prefixes_keep_empty_when_unmasked() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         // The `is_some()` half of the skip in `reachable_prefixes`: an empty
         // node is omitted only for capability-masked subjects. The shared fixture
@@ -2198,12 +2167,12 @@ mod test {
         );
         assert_eq!(
             unmasked.get("orphanCo/"),
-            Some(&(authz::CapabilitySet::empty(), models::Capability::None)),
+            Some(&(authz::CapabilityBits::empty(), models::Capability::None)),
         );
 
         let subject = authz::Subject {
             user_id,
-            capability_mask: Some(authz::CapabilitySet::from(CatalogRead | Delegate)),
+            capability_mask: Some(authz::CapabilityBits::from(CatalogRead | Delegate)),
             prefix_mask: None,
         };
         let masked = UserGrant::reachable_prefixes(&role_grants, &user_grants, &subject);
@@ -2215,7 +2184,7 @@ mod test {
 
     #[test]
     fn test_masked_walk_get_user_capability() {
-        use Capability::*;
+        use CapabilityBit::*;
 
         // Legacy capability values pass through unchanged for reached nodes;
         // capability masks attenuate only capability bits.
@@ -2236,7 +2205,7 @@ mod test {
         // A reached node's legacy value passes through un-attenuated:
         // even an identity-only token reports the legacy metadata of its
         // direct grants, while authorization under the same mask denies.
-        let mask = authz::CapabilitySet::empty();
+        let mask = authz::CapabilityBits::empty();
         let subject = authz::Subject {
             user_id,
             capability_mask: Some(mask),
@@ -2252,7 +2221,7 @@ mod test {
             &user_grants,
             &subject,
             "acmeCo/thing",
-            Capability::CatalogRead,
+            CapabilityBit::CatalogRead,
         ));
 
         // The mask still gates reachability: without Delegate the walk
@@ -2265,7 +2234,7 @@ mod test {
         // ...and with Delegate it's reached, reporting its legacy value
         // even though the mask attenuates its effective bits to nothing
         // beyond CatalogRead.
-        let mask = authz::CapabilitySet::from(CatalogRead | Delegate);
+        let mask = authz::CapabilityBits::from(CatalogRead | Delegate);
         let subject_delegation = authz::Subject {
             user_id,
             capability_mask: Some(mask),

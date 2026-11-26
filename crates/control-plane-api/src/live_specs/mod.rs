@@ -8,14 +8,14 @@ pub use db::{
     fetch_live_spec_names_by_prefix, fetch_live_specs, hard_delete_live_spec,
 };
 
-/// Partitions the requested `names` by whether the user holds `capability`
-/// to them, evaluated against the authorization `snapshot`. Returns
+/// Partitions the requested `names` by whether the user holds the `required`
+/// capability bits to them, evaluated against the authorization `snapshot`. Returns
 /// `(authorized, denied)` as references into `names`, each sorted and
 /// deduplicated.
 fn partition_by_authorization<'n>(
     subject: &models::authz::Subject,
     names: &'n [String],
-    capability: models::authz::CapabilitySet,
+    required: models::authz::CapabilityBits,
     snapshot: &crate::Snapshot,
 ) -> (Vec<&'n str>, Vec<&'n str>) {
     let (mut authorized, mut denied): (Vec<&str>, Vec<&str>) =
@@ -25,7 +25,7 @@ fn partition_by_authorization<'n>(
                 &snapshot.user_grants,
                 subject,
                 name,
-                capability,
+                required,
             )
         });
 
@@ -37,8 +37,8 @@ fn partition_by_authorization<'n>(
 }
 
 /// Fetches live specs as a `tables::LiveCatalog`, silently filtering out
-/// requested names to which the user does not hold `capability`, evaluated
-/// against the authorization `snapshot`. Filtered names are simply absent
+/// requested names to which the user does not hold the `required` capability
+/// bits, evaluated against the authorization `snapshot`. Filtered names are simply absent
 /// from the result — indistinguishable from specs which don't exist — and
 /// never surface as an error.
 ///
@@ -47,12 +47,12 @@ fn partition_by_authorization<'n>(
 pub async fn get_live_specs_filtered(
     subject: &models::authz::Subject,
     names: &[String],
-    capability: impl Into<models::authz::CapabilitySet>,
+    required: impl Into<models::authz::CapabilityBits>,
     snapshot: &crate::Snapshot,
     db: &sqlx::PgPool,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let (authorized, denied) =
-        partition_by_authorization(subject, names, capability.into(), snapshot);
+        partition_by_authorization(subject, names, required.into(), snapshot);
 
     if !denied.is_empty() {
         tracing::debug!(?denied, user_id = %subject.user_id, "filtered unauthorized specs from fetch");
@@ -108,24 +108,25 @@ pub async fn get_live_specs_unfiltered(
 }
 
 /// Fetches the live specs connected to `collection_names` — tasks that read
-/// from or write to them — excluding `exclude_names`. When `filter_capability`
-/// is set, specs to which the user lacks that capability are silently omitted,
-/// evaluated against the authorization `snapshot`. A denial never cancels the
-/// snapshot's revoke token: filtering merely narrows expansion, and the worst
-/// case of a not-yet-observed grant is only a narrower validation.
+/// from or write to them — excluding `exclude_names`. When
+/// `filter_capability_bit` is set, specs to which the user lacks that bit are
+/// silently omitted, evaluated against the authorization `snapshot`. A denial
+/// never cancels the snapshot's revoke token: filtering merely narrows
+/// expansion, and the worst case of a not-yet-observed grant is only a
+/// narrower validation.
 pub async fn get_connected_live_specs(
     subject: &models::authz::Subject,
     collection_names: &[&str],
     exclude_names: &[&str],
-    filter_capability: Option<models::authz::Capability>,
+    filter_capability_bit: Option<models::authz::CapabilityBit>,
     db: &sqlx::PgPool,
     snapshot: &crate::Snapshot,
 ) -> anyhow::Result<tables::LiveCatalog> {
     let expanded_rows = db::fetch_expanded_live_specs(collection_names, exclude_names, db).await?;
     let mut live = tables::LiveCatalog::default();
     for exp in expanded_rows {
-        if let Some(minimum_capability) = filter_capability {
-            if !snapshot.is_user_authorized(subject, &exp.catalog_name, minimum_capability) {
+        if let Some(bit) = filter_capability_bit {
+            if !snapshot.is_user_authorized(subject, &exp.catalog_name, bit) {
                 continue;
             }
         }
@@ -170,14 +171,14 @@ mod test {
         let bob = models::authz::Subject::unrestricted(
             "20202020-2020-2020-2020-202020202020".parse().unwrap(),
         );
-        let capability = models::authz::Capability::CatalogRead.into();
+        let required = models::authz::CapabilityBit::CatalogRead.into();
 
         // Names the user is authorized to produce no denials.
         let names = vec![
             "acmeCo/shared/collection".to_string(),
             "bobCo/tires/capture".to_string(),
         ];
-        let (authorized, denied) = partition_by_authorization(&bob, &names, capability, &snapshot);
+        let (authorized, denied) = partition_by_authorization(&bob, &names, required, &snapshot);
         assert_eq!(authorized, names);
         assert!(denied.is_empty());
 
@@ -190,7 +191,7 @@ mod test {
             "acmeCo/private/collection".to_string(),
             "aliceCo/anvils/pings".to_string(),
         ];
-        let (authorized, denied) = partition_by_authorization(&bob, &names, capability, &snapshot);
+        let (authorized, denied) = partition_by_authorization(&bob, &names, required, &snapshot);
         assert_eq!(authorized, vec!["bobCo/tires/capture"]);
         assert_eq!(
             denied,

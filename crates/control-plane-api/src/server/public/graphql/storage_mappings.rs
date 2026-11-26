@@ -853,7 +853,7 @@ impl StorageMappingsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 &env.claims()?.subject(),
-                models::authz::Capability::CatalogRead,
+                models::authz::CapabilityBit::CatalogRead,
                 prefix_filter,
                 "filter.catalogPrefix",
             )

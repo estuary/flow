@@ -264,7 +264,7 @@ async fn walk_derivation(
             Error::RequireRuntimeV2 {
                 entity: "derivation",
                 name: collection.to_string(),
-                capability: "files",
+                feature: "files",
                 flag: models::ENABLE_RUNTIME_V2,
             }
             .push(scope.push_prop("files"), errors);

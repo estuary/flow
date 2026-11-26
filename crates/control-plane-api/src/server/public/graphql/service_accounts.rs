@@ -90,7 +90,7 @@ impl ServiceAccountsQuery {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::QueryServiceAccounts,
+            models::authz::CapabilityBit::QueryServiceAccounts,
         )
         .await?;
 
@@ -126,7 +126,7 @@ impl ServiceAccountsQuery {
             &snapshot.role_grants,
             &snapshot.user_grants,
             &env.claims()?.subject(),
-            models::authz::Capability::QueryServiceAccounts,
+            models::authz::CapabilityBit::QueryServiceAccounts,
             None,
         );
 
@@ -256,7 +256,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::CreateServiceAccount,
+            models::authz::CapabilityBit::CreateServiceAccount,
         )
         .await?;
 
@@ -286,7 +286,7 @@ impl ServiceAccountsMutation {
             super::verify_authorization(
                 env,
                 grant.prefix.as_str(),
-                models::authz::Capability::CreateGrant,
+                models::authz::CapabilityBit::CreateGrant,
             )
             .await?;
         }
@@ -392,7 +392,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::CreateGrant,
+            models::authz::CapabilityBit::CreateGrant,
         )
         .await?;
 
@@ -410,8 +410,12 @@ impl ServiceAccountsMutation {
             ));
         }
 
-        super::verify_authorization(env, prefix.as_str(), models::authz::Capability::CreateGrant)
-            .await?;
+        super::verify_authorization(
+            env,
+            prefix.as_str(),
+            models::authz::CapabilityBit::CreateGrant,
+        )
+        .await?;
         super::billing::require_paid_tenant(ctx, catalog_name.as_str()).await?;
 
         let user_id = resolve_service_account(&env.pg_pool, catalog_name.as_str()).await?;
@@ -465,7 +469,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::CreateServiceAccount,
+            models::authz::CapabilityBit::CreateServiceAccount,
         )
         .await?;
 
@@ -510,7 +514,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::CreateServiceAccount,
+            models::authz::CapabilityBit::CreateServiceAccount,
         )
         .await?;
 
@@ -564,7 +568,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::CreateApiKey,
+            models::authz::CapabilityBit::CreateApiKey,
         )
         .await?;
         super::billing::require_paid_tenant(ctx, catalog_name.as_str()).await?;
@@ -716,7 +720,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             &owner.catalog_name,
-            models::authz::Capability::RevokeApiKey,
+            models::authz::CapabilityBit::RevokeApiKey,
         )
         .await
         .map_err(hide_denial_as_not_found)?;
@@ -759,7 +763,7 @@ impl ServiceAccountsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::RevokeApiKey,
+            models::authz::CapabilityBit::RevokeApiKey,
         )
         .await?;
 

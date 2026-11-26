@@ -56,8 +56,8 @@ mod tenant;
 
 pub(crate) use scalars::{Sensitive, UInt64};
 
-/// Whether the current user holds `capability` on `name`, as a pure check
-/// against the request's authorization Snapshot.
+/// Whether the current user holds the `required` capability bits on `name`, as
+/// a pure check against the request's authorization Snapshot.
 ///
 /// This is the visibility gate: use it to hide a field or filter a list,
 /// failing closed to an empty or default value when it returns `false`. Unlike
@@ -65,12 +65,12 @@ pub(crate) use scalars::{Sensitive, UInt64};
 /// negative result, because momentarily hiding a field against a slightly-stale
 /// Snapshot is the correct, low-cost behavior.
 ///
-/// `capability` accepts a legacy `models::Capability`, an orthogonal
-/// `models::authz::Capability` bit, or a `models::authz::CapabilitySet`.
+/// `required` accepts a legacy `models::Capability`, an orthogonal
+/// `models::authz::CapabilityBit` bit, or a `models::authz::CapabilityBits`.
 fn may_access(
     ctx: &async_graphql::Context<'_>,
     name: &str,
-    capability: impl Into<models::authz::CapabilitySet>,
+    required: impl Into<models::authz::CapabilityBits>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
     let snapshot = env.snapshot();
@@ -79,7 +79,7 @@ fn may_access(
         &snapshot.user_grants,
         &env.claims()?.subject(),
         name,
-        capability,
+        required,
     ))
 }
 

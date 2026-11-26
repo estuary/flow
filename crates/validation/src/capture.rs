@@ -177,7 +177,7 @@ async fn walk_capture(
             Error::RequireRuntimeV2 {
                 entity: "capture",
                 name: capture.to_string(),
-                capability: "python",
+                feature: "python",
                 flag: models::ENABLE_RUNTIME_V2,
             }
             .push(scope, errors);

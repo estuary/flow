@@ -39,7 +39,12 @@ impl BillingMutation {
     ) -> Result<CreateBillingSetupIntentPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        verify_authorization(
+            env,
+            tenant.as_str(),
+            models::authz::CapabilityBit::EditBilling,
+        )
+        .await?;
 
         let claims = env.claims()?;
         let user_email = claims
@@ -98,7 +103,12 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        verify_authorization(
+            env,
+            tenant.as_str(),
+            models::authz::CapabilityBit::EditBilling,
+        )
+        .await?;
 
         let provider = billing_provider(ctx)?;
         let customer = billing::require_customer(&env.pg_pool, provider.as_ref(), tenant.as_str())
@@ -136,7 +146,12 @@ impl BillingMutation {
     ) -> Result<SetBillingContactPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        verify_authorization(
+            env,
+            tenant.as_str(),
+            models::authz::CapabilityBit::EditBilling,
+        )
+        .await?;
 
         if name.trim().is_empty() || name.len() > 256 {
             return Err(async_graphql::Error::new(
@@ -166,7 +181,12 @@ impl BillingMutation {
     ) -> Result<BillingPaymentMethodPayload> {
         let env = ctx.data::<crate::Envelope>()?;
         let tenant = validate_tenant_name(&tenant)?;
-        verify_authorization(env, tenant.as_str(), models::authz::Capability::EditBilling).await?;
+        verify_authorization(
+            env,
+            tenant.as_str(),
+            models::authz::CapabilityBit::EditBilling,
+        )
+        .await?;
 
         let provider = billing_provider(ctx)?;
         let customer = billing::require_customer(&env.pg_pool, provider.as_ref(), tenant.as_str())

@@ -638,7 +638,7 @@ async fn new_captures_use_their_storage_mapping(pool: sqlx::PgPool) {
         scripts("data_planes", "alice", "drafts", "connectors", "storage_mappings")
     )
 )]
-async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
+async fn submission_enforces_token_capability_masks(pool: sqlx::PgPool) {
     let _guard = test_server::init();
     sqlx::query(
         "UPDATE live_specs SET spec = $1::json WHERE catalog_name = 'aliceCo/in/capture-foo'",
@@ -673,7 +673,7 @@ async fn submission_enforces_token_capabilities(pool: sqlx::PgPool) {
             "error": response["errors"][0]["message"],
         }));
     }
-    insta::assert_json_snapshot!("discover_token_capabilities", outcomes);
+    insta::assert_json_snapshot!("discover_token_capability_masks", outcomes);
 }
 
 #[sqlx::test(

@@ -88,7 +88,7 @@ pub async fn create(
         .iter()
         .map(|binding| binding.target.as_str())
         .find(|target| {
-            !snapshot.is_user_authorized(subject, target, models::authz::Capability::CatalogRead)
+            !snapshot.is_user_authorized(subject, target, models::authz::CapabilityBit::CatalogRead)
         })
     {
         anyhow::bail!(tonic::Status::permission_denied(format!(
@@ -178,7 +178,7 @@ fn select_capture_model(
         if !snapshot.is_user_authorized(
             subject,
             capture_name,
-            models::authz::Capability::CatalogRead,
+            models::authz::CapabilityBit::CatalogRead,
         ) {
             anyhow::bail!(tonic::Status::not_found("capture not found"));
         }
@@ -508,7 +508,7 @@ impl DiscoverHandler {
             crate::live_specs::get_live_specs_filtered(
                 subject,
                 &collection_names,
-                models::authz::Capability::CatalogRead,
+                models::authz::CapabilityBit::CatalogRead,
                 snapshot,
                 db,
             )

@@ -239,7 +239,7 @@ impl DataPlane {
         if !super::may_access(
             ctx,
             &self.name,
-            models::authz::Capability::ViewDataPlanePrivateNetworking,
+            models::authz::CapabilityBit::ViewDataPlanePrivateNetworking,
         )? {
             return Ok(Vec::new());
         }
@@ -260,7 +260,7 @@ impl DataPlane {
         if !super::may_access(
             ctx,
             &self.name,
-            models::authz::Capability::ViewDataPlanePrivateNetworking,
+            models::authz::CapabilityBit::ViewDataPlanePrivateNetworking,
         )? {
             return Ok(Vec::new());
         }
@@ -281,7 +281,7 @@ impl DataPlane {
         if !super::may_access(
             ctx,
             &self.name,
-            models::authz::Capability::ViewDataPlanePrivateNetworking,
+            models::authz::CapabilityBit::ViewDataPlanePrivateNetworking,
         )? {
             return Ok(Vec::new());
         }
@@ -302,7 +302,7 @@ impl DataPlane {
         if !super::may_access(
             ctx,
             &self.name,
-            models::authz::Capability::ViewDataPlanePrivateNetworking,
+            models::authz::CapabilityBit::ViewDataPlanePrivateNetworking,
         )? {
             return Ok(Vec::new());
         }
@@ -797,7 +797,7 @@ async fn resolve_modifiable_link(
     if !super::may_access(
         ctx,
         &row.data_plane_name,
-        models::authz::Capability::ModifyDataPlanePrivateNetworking,
+        models::authz::CapabilityBit::ModifyDataPlanePrivateNetworking,
     )? {
         return Err(not_found());
     }
@@ -822,7 +822,7 @@ impl DataPlanesMutation {
         super::verify_authorization(
             env,
             &data_plane_name,
-            models::authz::Capability::ModifyDataPlanePrivateNetworking,
+            models::authz::CapabilityBit::ModifyDataPlanePrivateNetworking,
         )
         .await?;
 

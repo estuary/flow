@@ -70,7 +70,7 @@ impl SecretsQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 &env.claims()?.subject(),
-                models::authz::Capability::ViewSecret,
+                models::authz::CapabilityBit::ViewSecret,
                 filter.and_then(|f| f.catalog_name),
                 "filter.catalogName",
             )?;
@@ -177,7 +177,7 @@ impl SecretsMutation {
         super::verify_authorization(
             env,
             catalog_name.as_str(),
-            models::authz::Capability::EditSecret,
+            models::authz::CapabilityBit::EditSecret,
         )
         .await?;
 
@@ -268,7 +268,7 @@ impl SecretsMutation {
             ));
         }
 
-        super::verify_authorization(env, target, models::authz::Capability::EditSecret).await?;
+        super::verify_authorization(env, target, models::authz::CapabilityBit::EditSecret).await?;
 
         // Two statements rather than one branching on a parameter, so each is a
         // shape the planner can index: the primary key for a name, and

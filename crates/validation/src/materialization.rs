@@ -201,7 +201,7 @@ async fn walk_materialization(
             Error::RequireRuntimeV2 {
                 entity: "materialization",
                 name: materialization.to_string(),
-                capability: "python",
+                feature: "python",
                 flag: models::ENABLE_RUNTIME_V2,
             }
             .push(scope, errors);

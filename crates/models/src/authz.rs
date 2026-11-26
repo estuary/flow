@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Subject {
     pub user_id: uuid::Uuid,
-    pub capability_mask: Option<CapabilitySet>,
+    /// Limits the user's reachable authority to these capability bits: the
+    /// union of the bundles a restricted token names. None is unrestricted.
+    pub capability_mask: Option<CapabilityBits>,
     /// Limits the user's reachable authority to the union of these prefixes.
     /// None is unrestricted; an empty list denies all access.
     pub prefix_mask: Option<Vec<String>>,
@@ -23,9 +25,9 @@ impl Subject {
     }
 }
 
-/// A set of fine-grained authorization capabilities. Used throughout the
-/// authorization BFS and at authorization-check call sites.
-pub type CapabilitySet = EnumSet<Capability>;
+/// A set of capability bits. Used throughout the authorization BFS and at
+/// authorization-check call sites.
+pub type CapabilityBits = EnumSet<CapabilityBit>;
 
 #[derive(EnumSetType, Debug)]
 #[cfg_attr(
@@ -33,7 +35,7 @@ pub type CapabilitySet = EnumSet<Capability>;
     derive(async_graphql::Enum),
     graphql(name = "CapabilityBit", rename_items = "PascalCase")
 )]
-pub enum Capability {
+pub enum CapabilityBit {
     CatalogRead,
     JournalRead,
     JournalAppend,
@@ -73,7 +75,7 @@ pub enum Capability {
     ManageLegal,
 }
 
-impl std::fmt::Display for Capability {
+impl std::fmt::Display for CapabilityBit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -127,8 +129,8 @@ pub enum CapabilityBundle {
 }
 
 impl CapabilityBundle {
-    pub fn capabilities(&self) -> CapabilitySet {
-        use Capability::*;
+    pub fn bits(&self) -> CapabilityBits {
+        use CapabilityBit::*;
         match self {
             // `ViewDataPlanePrivateNetworking` is bundled here because
             // `read` on a data-plane prefix already conveys deploy-level
@@ -137,7 +139,7 @@ impl CapabilityBundle {
             // with it. Mutating that configuration stays in the separately
             // granted `ManageDataPlane` bundle.
             Self::Viewer => CatalogRead | JournalRead | ViewDataPlanePrivateNetworking,
-            Self::Writer => Self::Viewer.capabilities() | JournalAppend,
+            Self::Writer => Self::Viewer.bits() | JournalAppend,
             // `Editor` is the bundle for users who exercise authority
             // over a catalog namespace, not just observe it:
             // - `SpecEdit`: publish or modify specs at this prefix.
@@ -184,13 +186,13 @@ impl CapabilityBundle {
                     | DecryptSecret
             }
             Self::Admin => {
-                Self::Editor.capabilities()
+                Self::Editor.bits()
                     // Because Editor doesn't bundle `JournalAppend`,
                     // and we haven't unbundled things from Admin yet
-                    | Self::Writer.capabilities()
-                    | Self::TeamAdmin.capabilities()
-                    | Self::Billing.capabilities()
-                    | Self::ManageDataPlane.capabilities()
+                    | Self::Writer.bits()
+                    | Self::TeamAdmin.bits()
+                    | Self::Billing.bits()
+                    | Self::ManageDataPlane.bits()
                     | ManageLegal
                     | CreateSandbox
             }
@@ -203,7 +205,7 @@ impl CapabilityBundle {
                     | DeleteGrant
                     | ManageInviteLinks
                     | ManageAlerts
-                    | Self::ManageServiceAccounts.capabilities()
+                    | Self::ManageServiceAccounts.bits()
             }
             Self::ManageDataPlane => {
                 ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking
@@ -221,24 +223,24 @@ impl CapabilityBundle {
     }
 }
 
-/// Returns bundles whose capabilities are all contained in `bits`.
-pub fn bundles_covering(bits: CapabilitySet) -> impl Iterator<Item = CapabilityBundle> {
+/// Returns bundles whose bits are all contained in `bits`.
+pub fn bundles_covering(bits: CapabilityBits) -> impl Iterator<Item = CapabilityBundle> {
     <CapabilityBundle as strum::VariantArray>::VARIANTS
         .iter()
         .copied()
-        .filter(move |bundle| bits.is_superset(bundle.capabilities()))
+        .filter(move |bundle| bits.is_superset(bundle.bits()))
 }
 
-pub fn bits_for_legacy(capability: super::Capability) -> CapabilitySet {
+pub fn bits_for_legacy(capability: super::Capability) -> CapabilityBits {
     match capability {
-        super::Capability::None => CapabilitySet::empty(),
-        super::Capability::Read => CapabilityBundle::Viewer.capabilities(),
-        super::Capability::Write => CapabilityBundle::Writer.capabilities(),
-        super::Capability::Admin => CapabilityBundle::Admin.capabilities(),
+        super::Capability::None => CapabilityBits::empty(),
+        super::Capability::Read => CapabilityBundle::Viewer.bits(),
+        super::Capability::Write => CapabilityBundle::Writer.bits(),
+        super::Capability::Admin => CapabilityBundle::Admin.bits(),
     }
 }
 
-impl From<super::Capability> for CapabilitySet {
+impl From<super::Capability> for CapabilityBits {
     fn from(capability: super::Capability) -> Self {
         bits_for_legacy(capability)
     }
@@ -249,14 +251,13 @@ mod tests {
     #[test]
     fn bundles_covering() {
         let cases = [
-            ("empty", super::CapabilitySet::empty()),
-            ("partial", super::Capability::CatalogRead.into()),
-            ("single_bit", super::Capability::ViewBilling.into()),
-            ("exact", super::CapabilityBundle::Viewer.capabilities()),
+            ("empty", super::CapabilityBits::empty()),
+            ("partial", super::CapabilityBit::CatalogRead.into()),
+            ("single_bit", super::CapabilityBit::ViewBilling.into()),
+            ("exact", super::CapabilityBundle::Viewer.bits()),
             (
                 "overlapping",
-                super::CapabilityBundle::Writer.capabilities()
-                    | super::CapabilityBundle::Billing.capabilities(),
+                super::CapabilityBundle::Writer.bits() | super::CapabilityBundle::Billing.bits(),
             ),
         ];
         let results =

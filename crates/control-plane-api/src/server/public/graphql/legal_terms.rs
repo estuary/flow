@@ -96,17 +96,17 @@ pub(super) async fn check_authorized_consent(
     terms_type: LegalTermsType,
     version: ConsentVersion,
 ) -> async_graphql::Result<bool> {
-    let capability = models::authz::Capability::CatalogRead;
+    let required = models::authz::CapabilityBit::CatalogRead;
     let prefixes = super::authorized_prefixes::authorized_prefixes(
         &env.snapshot().role_grants,
         &env.snapshot().user_grants,
         &env.claims()?.subject(),
-        capability,
+        required,
         Some(tenant),
     );
     if prefixes.is_empty() {
         // Refresh stale permissions before reporting a terminal denial.
-        super::verify_authorization(env, tenant, capability).await?;
+        super::verify_authorization(env, tenant, required).await?;
     }
 
     Ok(check_consent(&env.pg_pool, tenant, terms_type, version).await?)
@@ -164,13 +164,13 @@ impl LegalTermsMutation {
         }
         // Legal consent must come from the user's direct grants, not inherited admin roles.
         // TODO: Use standard authorization checks once the legacy admin bundle is split up.
-        let capability = models::authz::Capability::ManageLegal;
+        let required = models::authz::CapabilityBit::ManageLegal;
         let authorized = tables::UserGrant::is_authorized(
             &[],
             &env.snapshot().user_grants,
             &claims.subject(),
             tenant.as_str(),
-            capability,
+            required,
         );
         let outcome = if authorized {
             Ok((None, ()))
@@ -184,7 +184,7 @@ impl LegalTermsMutation {
             {
                 return Err(async_graphql::Error::new_with_source(
                     super::authorization::AuthorizationDenied {
-                        capability,
+                        capability_bit: required,
                         message: async_graphql::Error::from(error).message,
                     },
                 ));
@@ -411,7 +411,7 @@ mod test {
             &grants.user_grants,
             &models::authz::Subject::unrestricted(user),
             "otherCo/",
-            models::authz::Capability::ManageLegal,
+            models::authz::CapabilityBit::ManageLegal,
         ));
         let server = crate::test_server::TestServer::start(pool.clone(), snapshot).await;
         let token = server.make_access_token(user, None);

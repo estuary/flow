@@ -82,8 +82,8 @@ impl Initialize for ExpandDraft<'_> {
             .collect::<Vec<_>>();
         let all_drafted_specs = draft.all_spec_names().collect::<Vec<_>>();
 
-        let capability_filter = if self.filter_user_can_edit {
-            Some(models::authz::Capability::SpecEdit)
+        let filter_capability_bit = if self.filter_user_can_edit {
+            Some(models::authz::CapabilityBit::SpecEdit)
         } else {
             None
         };
@@ -91,7 +91,7 @@ impl Initialize for ExpandDraft<'_> {
             subject,
             &drafted_collections,
             &all_drafted_specs,
-            capability_filter,
+            filter_capability_bit,
             db,
             self.snapshot,
         )

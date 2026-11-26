@@ -76,7 +76,7 @@ tables!(
     table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
         // Subject of the grant, to which a capability is bestowed.
         key subject_role: models::Prefix,
-        // Object of the grant, to which a capability is bestowed upon the subject.
+        // Object role of the grant.
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
@@ -86,7 +86,7 @@ tables!(
     table UserGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
         // User ID to which a capability is bestowed.
         key user_id: uuid::Uuid,
-        // Object of the grant, to which a capability is bestowed upon the subject.
+        // Object role of the grant.
         key object_role: models::Prefix,
         // Capability of the subject with respect to the object.
         val capability: models::Capability,
@@ -398,7 +398,7 @@ impl Error {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct NodeRef<'a> {
     pub object_role: &'a str,
-    pub capabilities: models::authz::CapabilitySet,
+    pub capability_bits: models::authz::CapabilityBits,
     /// The legacy `capability` column of the grant that emitted this node.
     /// Pass-through (no attenuation); reflects storage, not effective bits.
     pub legacy: models::Capability,

@@ -18,14 +18,14 @@ pub struct PrefixRef {
     /// can be deleted.
     pub user_capability: models::Capability,
     #[graphql(skip)]
-    pub bits: models::authz::CapabilitySet,
+    pub bits: models::authz::CapabilityBits,
 }
 
 #[async_graphql::ComplexObject]
 impl PrefixRef {
     /// Fine-grained capabilities the user has at this prefix.
     #[graphql(deprecation = "Use capabilities instead.")]
-    async fn capability_bits(&self) -> Vec<models::authz::Capability> {
+    async fn capability_bits(&self) -> Vec<models::authz::CapabilityBit> {
         self.bits.iter().collect()
     }
 
@@ -83,7 +83,7 @@ impl PrefixesQuery {
             let snapshot = env.snapshot();
             let subject = env.claims()?.subject();
 
-            let min_bits: models::authz::CapabilitySet = by.min_capability.into();
+            let min_bits: models::authz::CapabilityBits = by.min_capability.into();
             let under = starts_with.as_deref().unwrap_or_default();
 
             let reachable = tables::UserGrant::reachable_prefixes(
@@ -141,8 +141,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_prefix_capability_bundles() {
-        let bits = models::authz::CapabilityBundle::Editor.capabilities()
-            & models::authz::CapabilityBundle::Viewer.capabilities();
+        let bits = models::authz::CapabilityBundle::Editor.bits()
+            & models::authz::CapabilityBundle::Viewer.bits();
         let schema = async_graphql::Schema::build(
             super::PrefixRef {
                 prefix: models::Prefix::new("acmeCo/"),

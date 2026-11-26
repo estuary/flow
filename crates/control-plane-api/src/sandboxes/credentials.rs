@@ -58,7 +58,7 @@ pub fn capability_mask(mask: Vec<String>) -> Result<Vec<String>, String> {
     for name in &mask {
         if !known().any(|bundle| &bundle == name) {
             return Err(format!(
-                "Unknown capability {name:?}: use any of {}.",
+                "Unknown capability bundle {name:?}: use any of {}.",
                 itertools::Itertools::join(&mut known(), ", ")
             ));
         }

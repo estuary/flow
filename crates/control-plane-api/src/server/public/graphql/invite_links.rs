@@ -82,7 +82,7 @@ impl InviteLinksQuery {
                 &snapshot.role_grants,
                 &snapshot.user_grants,
                 &env.claims()?.subject(),
-                models::authz::Capability::ManageInviteLinks,
+                models::authz::CapabilityBit::ManageInviteLinks,
                 filter.and_then(|f| f.catalog_prefix),
                 "filter.catalogPrefix",
             )?;
@@ -202,7 +202,7 @@ impl InviteLinksMutation {
         super::verify_authorization(
             env,
             &catalog_prefix,
-            models::authz::Capability::ManageInviteLinks,
+            models::authz::CapabilityBit::ManageInviteLinks,
         )
         .await?;
         super::billing::require_paid_tenant(ctx, &catalog_prefix).await?;
@@ -409,7 +409,7 @@ impl InviteLinksMutation {
         super::verify_authorization(
             env,
             &invite.catalog_prefix,
-            models::authz::Capability::ManageInviteLinks,
+            models::authz::CapabilityBit::ManageInviteLinks,
         )
         .await?;
 

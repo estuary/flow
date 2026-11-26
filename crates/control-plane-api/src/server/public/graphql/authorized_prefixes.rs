@@ -1,5 +1,5 @@
-/// Returns catalog prefixes where the authenticated user has at least
-/// `min_capability`, optionally narrowed to those overlapping `prefix_filter`.
+/// Returns catalog prefixes where the authenticated user holds the `required`
+/// capability bits, optionally narrowed to those overlapping `prefix_filter`.
 ///
 /// Intended for use by GraphQL queries that list resources scoped to the
 /// caller's authorized prefixes, with an optional prefix filter.
@@ -12,10 +12,10 @@ pub(super) fn authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
     subject: &models::authz::Subject,
-    min_capability: impl Into<models::authz::CapabilitySet>,
+    required: impl Into<models::authz::CapabilityBits>,
     prefix_filter: Option<&str>,
 ) -> Vec<String> {
-    let min_bits: models::authz::CapabilitySet = min_capability.into();
+    let min_bits: models::authz::CapabilityBits = required.into();
 
     // BTreeMap iteration from reachable_prefixes is already prefix-sorted,
     // so the parent-prune step below can run directly on it.
@@ -40,8 +40,8 @@ pub(super) fn authorized_prefixes(
     pruned
 }
 
-/// Resolves the caller's prefixes for `min_capability`, narrowed by an optional
-/// `PrefixFilter`, and returns them with the filter's decomposed
+/// Resolves the caller's prefixes holding the `required` capability bits,
+/// narrowed by an optional `PrefixFilter`, and returns them with the filter's decomposed
 /// `startsWith`/`in` parts (which callers bind into their own SQL). `field`
 /// names the GraphQL input field for the mutual-exclusion error.
 ///
@@ -53,7 +53,7 @@ pub(super) fn filtered_authorized_prefixes(
     role_grants: &tables::RoleGrants,
     user_grants: &tables::UserGrants,
     subject: &models::authz::Subject,
-    min_capability: impl Into<models::authz::CapabilitySet>,
+    required: impl Into<models::authz::CapabilityBits>,
     filter: Option<super::filters::PrefixFilter>,
     field: &str,
 ) -> async_graphql::Result<(Vec<String>, Option<String>, Option<Vec<String>>)> {
@@ -65,7 +65,7 @@ pub(super) fn filtered_authorized_prefixes(
         role_grants,
         user_grants,
         subject,
-        min_capability,
+        required,
         starts_with.as_deref(),
     );
     if let Some(exact) = r#in.as_deref() {
@@ -84,7 +84,7 @@ mod tests {
     const ALICE: uuid::Uuid = uuid::Uuid::from_bytes([0x11; 16]);
 
     #[test]
-    fn no_filter_returns_all_at_or_above_capability() {
+    fn no_filter_returns_all_holding_required_bits() {
         let (ug, rg) = make_grants(
             &[
                 (ALICE, "acmeCo/", Admin),
@@ -269,7 +269,7 @@ mod tests {
 
         // Two user grants at the same prefix carrying disjoint
         // bundles (Editor and TeamAdmin share no bits). The
-        // per-prefix CapabilitySet observed via reachable_prefixes
+        // per-prefix CapabilityBits observed via reachable_prefixes
         // is the union of the two bundles' bits.
         let ug = tables::UserGrants::from_iter(vec![
             tables::UserGrant {
@@ -290,7 +290,7 @@ mod tests {
         let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, &subject);
         assert_eq!(
             reachable["acmeCo/"].0,
-            CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+            CapabilityBundle::Editor.bits() | CapabilityBundle::TeamAdmin.bits(),
         );
     }
 
@@ -302,7 +302,7 @@ mod tests {
         // sharedCo/ from acmeCo/ carrying disjoint bundles (Editor
         // and TeamAdmin share no bits). At sharedCo/, the BFS
         // emits a NodeRef per role grant, and reachable_prefixes
-        // unions their bits into a single per-prefix CapabilitySet.
+        // unions their bits into a single per-prefix CapabilityBits.
         let ug = tables::UserGrants::from_iter(vec![tables::UserGrant {
             user_id: ALICE,
             object_role: models::Prefix::new("acmeCo/"),
@@ -327,7 +327,7 @@ mod tests {
         let reachable = tables::UserGrant::reachable_prefixes(&rg, &ug, &subject);
         assert_eq!(
             reachable["sharedCo/"].0,
-            CapabilityBundle::Editor.capabilities() | CapabilityBundle::TeamAdmin.capabilities(),
+            CapabilityBundle::Editor.bits() | CapabilityBundle::TeamAdmin.bits(),
         );
     }
 
