@@ -53,8 +53,7 @@ pub struct ShardFailedConfig {
 pub struct ShardFailedCondition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failures: Option<u32>,
-    /// Time window over which `failures` is evaluated; failures older than
-    /// this are discarded.
+    /// Time window over which `failures` is evaluated; older failures are not counted.
     #[serde(
         default,
         with = "humantime_serde",
