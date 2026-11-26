@@ -27,6 +27,10 @@ DecodedRecover {
         trigger_params_json: b"{\"run_id\":\"r\"}",
         active_backfills: {},
         gap_floors: {},
+        disk_ack_intents: {
+            "recovery/disk/a/persist/pivot=00": b"disk-ack",
+            "recovery/disk/b/persist/pivot=00": b"",
+        },
     },
     committed_frontier: [
         JournalFrontier {

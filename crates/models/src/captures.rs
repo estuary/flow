@@ -1,5 +1,6 @@
 use super::{
-    Collection, ConnectorConfig, Id, JsonPointer, LocalConfig, RawValue, Secret, ShardTemplate,
+    Collection, ConnectorConfig, Id, JsonPointer, LocalConfig, PersistentDiskDef, RawValue, Secret,
+    ShardTemplate,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,11 @@ pub struct CaptureDef {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Give this capture a persistent disk.
+    /// Persistent disks are currently only supported for custom connectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "PersistentDiskDef")]
+    pub persistent_disk: Option<PersistentDiskDef>,
     /// # Bound collections to capture from the endpoint.
     pub bindings: Vec<CaptureBinding>,
     /// # Interval of time between invocations of the capture.
@@ -150,6 +156,7 @@ impl CaptureDef {
             }),
             endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
+            persistent_disk: None,
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
             shards: ShardTemplate::default(),

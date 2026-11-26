@@ -746,6 +746,7 @@ with what the case wrote. Cases with random writes use a fixed seed.
 | `pruning.rs` | Floors that replay finds, and deleting fragments below the floor. |
 | `resilience.rs` | Broker outages, including a prepare behind a stalled attachment, drains, killed daemons, a many-disk soak of random writes, and commits racing random writes. |
 | `mounts.rs` | Mounts, their ownership, refused mounts, commits through a mount, and cleanup. |
+| `runtime.rs` | A Python capture, derivation, and materialization (`tests/fixtures/`) on disks, through runtime-next shards. A second serve loop mounts each disk fresh from its journal, and its connector checks the disk against what committed. The connectors' SQLite doesn't sync, so only the daemon's sync at `Prepare` makes a commit durable. A shard whose RocksDB lost a disk's intent refuses the disk. |
 
 ```console
 mise run ci:disk-daemon-e2e  # unit tests, then integration tests
@@ -758,6 +759,7 @@ since each checks the whole host for leftover devices and mounts.
 
 Beyond the [kernel requirements](#kernel), they need passwordless `sudo`,
 `e2fsprogs` for the ext4 cases, `setpriv` (from util-linux) for the cases run as
-another uid, and `etcd` and `gazette`. The task loads `ublk_drv` and builds
-`gazette`, and mise provides `etcd`. CI runs the task in
+another uid, and `etcd` and `gazette`. `runtime.rs` also needs Docker and the
+`:local` connector images. The task loads `ublk_drv`, builds `gazette` and the
+images, and mise provides `etcd`. CI runs the task in
 `.github/workflows/disk-daemon-test.yaml`.

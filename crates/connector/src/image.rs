@@ -161,6 +161,7 @@ pub(super) async fn connect<P: crate::protocol::Protocol>(
             network: ctx.container_network.clone(),
             publish_ports: matches!(ctx.plane, crate::Plane::Local),
             network_ports,
+            volume: ctx.start.volume.clone(),
         },
     )
     .await?;

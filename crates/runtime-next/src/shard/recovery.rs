@@ -32,6 +32,7 @@
 //! | `FH:`        | `{journal}\0{state_key}\0{producer[6]}`  | proto `shuffle.ProducerFrontier` |
 //! | `FC:`        | `{journal}\0{state_key}\0{producer[6]}`  | proto `shuffle.ProducerFrontier` |
 //! | `AI:`        | `{journal}`                              | raw ACK intent bytes             |
+//! | `DI:`        | `{disk journal}`                         | raw disk ACK intent bytes        |
 //! | `MK-v2:`     | `{state_key}`                            | `tuple::pack` packed key         |
 //! | `AB:`        | `{state_key}`                            | fixed64 little-endian clock      |
 //! | `BB:`        | `{state_key}`                            | fixed64 little-endian clock      |
@@ -63,6 +64,10 @@ pub const PREFIX_COMMITTED_FRONTIER_END: &[u8] = b"FC;";
 pub const PREFIX_ACK_INTENT: &[u8] = b"AI:";
 /// Exclusive upper bound used for `DeleteRange` over `PREFIX_ACK_INTENT`.
 pub const PREFIX_ACK_INTENT_END: &[u8] = b"AI;";
+/// Key prefix of a disk's committed ACK intent: `DI:{disk journal}`.
+pub const PREFIX_DISK_INTENT: &[u8] = b"DI:";
+/// Exclusive upper bound used for `DeleteRange` over `PREFIX_DISK_INTENT`.
+pub const PREFIX_DISK_INTENT_END: &[u8] = b"DI;";
 /// Key prefix for per-binding max-key entries: `MK-v2:{state_key}`.
 pub const PREFIX_MAX_KEY: &[u8] = b"MK-v2:";
 /// Capture state. Per-binding active-backfill begin clock.
@@ -175,6 +180,21 @@ pub fn encode_persist<S: AsRef<str>>(
     }
     for (journal, intent) in &persist.ack_intents {
         buf.extend_from_slice(PREFIX_ACK_INTENT);
+        buf.extend_from_slice(journal.as_bytes());
+        emit(KeyOp::Put {
+            key: buf.split().freeze(),
+            value: intent.clone(),
+        });
+    }
+
+    if persist.delete_disk_ack_intents {
+        emit(KeyOp::DeleteRange {
+            from: Bytes::from_static(PREFIX_DISK_INTENT),
+            to: Bytes::from_static(PREFIX_DISK_INTENT_END),
+        });
+    }
+    for (journal, intent) in &persist.disk_ack_intents {
+        buf.extend_from_slice(PREFIX_DISK_INTENT);
         buf.extend_from_slice(journal.as_bytes());
         emit(KeyOp::Put {
             key: buf.split().freeze(),
@@ -533,6 +553,12 @@ pub fn decode_recover_key_value(
         let journal = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
         recover
             .ack_intents
+            .insert(journal.to_owned(), Bytes::copy_from_slice(value));
+        Ok(())
+    } else if let Some(rest) = key.strip_prefix(PREFIX_DISK_INTENT) {
+        let journal = std::str::from_utf8(rest).map_err(DecodeError::InvalidUtf8)?;
+        recover
+            .disk_ack_intents
             .insert(journal.to_owned(), Bytes::copy_from_slice(value));
         Ok(())
     } else if let Some(rest) = key.strip_prefix(PREFIX_MAX_KEY) {
@@ -976,6 +1002,11 @@ mod test {
                     max_keys: max_keys_map(&[(0, b"packed-1"), (1, b"packed-2")]),
                     delete_ack_intents: true,
                     ack_intents: ack_intents_map(&[("acme/events/000", b"ack-bytes-A")]),
+                    delete_disk_ack_intents: true,
+                    disk_ack_intents: ack_intents_map(&[(
+                        "recovery/disk/a/persist/pivot=00",
+                        b"disk-ack-bytes",
+                    )]),
                     trigger_params_json: Bytes::from_static(b"{\"run_id\":\"r1\"}"),
                     last_applied: Bytes::from_static(b"spec-proto-bytes"),
                     ..Default::default()
@@ -1502,6 +1533,15 @@ mod test {
             (
                 prefixed(PREFIX_ACK_INTENT, b"j1"),
                 Bytes::from_static(b"ack"),
+            ),
+            (
+                prefixed(PREFIX_DISK_INTENT, b"recovery/disk/a/persist/pivot=00"),
+                Bytes::from_static(b"disk-ack"),
+            ),
+            // The empty intent of a delta which changed nothing is still present.
+            (
+                prefixed(PREFIX_DISK_INTENT, b"recovery/disk/b/persist/pivot=00"),
+                Bytes::new(),
             ),
             (Bytes::from_static(b"unknown-key"), Bytes::from_static(b"!")),
         ];

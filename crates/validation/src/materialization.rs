@@ -154,6 +154,7 @@ async fn walk_materialization(
         target_naming,
         endpoint,
         secrets,
+        persistent_disk,
         bindings: bindings_model,
         mut shards,
         expect_pub_id: _,
@@ -732,6 +733,17 @@ async fn walk_materialization(
         &shard_id_prefix,
         recovery_stores,
     );
+    let has_disk =
+        persistent_disk.is_some() && matches!(endpoint, models::MaterializationEndpoint::Python(_));
+    let disk_journal_template = has_disk.then(|| {
+        assemble::disk_journal_template(
+            build_id,
+            materialization,
+            labels::TASK_TYPE_MATERIALIZATION,
+            &shard_id_prefix,
+            recovery_stores,
+        )
+    });
     let shard_template = assemble::shard_template(
         build_id,
         materialization,
@@ -767,6 +779,7 @@ async fn walk_materialization(
         config_json,
         bindings: bindings_spec,
         recovery_log_template: Some(recovery_log_template),
+        disk_journal_template,
         shard_template: Some(shard_template),
         network_ports,
         inactive_bindings,
@@ -789,6 +802,7 @@ async fn walk_materialization(
         on_incompatible_schema_change,
         endpoint,
         secrets,
+        persistent_disk,
         bindings: bindings_model,
         shards,
         expect_pub_id: None,

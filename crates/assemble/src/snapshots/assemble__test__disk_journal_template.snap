@@ -1,0 +1,43 @@
+---
+source: crates/assemble/src/lib.rs
+expression: template
+---
+{
+  "name": "recovery/disk/derivation/acmeCo/notes/0102030405060708",
+  "replication": 3,
+  "labels": {
+    "labels": [
+      {
+        "name": "app.gazette.dev/managed-by",
+        "value": "estuary.dev/flow"
+      },
+      {
+        "name": "content-type",
+        "value": "application/x-journal-backed-disk"
+      },
+      {
+        "name": "estuary.dev/build",
+        "value": "0102030405060708"
+      },
+      {
+        "name": "estuary.dev/task-name",
+        "value": "acmeCo/notes"
+      },
+      {
+        "name": "estuary.dev/task-type",
+        "value": "derivation"
+      }
+    ]
+  },
+  "fragment": {
+    "length": "536870912",
+    "compressionCodec": "SNAPPY",
+    "stores": [
+      "s3://my-bucket/?region=us-east-1"
+    ],
+    "refreshInterval": "300s",
+    "flushInterval": "86400s"
+  },
+  "flags": 4,
+  "maxAppendRate": "4194304"
+}

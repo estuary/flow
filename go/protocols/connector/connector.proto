@@ -35,6 +35,17 @@ message Request {
     // the only caller which may set it, and only for a `Sqlite` derivation.
     // A gRPC client which sets it is rejected, as is any other connector type.
     string sqlite_vfs_uri = 2;
+    // What an image or local connector sees at $CONNECTOR_MOUNT/persist.
+    // Unset: the connector mount has no persist/.
+    oneof volume {
+      // Host directory. An image connector's container binds it at
+      // $CONNECTOR_MOUNT/persist, and a local connector's persist/ links to it.
+      // Runtime-internal: a gRPC client which sets it is rejected.
+      string host_dir = 3;
+      // An empty persist/, which lives only as long as its connector.
+      Ephemeral ephemeral = 4;
+    }
+    message Ephemeral {}
   }
   Start start = 1;
 

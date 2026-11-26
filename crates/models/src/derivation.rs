@@ -1,6 +1,7 @@
 use super::{
     CompositeKey, ConnectorConfig, DeriveUsingPython, DeriveUsingSqlite, DeriveUsingTypescript,
-    JsonPointer, LocalConfig, RawValue, Secret, ShardTemplate, Source, Transform,
+    JsonPointer, LocalConfig, PersistentDiskDef, RawValue, Secret, ShardTemplate, Source,
+    Transform,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,11 @@ pub struct Derivation {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Give this derivation a persistent disk.
+    /// Persistent disks are currently only supported for custom connectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "PersistentDiskDef")]
+    pub persistent_disk: Option<PersistentDiskDef>,
     /// # Transforms which make up this derivation.
     pub transforms: Vec<TransformDef>,
     /// # Key component types of the shuffle keys used by derivation lambdas.

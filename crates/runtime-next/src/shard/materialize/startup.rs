@@ -86,6 +86,7 @@ pub(super) async fn run<R, P: crate::PublisherFactory, L: crate::LoggerFactory>(
     controller_rx: &mut R,
     controller_tx: &mpsc::UnboundedSender<tonic::Result<proto::Materialize>>,
     db: crate::shard::RocksDB,
+    disk: &mut Option<crate::shard::disk::Attached>,
     labeling: ops::proto::ShardLabeling,
     leader_producer: proto_gazette::uuid::Producer,
     mut leader_rx: futures::stream::BoxStream<'static, tonic::Result<proto::Materialize>>,
@@ -145,6 +146,12 @@ where
         ..Default::default()
     });
 
+    let mut start = connector::proto::request::Start {
+        log_level: log_level as i32,
+        sqlite_vfs_uri: String::new(),
+        volume: None, // Apply doesn't get a disk
+    };
+
     // Read and execute L:Apply and L:Persist from the leader until L:Open.
     // The leader re-sends L:Apply once per Apply iteration, so latch the
     // spec-update event to report it at most once per session.
@@ -188,7 +195,8 @@ where
                     state_json: connector_state_json,
                     version,
                 };
-                _ = leader_tx.send(super::handler::serve_apply(service, apply, log_level).await?);
+                _ = leader_tx
+                    .send(super::handler::serve_apply(service, apply, start.clone()).await?);
             }
             proto::Materialize {
                 persist: Some(persist),
@@ -221,10 +229,21 @@ where
         range,
         spec,
         version,
+        disk_ack_intents,
     } = open;
 
     let spec =
         flow::MaterializationSpec::decode(spec.as_ref()).context("invalid current Apply spec")?;
+
+    start.volume = service
+        .disks
+        .for_shard(
+            &labeling,
+            spec.disk_journal_template.as_ref(),
+            &disk_ack_intents,
+            disk,
+        )
+        .await?;
 
     let initial = materialize::Request {
         kind: Some(materialize::request::Kind::Open(Box::new(
@@ -252,10 +271,7 @@ where
         &*service.connector_router,
         logger,
         &labeling.task_name,
-        connector::proto::request::Start {
-            log_level: log_level as i32,
-            sqlite_vfs_uri: String::new(),
-        },
+        start,
         connector::proto::request::Kind::Materialize(initial),
     )
     .await?;

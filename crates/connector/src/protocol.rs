@@ -227,7 +227,9 @@ pub(crate) async fn start<P: Protocol>(
             process: None,
             stderr_overflow: futures::future::pending().boxed(),
         }),
-        Endpoint::Local { config } => connect_local(&ctx, config, secrets, env, requests),
+        Endpoint::Local { config } => {
+            connect_local(&ctx, config, mount.path(), secrets, env, requests)
+        }
     }?;
 
     let proto::response::Started { codec, spec, .. } = read_started(
@@ -602,6 +604,7 @@ fn connect_local(
         env: model_env,
         protobuf,
     }: models::LocalConfig,
+    mount: &std::path::Path,
     secrets: &std::collections::BTreeMap<String, String>,
     runtime_env: std::collections::BTreeMap<String, String>,
     requests: tokio_stream::wrappers::ReceiverStream<proto::Request>,
@@ -626,6 +629,23 @@ fn connect_local(
     } else {
         connector_init::Codec::Json
     };
+
+    let persist = mount.join("persist");
+    match &ctx.start.volume {
+        Some(proto::request::start::Volume::HostDir(dir)) => {
+            // Deleting the mount deletes this symlink, not the files in `dir`.
+            #[cfg(unix)]
+            let () = std::os::unix::fs::symlink(dir, &persist)
+                .context("linking the local connector's persist/")?;
+            #[cfg(not(unix))]
+            unreachable!("only a unix host has disks, which a host_dir names ({dir})");
+        }
+        Some(proto::request::start::Volume::Ephemeral(_)) => {
+            () =
+                std::fs::create_dir(&persist).context("creating the local connector's persist/")?;
+        }
+        None => (),
+    }
 
     // Dropping the response stream drops `serve`, which kills the subprocess.
     let response_rx = drive(move |response_tx| async move {

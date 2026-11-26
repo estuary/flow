@@ -4,7 +4,8 @@ use crate::{Collection, Id, connector::DekafConfig, source::OnIncompatibleSchema
 use crate::source_capture::SourceType;
 
 use super::{
-    ConnectorConfig, Field, JsonPointer, LocalConfig, RawValue, Secret, ShardTemplate, Source,
+    ConnectorConfig, Field, JsonPointer, LocalConfig, PersistentDiskDef, RawValue, Secret,
+    ShardTemplate, Source,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -116,6 +117,11 @@ pub struct MaterializationDef {
     /// A configuration using `secrets` may not also be sealed with `sops`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secrets: BTreeMap<Secret, JsonPointer>,
+    /// # Give this materialization a persistent disk.
+    /// Persistent disks are currently only supported for custom connectors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "PersistentDiskDef")]
+    pub persistent_disk: Option<PersistentDiskDef>,
     /// # Bound collections to materialize into the endpoint.
     pub bindings: Vec<MaterializationBinding>,
     /// # Template for shards of this materialization task.
@@ -271,6 +277,7 @@ impl MaterializationDef {
             target_naming: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             secrets: BTreeMap::new(),
+            persistent_disk: None,
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
             expect_pub_id: None,

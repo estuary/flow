@@ -398,6 +398,16 @@ impl<P: crate::Publisher, L: crate::Logger> Actor<P, L> {
                 });
             }
 
+            fsm::Action::Acknowledge => {
+                service_kit::event!(tracing::Level::DEBUG, "shard", "broadcasting L:Acknowledge");
+                self.broadcast(proto::Derive {
+                    acknowledge: Some(proto::derive::Acknowledge {}),
+                    ..Default::default()
+                });
+                // Shards don't reply to `L:Acknowledge`, so re-poll for `TailRecover`.
+                return Ok(Duration::ZERO);
+            }
+
             fsm::Action::Persist { persist } => {
                 self.logger
                     .event(crate::LogEvent::Persist { persist: &persist });
@@ -602,6 +612,7 @@ mod tests {
             n_shards,
             peers: (0..n_shards).map(|i| format!("shard-{i}")).collect(),
             remote_authoritative: false,
+            has_disk: false,
             shard_ref: proto_flow::ops::ShardRef::default(),
         };
         let actor = Actor::new(

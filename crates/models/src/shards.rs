@@ -97,6 +97,11 @@ pub struct ShardTemplate {
     pub flags: BTreeMap<super::Token, super::Token>,
 }
 
+/// Settings for a persistent disk. Use `{}` for the defaults.
+#[derive(Serialize, Deserialize, Debug, Default, JsonSchema, Clone, PartialEq)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PersistentDiskDef {}
+
 /// The `enable-runtime-v2` [`ShardTemplate::flags`] key, which selects the V2
 /// task runtime. It's emitted as the `estuary.dev/flag/enable-runtime-v2` shard
 /// label (`labels::RUNTIME_V2_FLAG`) at build time.

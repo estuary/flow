@@ -1,0 +1,70 @@
+captures:
+  acmeCo/disks/source:
+    persistentDisk: {}
+    endpoint:
+      python:
+        files: [pyproject.toml, source/__init__.py]
+        config: {}
+        spec:
+          configSchema: { type: object }
+    bindings:
+      - resource: { name: events, interval: PT0S }
+        target: acmeCo/disks/captured
+    shards:
+      flags:
+        custom-image-tag: local
+
+materializations:
+  acmeCo/disks/sink:
+    persistentDisk: {}
+    endpoint:
+      python:
+        files: [pyproject.toml, sink/__init__.py]
+        config: {}
+        spec:
+          configSchema: { type: object }
+    bindings:
+      - resource: { table: events }
+        source: acmeCo/disks/events
+    shards:
+      flags:
+        enable-runtime-v2: "true"
+        custom-image-tag: local
+
+collections:
+  acmeCo/disks/captured:
+    schema:
+      type: object
+      properties:
+        seq: { type: integer }
+      required: [seq]
+    key: [/seq]
+
+  acmeCo/disks/events:
+    schema:
+      type: object
+      properties:
+        key: { type: string }
+      required: [key]
+    key: [/key]
+
+  acmeCo/disks/counts:
+    schema:
+      type: object
+      properties:
+        key: { type: string }
+      required: [key]
+    key: [/key]
+    derive:
+      persistentDisk: {}
+      using:
+        python:
+          files: [pyproject.toml, counts/__init__.py]
+      shards:
+        flags:
+          enable-runtime-v2: "true"
+          custom-image-tag: local
+      transforms:
+        - name: fromEvents
+          source: acmeCo/disks/events
+          shuffle: { key: [/key] }

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #MISE description="Run the disk-daemon unit tests, then its integration tests, which serve real ublk devices"
-#MISE depends=["bootstrap:ublk-drv", "build:gazette"]
+#MISE depends=["bootstrap:ublk-drv", "build:gazette", "ci:custom-images"]
 
 # Prerequisites beyond those declared above. crates/e2e-support needs gazette to
 # spawn a real broker. See crates/disk-daemon/README.md for the rest:
@@ -12,11 +12,15 @@ set -euo pipefail
 #  * e2fsprogs, for the cases which put ext4 on a disk
 #  * setpriv (util-linux), for the cases run as another uid
 #  * etcd on PATH, which mise provides
+#  * Docker, for runtime.rs
 #
 
 # ublk's behavior varies by kernel, so the log records the kernel its tests ran on.
 uname -r
 cargo nextest run --locked -p disk-daemon
+
+# Connector containers mount the musl flow-connector-init from PATH.
+PATH=${PATH}:${CARGO_TARGET_DIR}/$(uname -m)-unknown-linux-musl/debug
 
 # The integration tests serve devices and use them, so their binaries run as root,
 # while Cargo stays unprivileged. sudo replaces PATH with its secure_path, so `env`

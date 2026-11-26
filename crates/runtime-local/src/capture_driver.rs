@@ -92,6 +92,7 @@ async fn drive_one_shard<P: PublisherFactory, L: LoggerFactory>(
         controls.logger_factory.clone(),
         run.registry,
         None, // No AuthN+AuthZ signer (local loopback).
+        runtime_next::shard::Disks::Ephemeral,
     );
 
     let (request_tx, request_rx) = mpsc::unbounded_channel::<tonic::Result<proto::Capture>>();

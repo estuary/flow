@@ -229,6 +229,7 @@ fn ex_capture_spec() -> flow::CaptureSpec {
         connector_type: flow::capture_spec::ConnectorType::Image as i32,
         interval_seconds: 300,
         recovery_log_template: Some(ex_recovery_template()),
+        disk_journal_template: Some(ex_recovery_template()),
         shard_template: Some(ex_shard_template()),
         bindings: vec![flow::capture_spec::Binding {
             resource_config_json: json!({"resource": "config"}).to_string().into(),
@@ -289,6 +290,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
         linked_collections: Vec::new(),
         secrets: ex_secrets(),
         connector_spec: Some(Box::new(ex_connector_spec(&[]))),
+        disk_journal_template: Some(ex_recovery_template()),
     }));
 
     spec
@@ -311,6 +313,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
         config_json: json!({"materialize": {"config": 42}}).to_string().into(),
         connector_type: flow::materialization_spec::ConnectorType::Image as i32,
         recovery_log_template: Some(ex_recovery_template()),
+        disk_journal_template: Some(ex_recovery_template()),
         shard_template: Some(ex_shard_template()),
         bindings: vec![flow::materialization_spec::Binding {
             resource_config_json: json!({"resource": "config"}).to_string().into(),

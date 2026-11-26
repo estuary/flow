@@ -261,6 +261,11 @@
           ],
           "pattern": "^\\d+(s|m|h|d)$"
         },
+        "persistentDisk": {
+          "title": "Give this capture a persistent disk.",
+          "description": "Persistent disks are currently only supported for custom connectors.",
+          "$ref": "#/$defs/PersistentDiskDef"
+        },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in captured documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
@@ -629,6 +634,11 @@
       "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
       "properties": {
+        "persistentDisk": {
+          "title": "Give this derivation a persistent disk.",
+          "description": "Persistent disks are currently only supported for custom connectors.",
+          "$ref": "#/$defs/PersistentDiskDef"
+        },
         "redactSalt": {
           "title": "Salt used for redacting sensitive fields in derived documents.",
           "description": "When provided, this base64-encoded salt is used instead of a generated one.",
@@ -1110,6 +1120,11 @@
           "description": "This can be overridden on a per-binding basis.",
           "$ref": "#/$defs/OnIncompatibleSchemaChange"
         },
+        "persistentDisk": {
+          "title": "Give this materialization a persistent disk.",
+          "description": "Persistent disks are currently only supported for custom connectors.",
+          "$ref": "#/$defs/PersistentDiskDef"
+        },
         "reset": {
           "title": "Reset this materialization.",
           "description": "Publishing a value of `true` will reset this materialization, which is\nequivalent to deleting and then re-creating the materialization but\napplied as a single publication.",
@@ -1447,6 +1462,11 @@
           }
         }
       ]
+    },
+    "PersistentDiskDef": {
+      "description": "Settings for a persistent disk. Use `{}` for the defaults.",
+      "type": "object",
+      "additionalProperties": false
     },
     "Projection": {
       "description": "Projections are named locations within a collection document which\nmay be used for logical partitioning or directly exposed to databases\ninto which collections are materialized.",
