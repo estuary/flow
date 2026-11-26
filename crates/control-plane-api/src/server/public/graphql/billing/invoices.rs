@@ -82,7 +82,7 @@ pub struct Invoice {
     pub date_end: String,
     pub invoice_type: InvoiceType,
     pub subtotal: i32,
-    pub line_items: async_graphql::Json<serde_json::Value>,
+    pub line_items: async_graphql::Json<Vec<billing_types::LineItem>>,
     pub extra: async_graphql::Json<serde_json::Value>,
     #[graphql(skip)]
     stripe_invoice_id: Option<String>,
@@ -184,8 +184,8 @@ impl Invoice {
             date_end: row.date_end.to_string(),
             invoice_type: row.invoice_type,
             subtotal: row.subtotal,
-            line_items: async_graphql::Json(row.line_items.0),
-            extra: async_graphql::Json(row.extra.0),
+            line_items: async_graphql::Json(row.line_items),
+            extra: async_graphql::Json(row.extra),
             stripe_invoice_id: row.stripe_invoice_id,
         }
     }
@@ -223,6 +223,7 @@ mod tests {
 
         insert_billing_historical(&pool, tenant, "2024-01-01", 1234, "Usage").await;
         insert_billing_historical(&pool, tenant, "2024-02-01", 900, "Usage").await;
+        insert_billing_historical(&pool, tenant, "2024-03-01", 1500, "Usage").await;
 
         let (server, token) = start_server_and_token(&pool, user_id, tenant, mock_provider()).await;
 
@@ -238,7 +239,7 @@ mod tests {
                                 first: 10
                                 filter: {
                                   invoiceType: { eq: FINAL }
-                                  dateStart: { gt: "2023-12-31", lt: "2024-02-01" }
+                                  dateStart: { gt: "2024-01-01", lt: "2024-03-01" }
                                 }
                               ) {
                                 edges {
@@ -274,7 +275,7 @@ mod tests {
                                 first: 10
                                 filter: {
                                   invoiceType: { eq: FINAL }
-                                  dateEnd: { gt: "2024-01-31", lt: "2024-03-01" }
+                                  dateEnd: { gt: "2024-01-31", lt: "2024-03-31" }
                                 }
                               ) {
                                 edges { node { dateStart dateEnd invoiceType } }
@@ -302,21 +303,25 @@ mod tests {
         let tenant = "invoicefields";
         let user_id = provision_test_tenant(&pool, tenant).await;
 
-        // February's invoice is paid and March's is still a draft, which is
+        // February's manual bill is paid and March's invoice is still a draft, which is
         // hidden from the tenant. April's bill has no recorded invoice.
-        for month in ["2024-02-01", "2024-03-01", "2024-04-01"] {
+        for month in ["2024-03-01", "2024-04-01"] {
             insert_billing_historical(&pool, tenant, month, 2500, "Usage").await;
         }
-        for (month, invoice_id) in [("2024-02-01", "in_paid"), ("2024-03-01", "in_draft")] {
-            sqlx::query(
-                "update internal.billing_historicals set stripe_invoice_id = $1 where billed_month = $2::timestamptz",
-            )
-            .bind(invoice_id)
-            .bind(month)
-            .execute(&pool)
-            .await
-            .expect("record invoice ID");
-        }
+        sqlx::query(
+            "update internal.billing_historicals set stripe_invoice_id = 'in_draft' where billed_month = '2024-03-01'",
+        )
+        .execute(&pool)
+        .await
+        .expect("record invoice ID");
+        sqlx::query(
+            "insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id)
+             values ($1, 2500, 'Manual charge', '2024-02-01', '2024-02-29', 'in_paid')",
+        )
+        .bind(format!("{tenant}/"))
+        .execute(&pool)
+        .await
+        .expect("insert manual bill");
 
         let mock = billing::InMemoryBillingProvider::new();
         mock.add_invoice(stripe::Invoice {
@@ -356,23 +361,21 @@ mod tests {
 
         let (server, token) = start_server_and_token(&pool, user_id, tenant, Arc::new(mock)).await;
 
-        let response: serde_json::Value = server
-            .graphql(
-                &json!({
-                    "query": r#"
+        let request = json!({
+            "query": r#"
                         query {
                           tenant(name: "invoicefields/") {
                             billing {
                               invoices(
                                 first: 10
                                 filter: {
-                                  invoiceType: { eq: FINAL }
                                   dateStart: { gt: "2024-01-31", lt: "2024-05-01" }
                                 }
                               ) {
                                 edges {
                                   node {
                                     dateStart
+                                    dateEnd
                                     amountDue
                                     status
                                     invoicePdf
@@ -390,12 +393,24 @@ mod tests {
                           }
                         }
                     "#
-                }),
-                Some(&token),
-            )
-            .await;
+        });
+        let response: serde_json::Value = server.graphql(&request, Some(&token)).await;
 
         insta::assert_json_snapshot!("invoice_stripe_fields", response);
+
+        // Changing a manual bill's dates keeps its Stripe invoice and payment details.
+        sqlx::query(
+            "update internal.manual_bills set date_start = '2024-02-15', date_end = '2024-03-15'",
+        )
+        .execute(&pool)
+        .await
+        .expect("change manual bill dates");
+        let updated: serde_json::Value = server.graphql(&request, Some(&token)).await;
+        let mut expected = response;
+        let manual = &mut expected["data"]["tenant"]["billing"]["invoices"]["edges"][2]["node"];
+        manual["dateStart"] = json!("2024-02-15");
+        manual["dateEnd"] = json!("2024-03-15");
+        assert_eq!(updated, expected);
     }
 
     fn invoices_page(response: &serde_json::Value) -> &serde_json::Value {
@@ -448,6 +463,33 @@ mod tests {
             "dateStart": { "gt": "2023-12-31", "lt": "2024-04-01" },
         });
 
+        let last_page = fetch_page(
+            &server,
+            &token,
+            "invoicepages/",
+            filter.clone(),
+            json!({"last": 1}),
+        )
+        .await;
+        let page = invoices_page(&last_page);
+        assert_eq!(page["edges"][0]["node"]["dateStart"], "2024-01-01");
+        assert_eq!(page["pageInfo"]["hasPreviousPage"], true);
+        assert_eq!(page["pageInfo"]["hasNextPage"], false);
+
+        for args in [json!({}), json!({"first": 10}), json!({"last": 10})] {
+            let response = fetch_page(&server, &token, "invoicepages/", filter.clone(), args).await;
+            let page = invoices_page(&response);
+            let months: Vec<_> = page["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|edge| edge["node"]["dateStart"].as_str().unwrap())
+                .collect();
+            assert_eq!(months, ["2024-03-01", "2024-02-01", "2024-01-01"]);
+            assert_eq!(page["pageInfo"]["hasPreviousPage"], false);
+            assert_eq!(page["pageInfo"]["hasNextPage"], false);
+        }
+
         let first_page = fetch_page(
             &server,
             &token,
@@ -478,7 +520,7 @@ mod tests {
             json!({"before": before, "last": 1}),
         )
         .await;
-        insta::assert_json_snapshot!("pagination_previous_page", invoices_page(&previous_page));
+        assert_eq!(invoices_page(&previous_page), invoices_page(&first_page));
     }
 
     #[sqlx::test(
@@ -538,6 +580,316 @@ mod tests {
             json!({"before": before, "last": 1}),
         )
         .await;
-        insta::assert_json_snapshot!("tie_break_previous_page", invoices_page(&previous_page));
+        assert_eq!(invoices_page(&previous_page), invoices_page(&first_page));
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes"))
+    )]
+    async fn graphql_frozen_invoice_without_usage(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let tenant = "nousage";
+        let user_id = provision_test_tenant(&pool, tenant).await;
+        // The report the SQL calculation froze for a month without usage.
+        let report = json!({
+            "billed_month": "2024-01-01T00:00:00+00:00",
+            "billed_prefix": "nousage/",
+            "daily_usage": null,
+            "free_tier_credit": 0,
+            "line_items": null,
+            "processed_data_gb": null,
+            "recurring_fee": null,
+            "subtotal": null,
+            "task_usage_hours": null,
+            "trial_credit": 0,
+            "trial_start": null,
+        });
+        sqlx::query(
+            "insert into internal.billing_historicals (tenant, billed_month, report) values ($1, '2024-01-01T00:00:00Z', $2)",
+        )
+        .bind("nousage/")
+        .bind(&report)
+        .execute(&pool)
+        .await
+        .expect("insert frozen report");
+        let (server, token) = start_server_and_token(&pool, user_id, tenant, mock_provider()).await;
+        let response: serde_json::Value = server
+            .graphql(
+                &json!({
+                    "query": INVOICE_DETAILS,
+                    "variables": {"tenant": "nousage/", "filter": {"invoiceType": {"eq": "FINAL"}}}
+                }),
+                Some(&token),
+            )
+            .await;
+        assert!(response.get("errors").is_none(), "{response:#}");
+        let node = &invoices_page(&response)["edges"][0]["node"];
+        assert_eq!(node["extra"], report);
+        assert_eq!(node["lineItems"], json!([]));
+        assert_eq!(node["subtotal"], 0);
+    }
+
+    const INVOICE_DETAILS: &str = r#"
+        query($tenant: String!, $filter: InvoiceFilter, $first: Int) {
+          tenant(name: $tenant) { billing {
+            invoices(first: $first, filter: $filter) {
+              edges { node { dateStart dateEnd invoiceType subtotal lineItems extra amountDue } }
+            }
+          } }
+        }
+    "#;
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes"))
+    )]
+    async fn graphql_previews_use_bigtable_and_keep_frozen_and_manual_invoices(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let tenant = "previewusage";
+        let prefix = "previewusage/";
+        let user_id = provision_test_tenant(&pool, tenant).await;
+        sqlx::query("UPDATE tenants SET created_at = '2024-02-01', data_tiers = ARRAY[50], usage_tiers = ARRAY[14], recurring_usd_cents = 1000, trial_start = '2020-01-01' WHERE tenant = $1")
+            .bind(prefix).execute(&pool).await.unwrap();
+        insert_billing_historical(&pool, tenant, "2024-02-01", 2500, "Frozen charge").await;
+        sqlx::query("UPDATE internal.billing_historicals SET stripe_invoice_id = 'in_preview_test' WHERE tenant = $1")
+            .bind(prefix).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO internal.manual_bills (tenant, usd_cents, description, date_start, date_end, stripe_invoice_id) VALUES ($1, 700, 'Manual charge', '2024-03-01', '2024-03-31', 'in_manual_preview_test')")
+            .bind(prefix).execute(&pool).await.unwrap();
+        let client = Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
+        catalog_stats::test_util::delete_rows_with_prefix(&client, prefix)
+            .await
+            .unwrap();
+        let row: catalog_stats::CatalogStats = serde_json::from_value(json!({
+            "_meta": {"uuid": "00000000-0000-0000-0000-000000000000"},
+            "catalogName": prefix, "ts": "2024-03-08T00:00:00Z",
+            "statsSummary": {"readByMe": {"bytesTotal": 500000000, "docsTotal": 0},
+                "writtenByMe": {"bytesTotal": 1000000000, "docsTotal": 0}, "usageSeconds": 5400}
+        }))
+        .unwrap();
+        let current_month =
+            chrono::Datelike::with_day(&chrono::Utc::now().date_naive(), 1).unwrap();
+        let mut current_row = row.clone();
+        current_row.ts = current_month.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        catalog_stats::test_util::seed_rows(
+            &client,
+            &[
+                (catalog_stats::Grain::Daily, row),
+                (catalog_stats::Grain::Daily, current_row),
+            ],
+        )
+        .await
+        .unwrap();
+        let provider = billing::InMemoryBillingProvider::new();
+        provider.add_invoice(stripe::Invoice {
+            id: "in_preview_test".parse().unwrap(),
+            amount_due: Some(2600),
+            status: Some(stripe::InvoiceStatus::Open),
+            ..Default::default()
+        });
+        provider.add_invoice(stripe::Invoice {
+            id: "in_manual_preview_test".parse().unwrap(),
+            amount_due: Some(750),
+            status: Some(stripe::InvoiceStatus::Open),
+            ..Default::default()
+        });
+        let server = test_server::TestServer::start_with_config(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            Some(Arc::new(provider)),
+            Some(client),
+            models::AlertConfig::default(),
+        )
+        .await;
+        let token = server.make_access_token(user_id, Some("previewusage@example.test"));
+        let response: serde_json::Value = server.graphql(&json!({
+            "query": INVOICE_DETAILS,
+            "variables": {"tenant": prefix, "first": 10, "filter": {"dateStart": {"gt": "2024-01-31", "lt": "2024-04-01"}}}
+        }), Some(&token)).await;
+        assert!(response.get("errors").is_none(), "{response:#}");
+        let edges = invoices_page(&response)["edges"].as_array().unwrap();
+        insta::assert_json_snapshot!("preview_final_and_manual_nodes", edges);
+
+        let current: serde_json::Value = server.graphql(&json!({
+            "query": INVOICE_DETAILS,
+            "variables": {"tenant": prefix, "first": 1, "filter": {"invoiceType": {"eq": "PREVIEW"}}}
+        }), Some(&token)).await;
+        assert!(current.get("errors").is_none(), "{current:#}");
+        let current_invoice = &invoices_page(&current)["edges"][0]["node"];
+        assert_eq!(current_invoice["dateStart"], current_month.to_string());
+        assert_eq!(current_invoice["invoiceType"], "PREVIEW");
+        assert_eq!(current_invoice["subtotal"], 1128);
+        assert_eq!(current_invoice["extra"]["processed_data_gb"], 1.5);
+        assert_eq!(current_invoice["extra"]["task_usage_hours"], 1.5);
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes"))
+    )]
+    async fn graphql_preview_page_only_requires_stats_for_selected_rows(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let tenant = "previewpage";
+        let prefix = "previewpage/";
+        let user_id = provision_test_tenant(&pool, tenant).await;
+        sqlx::query("UPDATE tenants SET created_at = '2024-03-01' WHERE tenant = $1")
+            .bind(prefix)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO internal.manual_bills (tenant, usd_cents, description, date_start, date_end) VALUES ($1, 700, 'Manual charge', '2024-03-01', '2024-03-31')")
+            .bind(prefix).execute(&pool).await.unwrap();
+        let (server, token) = start_server_and_token(&pool, user_id, tenant, mock_provider()).await;
+        let filter = json!({"dateStart": {"gt": "2024-02-29", "lt": "2024-04-01"}});
+        for (args, has_previous, has_next) in [
+            (json!({"first": 0}), false, true),
+            (json!({"last": 0}), true, false),
+        ] {
+            let response = fetch_page(&server, &token, prefix, filter.clone(), args).await;
+            assert!(response.get("errors").is_none(), "{response:#}");
+            let page = invoices_page(&response);
+            assert_eq!(page["edges"], json!([]));
+            assert_eq!(page["pageInfo"]["hasPreviousPage"], has_previous);
+            assert_eq!(page["pageInfo"]["hasNextPage"], has_next);
+        }
+        let first = fetch_page(&server, &token, prefix, filter.clone(), json!({"first": 1})).await;
+        assert!(first.get("errors").is_none(), "{first:#}");
+        let page = invoices_page(&first);
+        assert_eq!(page["edges"][0]["node"]["invoiceType"], "MANUAL");
+        assert_eq!(page["pageInfo"]["hasNextPage"], true);
+        let next = fetch_page(
+            &server,
+            &token,
+            prefix,
+            filter.clone(),
+            json!({"first": 1, "after": cursor(page, "endCursor")}),
+        )
+        .await;
+        assert!(
+            next["errors"]
+                .to_string()
+                .contains("catalog stats are not configured"),
+            "{next:#}"
+        );
+        let empty = fetch_page(
+            &server,
+            &token,
+            prefix,
+            json!({"invoiceType": {"eq": "FINAL"}}),
+            json!({"first": 1}),
+        )
+        .await;
+        assert!(empty.get("errors").is_none(), "{empty:#}");
+        assert_eq!(invoices_page(&empty)["edges"].as_array().unwrap().len(), 0);
+        let client = Arc::new(catalog_stats::test_util::connect_emulator("estuary-local").await);
+        catalog_stats::test_util::delete_rows_with_prefix(&client, prefix)
+            .await
+            .unwrap();
+        let configured = test_server::TestServer::start_with_catalog_stats(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            client,
+        )
+        .await;
+        let configured_token =
+            configured.make_access_token(user_id, Some("previewpage@example.test"));
+        let second = fetch_page(
+            &configured,
+            &configured_token,
+            prefix,
+            filter.clone(),
+            json!({"first": 1, "after": cursor(page, "endCursor")}),
+        )
+        .await;
+        assert_eq!(
+            invoices_page(&second)["edges"][0]["node"]["invoiceType"],
+            "PREVIEW",
+            "{second:#}"
+        );
+        let back = fetch_page(
+            &configured,
+            &configured_token,
+            prefix,
+            filter,
+            json!({"last": 1, "before": cursor(invoices_page(&second), "startCursor")}),
+        )
+        .await;
+        assert_eq!(
+            invoices_page(&back)["edges"][0]["node"]["invoiceType"],
+            "MANUAL",
+            "{back:#}"
+        );
+    }
+
+    #[sqlx::test(
+        migrations = "../../supabase/migrations",
+        fixtures(path = "../../../../fixtures", scripts("data_planes"))
+    )]
+    async fn graphql_preview_read_failure_and_authorization(pool: sqlx::PgPool) {
+        let _guard = test_server::init();
+        let owner = "previewowner";
+        let target = "previewtarget";
+        let owner_id = provision_test_tenant(&pool, owner).await;
+        let target_id = provision_test_tenant(&pool, target).await;
+        let client =
+            Arc::new(catalog_stats::test_util::connect_emulator("nonexistent-instance").await);
+        let server = test_server::TestServer::start_with_catalog_stats(
+            pool.clone(),
+            test_server::snapshot(pool.clone(), true).await,
+            client,
+        )
+        .await;
+        let target_token = server.make_access_token(target_id, Some("previewtarget@example.test"));
+        let request = json!({
+            "query": INVOICE_DETAILS,
+            "variables": {"tenant": "previewtarget/", "first": 1, "filter": {"invoiceType": {"eq": "PREVIEW"}}}
+        });
+        let response: serde_json::Value = server.graphql(&request, Some(&target_token)).await;
+        assert!(
+            response["errors"]
+                .to_string()
+                .contains("reading daily billing statistics"),
+            "{response:#}"
+        );
+        assert!(
+            response["data"]["tenant"]["billing"]["invoices"].is_null(),
+            "{response:#}"
+        );
+        let viewer_token = server.make_restricted_access_token(
+            target_id,
+            Some("previewtarget@example.test"),
+            Some(vec!["viewer".to_string()]),
+            None,
+        );
+        let viewer_denied: serde_json::Value = server.graphql(&request, Some(&viewer_token)).await;
+        assert!(
+            viewer_denied["errors"]
+                .to_string()
+                .contains("billing or admin"),
+            "{viewer_denied:#}"
+        );
+        assert!(
+            viewer_denied["errors"].to_string().contains("FORBIDDEN"),
+            "{viewer_denied:#}"
+        );
+        assert!(
+            !viewer_denied["errors"]
+                .to_string()
+                .contains("reading daily billing statistics")
+        );
+
+        let owner_token = server.make_access_token(owner_id, Some("previewowner@example.test"));
+        let denied: serde_json::Value = server.graphql(&request, Some(&owner_token)).await;
+        assert_eq!(
+            denied["data"]["tenant"],
+            serde_json::Value::Null,
+            "{denied:#}"
+        );
+        assert!(denied.get("errors").is_some());
+        assert!(
+            !denied["errors"]
+                .to_string()
+                .contains("reading daily billing statistics")
+        );
     }
 }

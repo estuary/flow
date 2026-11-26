@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT billed_month FROM internal.billing_historicals WHERE tenant = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "billed_month",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "internal.billing_historicals",
+            "name": "billed_month"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d2a0deb893b7784b94ff792551b951c9501e63d9f6626000d22ef8cf32550a90"
+}

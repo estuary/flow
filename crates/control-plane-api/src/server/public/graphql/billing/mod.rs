@@ -94,25 +94,30 @@ pub(crate) mod test_util {
         subtotal: i32,
         description: &str,
     ) {
-        let billed_at = format!("{month}T00:00:00Z");
+        let report = billing_types::Invoice {
+            billed_month: format!("{month}T00:00:00+00:00"),
+            billed_prefix: format!("{tenant}/"),
+            daily_usage: Vec::new(),
+            line_items: vec![billing_types::LineItem {
+                description: Some(description.to_string()),
+                count: 1,
+                rate: subtotal.into(),
+                subtotal: subtotal.into(),
+            }],
+            processed_data_gb: 0.0,
+            recurring_fee: 0,
+            subtotal: subtotal.into(),
+            task_usage_hours: 0.0,
+            trial_credit: 0,
+            free_tier_credit: 0,
+            trial_start: None,
+        };
         sqlx::query(
-            r#"
-            insert into internal.billing_historicals (tenant, billed_month, report)
-            values (
-                $1,
-                $2::timestamptz,
-                jsonb_build_object(
-                    'billed_month', $2,
-                    'subtotal', $3::int,
-                    'line_items', jsonb_build_array(jsonb_build_object('description', $4, 'subtotal', $3::int))
-                )
-            )
-            "#,
+            "insert into internal.billing_historicals (tenant, billed_month, report) values ($1, $2::timestamptz, $3)",
         )
-        .bind(format!("{tenant}/"))
-        .bind(&billed_at)
-        .bind(subtotal)
-        .bind(description)
+        .bind(&report.billed_prefix)
+        .bind(&report.billed_month)
+        .bind(sqlx::types::Json(&report))
         .execute(pool)
         .await
         .expect("insert billing historical");

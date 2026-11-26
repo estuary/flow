@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT date_start, date_end, usd_cents, description, stripe_invoice_id\n         FROM internal.manual_bills WHERE tenant = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date_start",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "internal.manual_bills",
+            "name": "date_start"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "date_end",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "internal.manual_bills",
+            "name": "date_end"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "usd_cents",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "internal.manual_bills",
+            "name": "usd_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.manual_bills",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "stripe_invoice_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "internal.manual_bills",
+            "name": "stripe_invoice_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4ac90637c8f26e6e467552faa1602f8f786104cacef445885cb49c30d9fe3bdd"
+}
