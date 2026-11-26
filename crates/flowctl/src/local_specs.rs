@@ -332,7 +332,7 @@ impl Resolver {
                     .edges
                     .into_iter()
                     .filter(|edge| {
-                        edge.node.capabilities.iter().any(|bundle| {
+                        edge.node.capability_bundles.iter().any(|bundle| {
                             use resolve_readable_prefixes::CapabilityBundle;
                             matches!(bundle, CapabilityBundle::CatalogRead)
                         })
@@ -583,7 +583,7 @@ mod test {
                                     serde_json::json!({
                                         "node": {
                                             "prefix": format!("acmeCo/{name}/"),
-                                            "capabilities": bundles,
+                                            "capabilityBundles": bundles,
                                         }
                                     })
                                 });

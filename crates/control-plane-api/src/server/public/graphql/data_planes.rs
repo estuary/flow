@@ -231,7 +231,7 @@ impl DataPlane {
     /// controller-observed provisioning status. Mutating links (via
     /// `addDataPlanePrivateLink` and friends) triggers reconvergence by the
     /// data-plane controller. Returns an empty list to callers that lack the
-    /// `ViewDataPlanePrivateNetworking` capability on this data plane.
+    /// `ViewDataPlanePrivateNetworking` capability bit on this data plane.
     async fn private_links(
         &self,
         ctx: &Context<'_>,
@@ -537,7 +537,8 @@ impl DataPlanesQuery {
     /// Returns data planes accessible to the current user.
     ///
     /// Results are paginated and sorted by data_plane_name.
-    /// Only data planes the user has at least read capability to are returned.
+    /// Only data planes where the user holds the capability bits of the
+    /// `Viewer` bundle are returned.
     ///
     /// `filter.closed.eq` restricts results to data planes whose `closed`
     /// flag matches it; omitting it returns both open and closed planes.

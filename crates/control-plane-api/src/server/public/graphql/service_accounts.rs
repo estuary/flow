@@ -369,13 +369,13 @@ impl ServiceAccountsMutation {
 
     /// Add a user_grant to a service account.
     ///
-    /// The caller must have CreateGrant on BOTH the account's catalog name and
-    /// the granted prefix. Adding a grant is grant creation, so the account
-    /// anchor gates on that same capability, while the per-prefix check
-    /// prevents a caller from extending an account's access beyond what they
-    /// could grant anyone. (Human-user grant creation still lives in
-    /// PostgREST; when it migrates to GraphQL it should gate on this same
-    /// CreateGrant capability.)
+    /// The caller must hold the `CreateGrant` capability bit on BOTH the
+    /// account's catalog name and the granted prefix. Adding a grant is grant
+    /// creation, so the account anchor gates on that same bit, while the
+    /// per-prefix check prevents a caller from extending an account's access
+    /// beyond what they could grant anyone. (Human-user grant creation still
+    /// lives in PostgREST; when it migrates to GraphQL it should gate on this
+    /// same bit.)
     ///
     /// The account's tenant must be paid.
     async fn add_service_account_grant(
@@ -449,7 +449,8 @@ impl ServiceAccountsMutation {
     /// Remove a user_grant from a service account, returning the account in its
     /// post-removal state.
     ///
-    /// The caller must have CreateServiceAccount on the catalog name. Unlike addServiceAccountGrant, no capability on the
+    /// The caller must hold the `CreateServiceAccount` capability bit on the
+    /// catalog name. Unlike addServiceAccountGrant, no capability bit on the
     /// grant's prefix is required: removal only ever narrows the account's
     /// access, so managers may remove ANY grant — including grants to
     /// prefixes they don't themselves administer.
@@ -497,11 +498,12 @@ impl ServiceAccountsMutation {
     /// Remove ALL user_grants from a service account, stripping its access in
     /// one call and returning the account with `grants: []`.
     ///
-    /// The caller must manage the service account (CreateServiceAccount on its
-    /// catalog name). As with removeServiceAccountGrant, no capability on the
-    /// grants' prefixes is required: removal only narrows access, so a manager
-    /// may clear grants to prefixes they don't themselves administer. Clearing
-    /// an account that already has no grants is an idempotent no-op.
+    /// The caller must manage the service account (the `CreateServiceAccount`
+    /// capability bit on its catalog name). As with removeServiceAccountGrant,
+    /// no capability bit on the grants' prefixes is required: removal only
+    /// narrows access, so a manager may clear grants to prefixes they don't
+    /// themselves administer. Clearing an account that already has no grants
+    /// is an idempotent no-op.
     async fn remove_all_service_account_grants(
         &self,
         ctx: &Context<'_>,

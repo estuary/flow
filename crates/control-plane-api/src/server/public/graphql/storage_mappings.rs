@@ -797,8 +797,9 @@ const MAX_PREFIXES: usize = 20;
 impl StorageMappingsQuery {
     /// Returns storage mappings accessible to the current user.
     ///
-    /// Returns mappings under every prefix where the caller has catalog-read
-    /// capability. The optional `filter` narrows those authorized results.
+    /// Returns mappings under every prefix where the caller holds the
+    /// `CatalogRead` capability bit. The optional `filter` narrows those
+    /// authorized results.
     /// Results are paginated and sorted by catalog_prefix.
     pub async fn storage_mappings(
         &self,

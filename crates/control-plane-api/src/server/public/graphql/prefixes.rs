@@ -13,9 +13,9 @@ pub struct PrefixRef {
     /// entirely from the `bundles` column rather than the legacy column.
     ///
     /// Exists solely so the dashboard's read/write/admin prefix-bucket
-    /// store keeps working until it migrates to consuming `capabilities`
-    /// directly. Once that migration lands, this field and its derivation
-    /// can be deleted.
+    /// store keeps working until it migrates to `capabilityBundles`.
+    /// Once that migration lands, this field and its derivation can be
+    /// deleted.
     pub user_capability: models::Capability,
     #[graphql(skip)]
     pub bits: models::authz::CapabilityBits,
@@ -23,14 +23,23 @@ pub struct PrefixRef {
 
 #[async_graphql::ComplexObject]
 impl PrefixRef {
-    /// Fine-grained capabilities the user has at this prefix.
-    #[graphql(deprecation = "Use capabilities instead.")]
+    /// Capability bits the user holds at this prefix.
+    #[graphql(deprecation = "Use `PrefixRef.capabilityBundles` instead.")]
     async fn capability_bits(&self) -> Vec<models::authz::CapabilityBit> {
         self.bits.iter().collect()
     }
 
-    /// Capability bundles that cover the user's capability bits at this prefix.
-    async fn capabilities(&self) -> Vec<models::authz::CapabilityBundle> {
+    /// Capability bundles whose bits the user holds at this prefix.
+    async fn capability_bundles(&self) -> Vec<models::authz::CapabilityBundle> {
+        models::authz::bundles_covering(self.bits).collect()
+    }
+
+    /// Capability bundles whose bits the user holds at this prefix.
+    #[graphql(
+        name = "capabilities",
+        deprecation = "Use `PrefixRef.capabilityBundles` instead."
+    )]
+    async fn deprecated_capabilities(&self) -> Vec<models::authz::CapabilityBundle> {
         models::authz::bundles_covering(self.bits).collect()
     }
 }
@@ -38,6 +47,7 @@ impl PrefixRef {
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct PrefixesBy {
     /// Filter returned prefixes by user capability.
+    #[graphql(default_with = "models::Capability::None")]
     pub min_capability: models::Capability,
 }
 
@@ -67,7 +77,7 @@ impl PrefixesQuery {
     pub async fn prefixes(
         &self,
         ctx: &Context<'_>,
-        by: PrefixesBy,
+        by: Option<PrefixesBy>,
         filter: Option<PrefixesFilter>,
         after: Option<String>,
         first: Option<i32>,
@@ -83,7 +93,9 @@ impl PrefixesQuery {
             let snapshot = env.snapshot();
             let subject = env.claims()?.subject();
 
-            let min_bits: models::authz::CapabilityBits = by.min_capability.into();
+            let min_bits: models::authz::CapabilityBits = by
+                .map(|by| by.min_capability.into())
+                .unwrap_or_default();
             let under = starts_with.as_deref().unwrap_or_default();
 
             let reachable = snapshot.user_reachable_prefixes(&subject);

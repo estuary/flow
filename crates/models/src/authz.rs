@@ -29,6 +29,9 @@ impl Subject {
 /// authorization-check call sites.
 pub type CapabilityBits = EnumSet<CapabilityBit>;
 
+/// A fine-grained capability bit. Each check of the authorization model
+/// requires one or more bits. Bits are internal: grants and token capability
+/// masks name capability bundles, which are stable sets of bits.
 #[derive(EnumSetType, Debug)]
 #[cfg_attr(
     feature = "async-graphql",

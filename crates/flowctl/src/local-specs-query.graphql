@@ -1,5 +1,5 @@
 query ResolveReadablePrefixes($prefixes: [String!]!, $after: String) {
-    prefixes(by: { minCapability: none }, filter: { prefix: { in: $prefixes } }, after: $after, first: 100) {
+    prefixes(filter: { prefix: { in: $prefixes } }, after: $after, first: 100) {
         pageInfo {
             hasNextPage
             endCursor
@@ -7,7 +7,7 @@ query ResolveReadablePrefixes($prefixes: [String!]!, $after: String) {
         edges {
             node {
                 prefix
-                capabilities
+                capabilityBundles
             }
         }
     }

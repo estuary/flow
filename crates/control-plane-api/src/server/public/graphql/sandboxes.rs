@@ -72,7 +72,7 @@ impl Sandbox {
 pub struct SandboxCredential {
     pub workspace: String,
     pub name: String,
-    /// Capabilities to which minted tokens are restricted.
+    /// Names of the capability bundles to which minted tokens are restricted.
     pub capability_mask: Vec<String>,
     /// Catalog prefixes to which minted tokens are restricted.
     pub prefix_mask: Vec<String>,

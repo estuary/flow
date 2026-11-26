@@ -58,11 +58,11 @@ const MAX_PREFIXES: usize = 20;
 
 #[async_graphql::Object]
 impl InviteLinksQuery {
-    /// List invite links the caller has admin access to.
+    /// List invite links the caller manages.
     ///
-    /// Returns invite links under all prefixes where the caller has admin
-    /// capability, optionally narrowed by a prefix filter — a subtree
-    /// (`startsWith`) or an exact set (`in`), not both.
+    /// Returns invite links under all prefixes where the caller holds the
+    /// `ManageInviteLinks` capability bit, optionally narrowed by a prefix
+    /// filter — a subtree (`startsWith`) or an exact set (`in`), not both.
     async fn invite_links(
         &self,
         ctx: &Context<'_>,
@@ -171,7 +171,8 @@ pub struct InviteLinksMutation;
 impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
-    /// The caller must have ManageInviteLinks capability on the catalog prefix.
+    /// The caller must hold the `ManageInviteLinks` capability bit on the
+    /// catalog prefix.
     /// The prefix's tenant must be paid. A self-serve tenant is paid once it
     /// has a payment method.
     /// Share the returned token with the intended recipient out-of-band.
@@ -376,7 +377,8 @@ impl InviteLinksMutation {
 
     /// Delete an invite link, revoking it so it can no longer be redeemed.
     ///
-    /// The caller must have ManageInviteLinks capability on the invite link's catalog prefix.
+    /// The caller must hold the `ManageInviteLinks` capability bit on the
+    /// invite link's catalog prefix.
     pub async fn delete_invite_link(
         &self,
         ctx: &Context<'_>,
