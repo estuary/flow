@@ -6,6 +6,7 @@ use async_graphql::Context;
 pub(super) mod contact;
 mod invoices;
 mod loaders;
+mod month_to_date;
 mod mutations;
 mod payment_methods;
 mod plan;

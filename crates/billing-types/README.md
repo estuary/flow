@@ -23,6 +23,12 @@ transaction stays open during subsequent Bigtable reads. Reruns retain invoices
 already frozen for that tenant and month, including their Stripe invoice IDs.
 The PostgreSQL and Bigtable reads do not share a snapshot.
 
+`invoices::month_to_date` calculates the current month's invoice through the
+end of each day, for the billing page. Days after today get the average daily
+usage since the start of the month's first day with usage.
+`Invoice::threshold_charges` is the amount that both the
+`billing_threshold_exceeded` alert and the billing page count.
+
 Calculation takes a year and `chrono::Month` to select a UTC calendar month.
 Charges use cumulative integer bytes and seconds rounded up to billable GB and
 hours, with amounts calculated in cents.

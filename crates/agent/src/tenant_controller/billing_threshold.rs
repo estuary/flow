@@ -9,11 +9,12 @@ use std::collections::BTreeMap;
 /// How often a tenant with an enabled amount is checked.
 const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
-/// Fires `billing_threshold_exceeded` while the tenant's month-to-date invoice
-/// subtotal is at or above the amount configured on its prefix. The open alert
-/// keeps later checks in the month from firing it again. It resolves without
-/// a notification when its month ends, when the subtotal falls below the
-/// amount, or when the amount is disabled or removed.
+/// Fires `billing_threshold_exceeded` while the tenant's month-to-date charges
+/// (`billing_types::Invoice::threshold_charges`) are at or above the amount
+/// configured on its prefix. The open alert keeps later checks in the month
+/// from firing it again. It resolves without a notification when its month
+/// ends, when the charges fall below the amount, or when the amount is
+/// disabled or removed.
 ///
 /// Unlike the alerts in `trial_alerts`, this one applies to every plan.
 pub async fn evaluate(
@@ -82,12 +83,13 @@ async fn do_evaluate(
         .pop()
         .expect("generate returns an invoice for each named tenant");
 
-        if invoice.subtotal >= i64::from(usd_cents) {
+        let charges = invoice.threshold_charges();
+        if charges >= i64::from(usd_cents) {
             let arguments: ArgsObject = [
                 ("tenant", serde_json::json!(tenant.tenant)),
                 ("month", serde_json::json!(now.format("%B %Y").to_string())),
                 ("threshold_usd_cents", serde_json::json!(usd_cents)),
-                ("subtotal_usd_cents", serde_json::json!(invoice.subtotal)),
+                ("charges_usd_cents", serde_json::json!(charges)),
             ]
             .into_iter()
             .map(|(key, value)| (key.to_string(), value))

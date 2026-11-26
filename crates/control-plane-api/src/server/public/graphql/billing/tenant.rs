@@ -6,6 +6,7 @@ use super::billing_provider;
 use super::contact::{self, BillingContact};
 use super::invoices::{Invoice, InvoiceFilter};
 use super::loaders::CustomerDataLoader;
+use super::month_to_date::BillingMonthToDate;
 use super::payment_methods::PaymentMethod;
 use super::plan::{self, BillingPlan};
 use crate::billing::{self, BillingProvider, InvoiceCursor};
@@ -51,6 +52,25 @@ impl TenantBilling {
         plan::fetch_billing_plan(&env.pg_pool, &self.tenant)
             .await
             .map_err(|err| async_graphql::Error::new(err.to_string()))
+    }
+
+    /// Null, with an error, when the month's usage can't be read, so that the
+    /// tenant's other billing fields still resolve.
+    async fn month_to_date(&self, ctx: &Context<'_>) -> Result<Option<BillingMonthToDate>> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let stats = super::super::catalog_stats::client(ctx)?;
+        let month = billing_types::invoices::month_to_date(
+            &env.pg_pool,
+            &stats,
+            &self.tenant,
+            chrono::Utc::now(),
+        )
+        .await
+        .map_err(|err| async_graphql::Error::new(err.to_string()))?;
+        month
+            .try_into()
+            .map(Some)
+            .map_err(|_| async_graphql::Error::new("month-to-date charges exceed a GraphQL Int"))
     }
 
     async fn payment_methods(&self, ctx: &Context<'_>) -> Result<Vec<PaymentMethod>> {

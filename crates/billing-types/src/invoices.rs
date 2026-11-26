@@ -1,4 +1,5 @@
 use anyhow::Context;
+use chrono::Datelike as _;
 use futures::{StreamExt, TryStreamExt};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -61,6 +62,36 @@ pub async fn generate(
     invoice_batches(stats, &inputs, year, month, period)
         .try_concat()
         .await
+}
+
+/// Calculate a tenant's charges at the end of each day of the UTC month
+/// containing `now`, projecting the days after today at its average daily
+/// usage so far.
+pub async fn month_to_date(
+    pool: &sqlx::PgPool,
+    stats: &catalog_stats::Client,
+    tenant: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<crate::MonthToDate> {
+    let today = now.date_naive();
+    let month = chrono::Month::try_from(today.month() as u8).expect("month is in 1..=12");
+    let period = crate::calculate::month_range(today.year(), month)?;
+    let billed_month = period.start.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let inputs = load_inputs(pool, billed_month, Some(&[tenant.to_string()])).await?;
+    let end = period.end.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let mut daily = read_daily_usage(stats, &[tenant], billed_month..end).await?;
+
+    crate::month_to_date::month_to_date(
+        // `load_inputs` returns an error unless it finds the named tenant.
+        &inputs.terms[0],
+        daily.remove(tenant).as_deref().unwrap_or_default(),
+        inputs
+            .adjustments
+            .get(tenant)
+            .map(Vec::as_slice)
+            .unwrap_or_default(),
+        now,
+    )
 }
 
 async fn insert_batch(
@@ -170,29 +201,7 @@ fn invoice_batches<'a>(
     let end_ts = period.end.and_hms_opt(0, 0, 0).unwrap().and_utc();
     futures::stream::iter(inputs.terms.chunks(STATS_READ_TENANTS)).then(move |terms| async move {
         let names: Vec<_> = terms.iter().map(|t| t.tenant.as_str()).collect();
-        let daily = catalog_stats::collect_stats(stats.fetch_range_for_names(
-            &names,
-            catalog_stats::Grain::Daily,
-            start_ts..end_ts,
-        ))
-        .await
-        .context("reading daily billing statistics")?
-        .into_iter()
-        .fold(
-            BTreeMap::<String, Vec<crate::DailyUsage>>::new(),
-            |mut daily, row| {
-                daily
-                    .entry(row.catalog_name)
-                    .or_default()
-                    .push(crate::DailyUsage {
-                        date: row.ts.date_naive(),
-                        bytes_read: row.stats_summary.read_by_me.bytes_total,
-                        bytes_written: row.stats_summary.written_by_me.bytes_total,
-                        usage_seconds: row.stats_summary.usage_seconds,
-                    });
-                daily
-            },
-        );
+        let daily = read_daily_usage(stats, &names, start_ts..end_ts).await?;
         terms
             .iter()
             .map(|tenant| {
@@ -214,4 +223,32 @@ fn invoice_batches<'a>(
             })
             .collect()
     })
+}
+
+/// Read the daily usage of each named tenant, keyed by tenant.
+async fn read_daily_usage(
+    stats: &catalog_stats::Client,
+    names: &[&str],
+    range: std::ops::Range<chrono::DateTime<chrono::Utc>>,
+) -> anyhow::Result<BTreeMap<String, Vec<crate::DailyUsage>>> {
+    Ok(catalog_stats::collect_stats(stats.fetch_range_for_names(
+        names,
+        catalog_stats::Grain::Daily,
+        range,
+    ))
+    .await
+    .context("reading daily billing statistics")?
+    .into_iter()
+    .fold(BTreeMap::new(), |mut daily, row| {
+        daily
+            .entry(row.catalog_name)
+            .or_default()
+            .push(crate::DailyUsage {
+                date: row.ts.date_naive(),
+                bytes_read: row.stats_summary.read_by_me.bytes_total,
+                bytes_written: row.stats_summary.written_by_me.bytes_total,
+                usage_seconds: row.stats_summary.usage_seconds,
+            });
+        daily
+    }))
 }
