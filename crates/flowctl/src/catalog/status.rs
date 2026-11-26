@@ -23,7 +23,7 @@ pub struct Status {
     schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/catalog/status.graphql",
     response_derives = "Debug,Serialize",
-    extern_enums("CatalogType", "Capability"),
+    extern_enums("CatalogType"),
     skip_serializing_none
 )]
 struct ConnectedStatusQuery;
@@ -76,8 +76,6 @@ async fn fetch_statuses(
                 catalog_name: node.catalog_name,
                 live_spec_updated_at: node.live_spec.as_ref().map(|ls| ls.updated_at),
                 catalog_type: node.live_spec.as_ref().map(|ls| ls.catalog_type),
-                #[allow(deprecated)] // Preserve legacy capability reporting in CLI output.
-                user_capability: node.user_capability,
                 status: node.status,
             },
         );
@@ -96,8 +94,6 @@ async fn fetch_statuses(
                 live_spec_updated_at: source_capture.live_spec.as_ref().map(|ls| ls.updated_at),
                 catalog_type: source_capture.live_spec.as_ref().map(|ls| ls.catalog_type),
                 status: source_capture.status,
-                #[allow(deprecated)] // Preserve legacy capability reporting in CLI output.
-                user_capability: source_capture.user_capability,
             };
             status_map.insert(key, row);
         }
@@ -127,8 +123,6 @@ fn merge_statuses(
                 live_spec_updated_at: node.live_spec.as_ref().map(|ls| ls.updated_at),
                 catalog_type: node.live_spec.as_ref().map(|ls| ls.catalog_type),
                 status: node.status,
-                #[allow(deprecated)] // Preserve legacy capability reporting in CLI output.
-                user_capability: node.user_capability,
             },
         );
     }
@@ -141,8 +135,6 @@ struct StatusRow {
     catalog_type: Option<models::CatalogType>,
     live_spec_updated_at: Option<DateTime>,
     status: Option<connected_status_query::SelectStatus>,
-    // Retained for output compatibility.
-    user_capability: Option<models::authz::LegacyTier>,
 }
 
 impl output::CliOutput for StatusRow {

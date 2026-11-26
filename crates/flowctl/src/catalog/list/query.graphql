@@ -35,7 +35,6 @@ fragment SelectStatus on LiveSpecStatus {
 
 fragment SelectRef on LiveSpecRef {
     catalogName
-    userCapability
     lastPublication @include(if: $include_last_publication) {
         userEmail
         userId

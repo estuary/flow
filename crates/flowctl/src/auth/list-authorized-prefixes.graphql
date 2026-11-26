@@ -1,15 +1,13 @@
 fragment SelectAuthorizedPrefix on PrefixRef {
     prefix
-    userCapability
 }
 
 query ListAuthorizedPrefixes(
-    $min_capability: Capability!
     $after: String
     $first: Int!
 ) {
     prefixes(
-        by: { minCapability: $min_capability }
+        by: { minCapability: read }
         after: $after
         first: $first
     ) {

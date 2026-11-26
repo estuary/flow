@@ -119,8 +119,7 @@ async fn do_list(list: &List, ctx: &mut crate::CliContext) -> anyhow::Result<()>
     let prefix = if let Some(pre) = list.prefix.clone() {
         pre
     } else {
-        let prefixes =
-            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 1).await?;
+        let prefixes = crate::get_default_prefix_arguments(ctx, 1).await?;
         prefixes
             .into_iter()
             .next()
@@ -197,8 +196,7 @@ async fn do_subscribe(create: &SubscribeArgs, ctx: &mut crate::CliContext) -> an
     let prefix = if let Some(pre) = create.prefix.clone() {
         pre
     } else {
-        let prefix_vec =
-            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 1).await?;
+        let prefix_vec = crate::get_default_prefix_arguments(ctx, 1).await?;
         prefix_vec
             .into_iter()
             .next()
@@ -313,8 +311,7 @@ async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> 
     let prefix = if let Some(pre) = args.prefix.clone() {
         pre
     } else {
-        let prefix_vec =
-            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 1).await?;
+        let prefix_vec = crate::get_default_prefix_arguments(ctx, 1).await?;
         prefix_vec
             .into_iter()
             .next()

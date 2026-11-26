@@ -121,7 +121,6 @@ fragment SelectAllStatuses on LiveSpecRefConnection {
     edges {
         node {
             catalogName
-            userCapability
             liveSpec {
                 updatedAt
                 catalogType
@@ -142,7 +141,6 @@ query ConnectedStatusQuery(
         edges {
             node {
                 catalogName
-                userCapability
 
                 liveSpec {
                     updatedAt
@@ -161,7 +159,6 @@ query ConnectedStatusQuery(
                     }
                     sourceCapture @include(if: $connected) {
                         catalogName
-                        userCapability
                         liveSpec {
                             updatedAt
                             catalogType

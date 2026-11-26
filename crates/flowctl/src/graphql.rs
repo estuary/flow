@@ -26,7 +26,7 @@
 //! But most queries will also need a few other attributes, not all of which are well documented.
 //! Other important attributes are:
 //!
-//! - `extern_enums("CatalogType", "Capability", ...)`: Any enums that are returned by your query will named in
+//! - `extern_enums("CatalogType", ...)`: Any enums that are returned by your query will named in
 //!   this attribute in order for them to have the proper types in the query resonse.
 //!   A released flowctl fails to deserialize a value which its extern enum doesn't have, so enums which
 //!   gain values over time (like `AlertType`) map to a string type instead.
@@ -44,8 +44,6 @@
 //! the scalars in our graphql schema. That way you can just `use crate::graphql::*`, and your response should have
 //! all the correct scalar types defined.
 
-#[allow(unused)]
-pub use models::authz::LegacyTier as Capability;
 #[allow(unused)]
 pub use models::{Capture, CatalogType, Collection, Id, Materialization, Name, Prefix, Test};
 

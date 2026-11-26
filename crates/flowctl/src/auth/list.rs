@@ -5,8 +5,7 @@ use anyhow::Context;
 #[graphql(
     schema_path = "../control-plane-api/control-plane-api.graphql",
     query_path = "src/auth/list-authorized-prefixes.graphql",
-    response_derives = "Serialize,Clone",
-    extern_enums("Capability")
+    response_derives = "Serialize,Clone"
 )]
 struct ListAuthorizedPrefixes;
 
@@ -14,11 +13,9 @@ pub type AuthorizedPrefix = list_authorized_prefixes::SelectAuthorizedPrefix;
 
 pub async fn list_authorized_prefixes(
     ctx: &mut crate::CliContext,
-    min_capability: models::authz::LegacyTier,
     limit: usize,
 ) -> anyhow::Result<Vec<AuthorizedPrefix>> {
     let vars = list_authorized_prefixes::Variables {
-        min_capability,
         after: None,
         first: limit as i64,
     };

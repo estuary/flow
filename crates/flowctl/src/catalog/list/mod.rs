@@ -53,8 +53,7 @@ pub async fn fetch_live_specs(
     use futures::TryStreamExt;
 
     if list.name_selector.name.is_empty() && list.name_selector.prefix.is_empty() {
-        let prefixes =
-            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 5).await?;
+        let prefixes = crate::get_default_prefix_arguments(ctx, 5).await?;
         list.name_selector.prefix = prefixes;
     }
 

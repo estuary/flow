@@ -479,22 +479,20 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
 
 /// Returns a default list of prefixes to use for commands that accept an
 /// optional prefix argument. This will return all of the distinct prefixes that
-/// the user has at least `min_capability` to. If the user has access to more
-/// than `max_count` distinct prefixes, an error will be returned that guides
-/// the user to specify a prefix explicitly. This function will never return an
-/// empty vec, and will instead return an error if the user does not have access
-/// to any prefixes. Note that any `ops/dp/` role grants are ignored.
+/// the user can read. If the user can read more than `max_count` distinct
+/// prefixes, an error will be returned that guides the user to specify a prefix
+/// explicitly. This function will never return an empty vec, and will instead
+/// return an error if the user does not have access to any prefixes. Note that
+/// any `ops/dp/` role grants are ignored.
 async fn get_default_prefix_arguments(
     ctx: &mut CliContext,
-    min_capability: models::authz::LegacyTier,
     max_count: usize,
 ) -> anyhow::Result<Vec<String>> {
     // We fetch at least twice the number of roles as requested, so that we can
     // filter out any duplicates and still probably have enough to fill out the
     // list.
     let role_list =
-        crate::auth::list::list_authorized_prefixes(ctx, min_capability, (max_count * 2).max(10))
-            .await?;
+        crate::auth::list::list_authorized_prefixes(ctx, (max_count * 2).max(10)).await?;
 
     let prefixes = filter_default_prefixes(role_list, max_count)?;
     if prefixes.is_empty() {
@@ -581,11 +579,9 @@ mod test {
 
     #[test]
     fn test_filter_default_prefixes() {
-        #[allow(deprecated)] // The query still selects the legacy capability.
         fn pre(prefix: &str) -> AuthorizedPrefix {
             AuthorizedPrefix {
                 prefix: models::Prefix::new(prefix),
-                user_capability: models::authz::LegacyTier::Admin, // irrelevant
             }
         }
         let roles = vec![
