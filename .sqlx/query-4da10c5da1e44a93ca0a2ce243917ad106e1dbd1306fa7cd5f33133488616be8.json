@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select\n            asub.email as \"email!: String\",\n            u.raw_user_meta_data->>'full_name' as \"full_name: String\"\n        from alert_subscriptions asub\n        left join auth.users u on asub.email = u.email and u.is_sso_user is false\n        where $1 ^@ asub.catalog_prefix\n        and $2::alert_type = any(asub.include_alert_types)\n        and asub.email is not null\n        ",
+  "query": "select\n            asub.email as \"email!: String\",\n            u.raw_user_meta_data->>'full_name' as \"full_name: String\"\n        from alert_subscriptions asub\n        left join auth.users u on asub.email = u.email and u.is_sso_user is false\n        where $1 ^@ asub.catalog_prefix\n        and $2::alert_type = any(asub.include_alert_types)\n        and asub.email is not null\n        order by asub.email\n        ",
   "describe": {
     "columns": [
       {
@@ -54,5 +54,5 @@
       null
     ]
   },
-  "hash": "a7160e6f695386d54aec56e4520c3996c960e9230ea290be51e91e92064c6dc6"
+  "hash": "4da10c5da1e44a93ca0a2ce243917ad106e1dbd1306fa7cd5f33133488616be8"
 }

@@ -379,6 +379,7 @@ async fn fetch_recipients(
         where $1 ^@ asub.catalog_prefix
         and $2::alert_type = any(asub.include_alert_types)
         and asub.email is not null
+        order by asub.email
         "#,
         alert_catalog_name,
         alert_type as AlertType,
