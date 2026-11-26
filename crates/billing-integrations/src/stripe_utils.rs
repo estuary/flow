@@ -2,6 +2,21 @@ use billing_types::{InvoiceMetadata, InvoiceType};
 use num_format::{Locale, ToFormattedString};
 use std::ops::{Deref, DerefMut};
 
+/// Check that `invoice` belongs to the tenant's recorded Stripe customer, `expected_customer`. This is a defensive check: a bill's invoice is retrieved by its recorded `stripe_invoice_id` alone, and nothing else ties that ID to `tenants.stripe_customer_id`. A missing or different customer is an error, so an invoice of another customer is never written to.
+pub(crate) fn verify_invoice_customer(
+    invoice: &stripe::Invoice,
+    expected_customer: &str,
+) -> anyhow::Result<()> {
+    let actual = invoice.customer.as_ref().map(|customer| customer.id());
+    anyhow::ensure!(
+        actual.as_ref().map(|id| id.as_str()) == Some(expected_customer),
+        "Stripe invoice {} customer {:?} does not match recorded customer {expected_customer}",
+        invoice.id,
+        actual
+    );
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub struct Invoice(stripe::Invoice, InvoiceMetadata);
 
