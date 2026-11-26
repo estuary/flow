@@ -273,9 +273,17 @@ pub async fn create_data_plane(
     //    and that attempt succeeds.
     let draft_str = include_str!("../../../../ops-catalog/data-plane-template.bundle.json")
         .replace("BASE_NAME", &base_name);
-    let draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
+    let mut draft: tables::DraftCatalog = serde_json::from_str::<models::Catalog>(&draft_str)
         .unwrap()
         .into();
+
+    // c2's catalog-stats L1 is `.../catalog-stats-v2`. Publishing the template's
+    // L1 would drop the old L1's `notAfter`, or re-create it once deleted.
+    if base_name == "public/gcp-us-central1-c2" {
+        draft.collections.remove_by_key(&models::Collection::new(
+            "ops/rollups/L1/public/gcp-us-central1-c2/catalog-stats",
+        ));
+    }
 
     let publication = DraftPublication {
         subject: claims.subject(),
