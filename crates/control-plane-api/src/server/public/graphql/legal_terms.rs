@@ -106,7 +106,7 @@ pub(super) async fn check_authorized_consent(
     );
     if prefixes.is_empty() {
         // Refresh stale permissions before reporting a terminal denial.
-        super::verify_authorization(env, tenant, required).await?;
+        super::verify_authorization(env, [tenant], required).await?;
     }
 
     Ok(check_consent(&env.pg_pool, tenant, terms_type, version).await?)
@@ -179,18 +179,7 @@ impl LegalTermsMutation {
                 "Accepting legal terms requires a direct user grant on the tenant",
             ))
         };
-        if let Err(error) = env.authorization_outcome(outcome).await {
-            if matches!(&error, crate::ApiError::Status(status) if status.code() == tonic::Code::PermissionDenied)
-            {
-                return Err(async_graphql::Error::new_with_source(
-                    super::authorization::AuthorizationDenied {
-                        capability_bit: required,
-                        message: async_graphql::Error::from(error).message,
-                    },
-                ));
-            }
-            return Err(error.into());
-        }
+        () = super::authorization::authorization_outcome(env, outcome, required.into()).await?;
         if crate::server::is_service_account(&env.pg_pool, claims.sub).await? {
             return Err(async_graphql::Error::new(
                 "Service accounts cannot accept legal terms",

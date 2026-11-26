@@ -114,17 +114,16 @@ pub(crate) async fn wake_tenant_controller(
 /// `required` accepts any value that converts into a `CapabilityBits`:
 /// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
 /// `models::authz::CapabilityBit` bit, or an explicit `CapabilityBits`.
-pub fn evaluate_names_authorization<'r, Iter, S, C>(
+pub fn evaluate_names_authorization<S>(
     snapshot: &Snapshot,
     claims: &crate::ControlClaims,
-    required: C,
-    prefixes_or_names: Iter,
+    required: impl Into<models::authz::CapabilityBits>,
+    prefixes_or_names: impl IntoIterator<Item = S>,
 ) -> AuthZResult<()>
 where
-    Iter: IntoIterator<Item = S>,
     S: AsRef<str> + std::fmt::Display,
-    C: Into<models::authz::CapabilityBits> + Copy,
 {
+    let required = required.into();
     let subject = claims.subject();
     let models::authorizations::ControlClaims {
         email: user_email, ..

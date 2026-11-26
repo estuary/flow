@@ -231,6 +231,22 @@ pub fn bundles_covering(bits: CapabilityBits) -> impl Iterator<Item = Capability
         .filter(move |bundle| bits.is_superset(bundle.bits()))
 }
 
+/// Returns bundles which contain all of `bits`, fewest bits first.
+pub fn bundles_containing(bits: CapabilityBits) -> impl Iterator<Item = CapabilityBundle> {
+    let mut bundles: Vec<_> = <CapabilityBundle as strum::VariantArray>::VARIANTS
+        .iter()
+        .copied()
+        .filter(|bundle| bundle.bits().is_superset(bits))
+        .collect();
+    bundles.sort_by_cached_key(|bundle| {
+        (
+            bundle.bits().len(),
+            serde_json::to_string(bundle).expect("bundle serializes"),
+        )
+    });
+    bundles.into_iter()
+}
+
 pub fn bits_for_legacy(capability: super::Capability) -> CapabilityBits {
     match capability {
         super::Capability::None => CapabilityBits::empty(),

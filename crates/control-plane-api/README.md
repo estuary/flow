@@ -31,11 +31,11 @@ when its name is reused.
 the current tenant containing `catalogName`.
 
 GraphQL terminal authorization failures carry an
-`authorization::AuthorizationDenied` source with the required capability bit.
-Authorization denial messages omit the internal capability bit.
-The schema's `AuthorizationErrors` extension expands it into bundle suggestions
-and `FORBIDDEN` error extensions. Custom resolver checks can emit this error
-without using `verify_authorization`; snapshot retries remain `ApiError::AuthZRetry`.
+`authorization::AuthorizationDenied` source with the required capability bits.
+Authorization denial messages omit the internal capability bits.
+The schema's `AuthorizationErrors` extension expands them into bundle suggestions
+and `FORBIDDEN` error extensions. Custom resolver checks reach this error through
+`authorization::authorization_outcome`; snapshot retries remain `ApiError::AuthZRetry`.
 Resolvers that hide resource existence replace the denial before response formatting.
 
 `discovers::create` queues discovery with the capture's `autoDiscover.addNewBindings`

@@ -18,7 +18,7 @@ impl TenantQuery {
 
         super::verify_authorization(
             env,
-            tenant.as_str(),
+            [tenant.as_str()],
             models::authz::CapabilityBit::CatalogRead,
         )
         .await?;

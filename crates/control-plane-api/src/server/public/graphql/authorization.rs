@@ -3,7 +3,7 @@
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub(super) struct AuthorizationDenied {
-    pub capability_bit: models::authz::CapabilityBit,
+    pub capability_bits: models::authz::CapabilityBits,
     pub message: String,
 }
 
@@ -28,7 +28,12 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
             let Some(denial) = error.source::<AuthorizationDenied>() else {
                 continue;
             };
-            let options = bundles_containing_capability_bit(denial.capability_bit);
+            // Each option is a list of bundles which together hold the
+            // denied bits. Today every option is a single bundle.
+            let options: Vec<Vec<String>> =
+                models::authz::bundles_containing(denial.capability_bits)
+                    .map(|bundle| vec![bundle_name(bundle)])
+                    .collect();
             let descriptions: Vec<_> = options.iter().map(|option| option.join(" + ")).collect();
             error.message.push_str(&format!(
                 ". Requires capabilities: {}",
@@ -42,54 +47,53 @@ impl async_graphql::extensions::Extension for AuthorizationErrors {
     }
 }
 
-// Refresh stale permissions before reporting a terminal denial. Retry errors
-// retain their ApiError source for the HTTP handler's redirect handling.
-pub(super) async fn verify_authorization(
+/// Verifies that the caller holds the `required` capability bits to every one
+/// of `prefixes_or_names`.
+pub(super) async fn verify_authorization<S>(
     env: &crate::Envelope,
-    prefix: &str,
-    required: models::authz::CapabilityBit,
-) -> async_graphql::Result<()> {
+    prefixes_or_names: impl IntoIterator<Item = S>,
+    required: impl Into<models::authz::CapabilityBits>,
+) -> async_graphql::Result<()>
+where
+    S: AsRef<str> + std::fmt::Display,
+{
+    let required = required.into();
     let policy_result = crate::server::evaluate_names_authorization(
         env.snapshot(),
         env.claims()?,
         required,
-        [prefix],
+        prefixes_or_names,
     );
+    authorization_outcome(env, policy_result, required).await
+}
+
+/// `Envelope::authorization_outcome` of a check that the caller holds the
+/// `required` capability bits. It refreshes stale permissions before reporting
+/// a terminal denial, which becomes an `AuthorizationDenied`. Retry errors
+/// retain their ApiError source for the HTTP handler's redirect handling.
+pub(super) async fn authorization_outcome<T>(
+    env: &crate::Envelope,
+    policy_result: crate::AuthZResult<T>,
+    required: models::authz::CapabilityBits,
+) -> async_graphql::Result<T> {
     match env.authorization_outcome(policy_result).await {
-        Ok(_) => Ok(()),
-        Err(error) => {
-            if matches!(&error, crate::ApiError::Status(status) if status.code() == tonic::Code::PermissionDenied)
-            {
-                return Err(async_graphql::Error::new_with_source(AuthorizationDenied {
-                    capability_bit: required,
-                    message: async_graphql::Error::from(error).message,
-                }));
-            }
-            Err(error.into())
+        Ok((_expiry, ok)) => Ok(ok),
+        Err(crate::ApiError::Status(status)) if status.code() == tonic::Code::PermissionDenied => {
+            Err(async_graphql::Error::new_with_source(AuthorizationDenied {
+                capability_bits: required,
+                message: async_graphql::Error::from(crate::ApiError::Status(status)).message,
+            }))
         }
+        Err(error) => Err(error.into()),
     }
 }
 
-fn bundles_containing_capability_bit(required: models::authz::CapabilityBit) -> Vec<Vec<String>> {
-    use models::authz::CapabilityBundle;
-    let mut options: Vec<_> = <CapabilityBundle as strum::VariantArray>::VARIANTS
-        .iter()
-        .filter_map(|bundle| {
-            let bits = bundle.bits();
-            if !bits.contains(required) {
-                return None;
-            }
-            let name = serde_json::to_value(bundle)
-                .expect("bundle serializes")
-                .as_str()
-                .expect("bundle is a string")
-                .to_owned();
-            Some((bits.len(), vec![name]))
-        })
-        .collect();
-    // Prefer the bundles that grant the fewest capability bits.
-    options.sort();
-    options.into_iter().map(|(_, names)| names).collect()
+fn bundle_name(bundle: models::authz::CapabilityBundle) -> String {
+    serde_json::to_value(bundle)
+        .expect("bundle serializes")
+        .as_str()
+        .expect("bundle is a string")
+        .to_owned()
 }
 
 #[cfg(test)]
@@ -101,7 +105,7 @@ mod tests {
         async fn denied(&self) -> async_graphql::Result<Option<bool>> {
             Err(async_graphql::Error::new_with_source(
                 super::AuthorizationDenied {
-                    capability_bit: models::authz::CapabilityBit::EditBilling,
+                    capability_bits: models::authz::CapabilityBit::EditBilling.into(),
                     message: "billing access denied".to_owned(),
                 },
             ))
@@ -110,7 +114,7 @@ mod tests {
         async fn hidden(&self) -> async_graphql::Result<Option<bool>> {
             Err(super::super::service_accounts::hide_denial_as_not_found(
                 async_graphql::Error::new_with_source(super::AuthorizationDenied {
-                    capability_bit: models::authz::CapabilityBit::CreateApiKey,
+                    capability_bits: models::authz::CapabilityBit::CreateApiKey.into(),
                     message: "key access denied".to_owned(),
                 }),
             ))

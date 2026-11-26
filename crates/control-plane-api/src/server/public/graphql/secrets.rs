@@ -176,7 +176,7 @@ impl SecretsMutation {
         }
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::EditSecret,
         )
         .await?;
@@ -268,7 +268,8 @@ impl SecretsMutation {
             ));
         }
 
-        super::verify_authorization(env, target, models::authz::CapabilityBit::EditSecret).await?;
+        super::verify_authorization(env, [target], models::authz::CapabilityBit::EditSecret)
+            .await?;
 
         // Two statements rather than one branching on a parameter, so each is a
         // shape the planner can index: the primary key for a name, and

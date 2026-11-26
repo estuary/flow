@@ -6,13 +6,21 @@ expression: response
   "data": null,
   "errors": [
     {
+      "extensions": {
+        "code": "FORBIDDEN",
+        "requiredBundleOptions": [
+          [
+            "admin"
+          ]
+        ]
+      },
       "locations": [
         {
           "column": 25,
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'",
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'. Requires capabilities: admin",
       "path": [
         "updateAlertConfig"
       ]

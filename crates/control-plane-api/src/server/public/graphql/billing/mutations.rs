@@ -41,7 +41,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            tenant.as_str(),
+            [tenant.as_str()],
             models::authz::CapabilityBit::EditBilling,
         )
         .await?;
@@ -105,7 +105,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            tenant.as_str(),
+            [tenant.as_str()],
             models::authz::CapabilityBit::EditBilling,
         )
         .await?;
@@ -148,7 +148,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            tenant.as_str(),
+            [tenant.as_str()],
             models::authz::CapabilityBit::EditBilling,
         )
         .await?;
@@ -183,7 +183,7 @@ impl BillingMutation {
         let tenant = validate_tenant_name(&tenant)?;
         verify_authorization(
             env,
-            tenant.as_str(),
+            [tenant.as_str()],
             models::authz::CapabilityBit::EditBilling,
         )
         .await?;

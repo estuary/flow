@@ -89,7 +89,7 @@ impl ServiceAccountsQuery {
         }
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::QueryServiceAccounts,
         )
         .await?;
@@ -255,7 +255,7 @@ impl ServiceAccountsMutation {
         // narrower than full Admin.
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::CreateServiceAccount,
         )
         .await?;
@@ -285,7 +285,7 @@ impl ServiceAccountsMutation {
         for grant in &grants {
             super::verify_authorization(
                 env,
-                grant.prefix.as_str(),
+                [grant.prefix.as_str()],
                 models::authz::CapabilityBit::CreateGrant,
             )
             .await?;
@@ -391,7 +391,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::CreateGrant,
         )
         .await?;
@@ -412,7 +412,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            prefix.as_str(),
+            [prefix.as_str()],
             models::authz::CapabilityBit::CreateGrant,
         )
         .await?;
@@ -468,7 +468,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::CreateServiceAccount,
         )
         .await?;
@@ -513,7 +513,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::CreateServiceAccount,
         )
         .await?;
@@ -567,7 +567,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::CreateApiKey,
         )
         .await?;
@@ -719,7 +719,7 @@ impl ServiceAccountsMutation {
         // and denial are indistinguishable.
         super::verify_authorization(
             env,
-            &owner.catalog_name,
+            [&owner.catalog_name],
             models::authz::CapabilityBit::RevokeApiKey,
         )
         .await
@@ -762,7 +762,7 @@ impl ServiceAccountsMutation {
 
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::RevokeApiKey,
         )
         .await?;

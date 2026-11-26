@@ -105,7 +105,7 @@ impl DiscoversMutation {
 
         super::verify_authorization(
             env,
-            capture_name.as_str(),
+            [capture_name.as_str()],
             models::authz::CapabilityBit::SpecEdit,
         )
         .await?;

@@ -821,7 +821,7 @@ impl DataPlanesMutation {
         require_private_dp_name(&data_plane_name)?;
         super::verify_authorization(
             env,
-            &data_plane_name,
+            [&data_plane_name],
             models::authz::CapabilityBit::ModifyDataPlanePrivateNetworking,
         )
         .await?;

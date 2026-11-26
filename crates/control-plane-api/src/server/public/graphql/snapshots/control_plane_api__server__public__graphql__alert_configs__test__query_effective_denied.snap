@@ -1,19 +1,38 @@
 ---
 source: crates/control-plane-api/src/server/public/graphql/alert_configs.rs
-assertion_line: 729
 expression: response
 ---
 {
   "data": null,
   "errors": [
     {
+      "extensions": {
+        "code": "FORBIDDEN",
+        "requiredBundleOptions": [
+          [
+            "catalog_read"
+          ],
+          [
+            "viewer"
+          ],
+          [
+            "writer"
+          ],
+          [
+            "editor"
+          ],
+          [
+            "admin"
+          ]
+        ]
+      },
       "locations": [
         {
           "column": 25,
           "line": 3
         }
       ],
-      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'",
+      "message": "PermissionDenied: alice@example.test is not authorized to access prefix or name 'notAliceCo/'. Requires capabilities: catalog_read or viewer or writer or editor or admin",
       "path": [
         "effectiveAlertConfig"
       ]

@@ -6,13 +6,27 @@ expression: response
   "data": null,
   "errors": [
     {
+      "extensions": {
+        "code": "FORBIDDEN",
+        "requiredBundleOptions": [
+          [
+            "viewer"
+          ],
+          [
+            "writer"
+          ],
+          [
+            "admin"
+          ]
+        ]
+      },
       "locations": [
         {
           "column": 13,
           "line": 3
         }
       ],
-      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope'",
+      "message": "PermissionDenied: user is not authorized to access prefix or name 'bobCo/nope'. Requires capabilities: viewer or writer or admin",
       "path": [
         "catalogStats"
       ]

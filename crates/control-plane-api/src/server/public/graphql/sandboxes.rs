@@ -163,7 +163,7 @@ impl SandboxesMutation {
         let claims = env.claims()?;
         super::verify_authorization(
             env,
-            catalog_name.as_str(),
+            [catalog_name.as_str()],
             models::authz::CapabilityBit::CreateSandbox,
         )
         .await?;

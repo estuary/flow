@@ -201,7 +201,7 @@ impl InviteLinksMutation {
 
         super::verify_authorization(
             env,
-            &catalog_prefix,
+            [&catalog_prefix],
             models::authz::CapabilityBit::ManageInviteLinks,
         )
         .await?;
@@ -408,7 +408,7 @@ impl InviteLinksMutation {
 
         super::verify_authorization(
             env,
-            &invite.catalog_prefix,
+            [&invite.catalog_prefix],
             models::authz::CapabilityBit::ManageInviteLinks,
         )
         .await?;
