@@ -2,7 +2,7 @@ use async_graphql::{Context, Result, SimpleObject};
 use unicode_normalization::UnicodeNormalization;
 use validator::Validate;
 
-mod storage;
+pub(crate) mod storage;
 
 const TENANT_UNAVAILABLE_MESSAGE: &str = "The organization name is already in use, \
     please choose a different one or contact support@estuary.dev.";
