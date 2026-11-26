@@ -28,11 +28,14 @@ pub struct LiveSpecsBy {
 pub struct LiveSpecRef {
     /// The catalog_name of the referent.
     pub catalog_name: models::Name,
-    /// The current user's legacy capability to the referent, retained for compatibility.
-    /// Authorization is evaluated independently using the CatalogRead capability bit.
-    #[graphql(deprecation = "Legacy capability reporting does not reflect effective permissions.")]
-    pub user_capability: Option<models::Capability>,
-    // Legacy capability reporting does not reflect effective bits or token restrictions.
+    /// The highest legacy tier whose capability bits the user holds at the
+    /// referent, or null if none. Whether the referent is shown depends only
+    /// on the `CatalogRead` capability bit.
+    #[graphql(
+        name = "userCapability",
+        deprecation = "Use `PrefixRef.capabilityBundles` instead."
+    )]
+    pub user_legacy_tier: Option<models::authz::LegacyTier>,
     #[graphql(skip)]
     pub can_read: bool,
 }
@@ -186,17 +189,17 @@ pub fn live_spec_refs(
     all_names: impl IntoIterator<Item = String>,
 ) -> async_graphql::Result<impl Iterator<Item = LiveSpecRef>> {
     let subject = env.subject()?;
+    let snapshot = env.snapshot();
     Ok(all_names.into_iter().map(move |name| {
-        let user_capability = env.snapshot().user_capability(subject, &name);
-        let can_read = env.snapshot().is_user_authorized(
-            subject,
-            &name,
-            models::authz::CapabilityBit::CatalogRead,
-        );
+        let bits = snapshot.user_capability_bits_at(subject, &name);
+        let user_legacy_tier = match models::authz::LegacyTier::tier_of(bits) {
+            models::authz::LegacyTier::None => None,
+            tier => Some(tier),
+        };
         LiveSpecRef {
             catalog_name: models::Name::new(name),
-            user_capability,
-            can_read,
+            user_legacy_tier,
+            can_read: bits.contains(models::authz::CapabilityBit::CatalogRead),
         }
     }))
 }
@@ -269,11 +272,6 @@ impl LiveSpecsQuery {
     /// Returns a paginated list of live specs under the given prefix and
     /// matching the given type.
     ///
-    /// Note that the `user_capability` that's returned as part of the reference
-    /// represents the user's capability to the whole prefix, and it is possible
-    /// that there are more specific grants for a broader capability. In other
-    /// words, this capability represents the _minimum_ capability that the user
-    /// has for the given spec.
     pub async fn live_specs(
         &self,
         ctx: &Context<'_>,

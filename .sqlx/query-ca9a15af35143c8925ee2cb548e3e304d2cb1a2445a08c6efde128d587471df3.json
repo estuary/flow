@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                catalog_prefix AS \"catalog_prefix!: String\",\n                capability AS \"capability!: models::Capability\",\n                single_use AS \"single_use!: bool\"\n            FROM internal.invite_links\n            WHERE token = $1\n            FOR UPDATE\n            ",
+  "query": "\n            SELECT\n                catalog_prefix AS \"catalog_prefix!: String\",\n                capability AS \"legacy_tier!: models::authz::LegacyTier\",\n                single_use AS \"single_use!: bool\"\n            FROM internal.invite_links\n            WHERE token = $1\n            FOR UPDATE\n            ",
   "describe": {
     "columns": [
       {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "capability!: models::Capability",
+        "name": "legacy_tier!: models::authz::LegacyTier",
         "type_info": {
           "Custom": {
             "name": "grant_capability",
@@ -87,5 +87,5 @@
       false
     ]
   },
-  "hash": "aca6c646d9ad8bb96e60a21dd710757700ffd8170d8fa078cd0500295880f960"
+  "hash": "ca9a15af35143c8925ee2cb548e3e304d2cb1a2445a08c6efde128d587471df3"
 }

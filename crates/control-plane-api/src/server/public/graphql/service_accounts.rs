@@ -17,16 +17,18 @@ pub struct ServiceAccount {
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct UserGrantInput {
     pub prefix: models::Prefix,
-    pub capability: models::Capability,
+    #[graphql(name = "capability")]
+    pub legacy_tier: models::authz::LegacyTier,
 }
 
 /// A user_grant held by a service account: the prefix it may act on and the
-/// capability it holds there. An account's access is the union of its grants,
+/// legacy tier it holds there. An account's access is the union of its grants,
 /// which may span multiple prefixes independent of its catalog_name anchor.
 #[derive(Debug, Clone, async_graphql::SimpleObject)]
 pub struct UserGrant {
     pub prefix: models::Prefix,
-    pub capability: models::Capability,
+    #[graphql(name = "capability")]
+    pub legacy_tier: models::authz::LegacyTier,
     pub detail: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -268,7 +270,7 @@ impl ServiceAccountsMutation {
             }
             // `none` confers no access until bundles are wired, so reject it
             // rather than mint a no-op grant.
-            if grant.capability == models::Capability::None {
+            if grant.legacy_tier == models::authz::LegacyTier::None {
                 return Err(async_graphql::Error::new(
                     "grant capability must be one of: read, write, admin",
                 ));
@@ -343,7 +345,7 @@ impl ServiceAccountsMutation {
             crate::grants::overwrite_user_grant(
                 sa_user_id,
                 grant.prefix.as_str(),
-                grant.capability,
+                grant.legacy_tier,
                 Some("service account grant".to_string()),
                 &mut txn,
             )
@@ -375,7 +377,7 @@ impl ServiceAccountsMutation {
     /// per-prefix check prevents a caller from extending an account's access
     /// beyond what they could grant anyone. (Human-user grant creation still
     /// lives in PostgREST; when it migrates to GraphQL it should gate on this
-    /// same bit.)
+    /// same bit.) `capability` is the legacy tier of the grant.
     ///
     /// The account's tenant must be paid.
     async fn add_service_account_grant(
@@ -383,7 +385,7 @@ impl ServiceAccountsMutation {
         ctx: &Context<'_>,
         catalog_name: models::Name,
         prefix: models::Prefix,
-        capability: models::Capability,
+        #[graphql(name = "capability")] legacy_tier: models::authz::LegacyTier,
     ) -> async_graphql::Result<ServiceAccount> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
@@ -403,7 +405,7 @@ impl ServiceAccountsMutation {
         }
         // `none` confers no access until bundles are wired, so reject it
         // rather than mint a no-op grant.
-        if capability == models::Capability::None {
+        if legacy_tier == models::authz::LegacyTier::None {
             return Err(async_graphql::Error::new(
                 "grant capability must be one of: read, write, admin",
             ));
@@ -427,7 +429,7 @@ impl ServiceAccountsMutation {
         crate::grants::overwrite_user_grant(
             user_id,
             prefix.as_str(),
-            capability,
+            legacy_tier,
             Some("service account grant".to_string()),
             &mut txn,
         )
@@ -438,7 +440,7 @@ impl ServiceAccountsMutation {
             %user_id,
             %catalog_name,
             %prefix,
-            ?capability,
+            ?legacy_tier,
             %claims.sub,
             "added service account grant"
         );
@@ -886,7 +888,7 @@ async fn load_service_account(
 
 /// Batch-load the grants of a set of service accounts, keyed by user_id and
 /// ordered by prefix within each account. An account's reach is the union of
-/// its grants, so they're a list rather than a single capability.
+/// its grants, so they're a list rather than a single legacy tier.
 async fn load_grants_by_user(
     pg_pool: &sqlx::PgPool,
     user_ids: &[uuid::Uuid],
@@ -902,7 +904,7 @@ async fn load_grants_by_user(
         SELECT
             g.user_id,
             g.object_role AS "prefix!: models::Prefix",
-            g.capability AS "capability!: models::Capability",
+            g.capability AS "legacy_tier!: models::authz::LegacyTier",
             g.detail,
             g.created_at AS "created_at!: chrono::DateTime<chrono::Utc>",
             g.updated_at AS "updated_at!: chrono::DateTime<chrono::Utc>"
@@ -918,7 +920,7 @@ async fn load_grants_by_user(
     for gr in rows {
         by_user.entry(gr.user_id).or_default().push(UserGrant {
             prefix: gr.prefix,
-            capability: gr.capability,
+            legacy_tier: gr.legacy_tier,
             detail: gr.detail,
             created_at: gr.created_at,
             updated_at: gr.updated_at,
@@ -1222,7 +1224,7 @@ mod test {
 
         // capability `none` confers no access until bundles are wired, so it is
         // rejected rather than minting a no-op grant.
-        let none_capability: serde_json::Value = server
+        let none_tier: serde_json::Value = server
             .graphql(
                 &serde_json::json!({
                     "query": r#"
@@ -1237,11 +1239,11 @@ mod test {
             )
             .await;
         assert!(
-            none_capability["errors"][0]["message"]
+            none_tier["errors"][0]["message"]
                 .as_str()
                 .unwrap_or_default()
                 .contains("capability must be one of"),
-            "Capability::None should be rejected: {none_capability}"
+            "legacy tier `none` should be rejected: {none_tier}"
         );
 
         // Every requested grant is independently authorized: alice admins
@@ -1876,8 +1878,8 @@ mod test {
         );
         // The grant is overwritten in place: capability lowered to read, with
         // no additional row.
-        let ops_capability = sqlx::query_scalar!(
-            r#"SELECT capability AS "capability!: models::Capability"
+        let ops_legacy_tier = sqlx::query_scalar!(
+            r#"SELECT capability AS "capability!: models::authz::LegacyTier"
                FROM public.user_grants WHERE user_id = $1 AND object_role = 'aliceCo/ops/'"#,
             uuid::Uuid::parse_str(&sa_user_id).unwrap(),
         )
@@ -1885,8 +1887,8 @@ mod test {
         .await
         .unwrap();
         assert_eq!(
-            ops_capability,
-            models::Capability::Read,
+            ops_legacy_tier,
+            models::authz::LegacyTier::Read,
             "the grant should be overwritten to the requested lower capability"
         );
         assert_eq!(grant_count(&pool, &sa_user_id).await, 3);

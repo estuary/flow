@@ -71,7 +71,7 @@ async fn serve(args: Args, registry: service_kit::Registry) -> anyhow::Result<()
     let session = crate::auth::start(&profile).await?;
     let factory = flow_client_next::workflows::user_collection_auth::new_journal_client_factory(
         session.rest,
-        models::Capability::Read,
+        models::authz::LegacyTier::Read,
         gazette::Router::new("local"),
         session.tokens,
     );

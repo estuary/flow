@@ -319,7 +319,6 @@ impl StorageMappingsMutation {
                 catalog_prefix,
                 detail,
                 spec: async_graphql::Json(collection_spec),
-                user_capability: models::Capability::Admin,
             },
         })
     }
@@ -466,7 +465,6 @@ impl StorageMappingsMutation {
                 catalog_prefix,
                 detail,
                 spec: async_graphql::Json(collection_spec),
-                user_capability: models::Capability::Admin,
             },
             republish,
         })
@@ -535,7 +533,11 @@ fn check_authorization(
     let user_email = user_email.unwrap_or("user");
 
     // Verify the User admins `catalog_prefix`.
-    if !snapshot.is_user_authorized(subject, catalog_prefix, models::Capability::Admin) {
+    if !snapshot.is_user_authorized(
+        subject,
+        catalog_prefix,
+        models::authz::CapabilityBundle::Admin,
+    ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not an authorized as an Admin of catalog prefix '{catalog_prefix}'",
         )));
@@ -543,7 +545,11 @@ fn check_authorization(
 
     for data_plane_name in data_plane_names {
         // Verify `catalog_prefix` is authorized to access the data-plane for Read.
-        if !snapshot.is_role_authorized(catalog_prefix, data_plane_name, models::Capability::Read) {
+        if !snapshot.is_role_authorized(
+            catalog_prefix,
+            data_plane_name,
+            models::authz::CapabilityBundle::Viewer,
+        ) {
             return Err(tonic::Status::permission_denied(format!(
                 "'{catalog_prefix}' is not authorized to data plane '{data_plane_name}' for Read",
             )));
@@ -634,12 +640,26 @@ pub struct StorageMapping {
     /// The storage definition containing stores and data plane assignments.
     #[graphql(deprecation = "Deprecated in favor of `dataPlanes` and `fragmentStores` fields.")]
     pub spec: async_graphql::Json<models::StorageDef>,
-    /// The current user's capability to this storage mapping's prefix.
-    pub user_capability: models::Capability,
 }
 
 #[async_graphql::ComplexObject]
 impl StorageMapping {
+    /// The highest legacy tier whose capability bits the current user holds
+    /// at this storage mapping's prefix.
+    #[graphql(
+        name = "userCapability",
+        deprecation = "Use `PrefixRef.capabilityBundles` instead."
+    )]
+    async fn user_legacy_tier(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<models::authz::LegacyTier> {
+        let env = ctx.data::<crate::Envelope>()?;
+        let snapshot = env.snapshot();
+        let bits = snapshot.user_capability_bits_at(env.subject()?, &self.catalog_prefix);
+        Ok(models::authz::LegacyTier::tier_of(bits))
+    }
+
     /// Data planes which may be used by tasks or collections under this mapping.
     async fn data_planes(
         &self,
@@ -675,13 +695,10 @@ impl StorageMapping {
 
                 // users that have access to the storage mapping are assumed to have read access
                 // to the associated data planes, even if they don't have an explicit grant
-                let capability = snapshot
-                    .user_capability(subject, name)
-                    .unwrap_or(models::Capability::None);
-
+                let user_bits = snapshot.user_capability_bits_at(subject, name);
                 let details = details_map.get(&key);
                 let data_plane =
-                    data_planes::DataPlane::build(snapshot_data_plane, capability, details);
+                    data_planes::DataPlane::build(snapshot_data_plane, user_bits, details);
 
                 if data_plane.is_none() {
                     tracing::warn!(
@@ -907,31 +924,19 @@ impl StorageMappingsQuery {
             )
             .await?;
 
-        let snapshot = env.snapshot();
-        let subject = env.subject()?;
         let edges = rows
             .into_iter()
             .map(|row| {
-                let user_capability = snapshot
-                    .user_capability(subject, &row.catalog_prefix)
-                    .ok_or_else(|| {
-                        async_graphql::Error::new(format!(
-                            "missing capability for catalog prefix '{}'",
-                            row.catalog_prefix
-                        ))
-                    })?;
-
-                Ok(connection::Edge::new(
+                connection::Edge::new(
                     row.catalog_prefix.clone(),
                     StorageMapping {
                         catalog_prefix: models::Prefix::new(row.catalog_prefix),
                         detail: row.detail,
                         spec: async_graphql::Json(row.spec),
-                        user_capability,
                     },
-                ))
+                )
             })
-            .collect::<Result<Vec<_>, async_graphql::Error>>()?;
+            .collect();
 
         let mut conn = PaginatedStorageMappings::new(has_prev, has_next);
         conn.edges = edges;

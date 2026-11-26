@@ -420,7 +420,9 @@ input BoolFilter {
 }
 
 """
-Capability within the Estuary role-based access control (RBAC) authorization system.
+A legacy tier of the original authorization model: none, read, write, or
+admin. A tier conveys the capability bits of its equivalent bundle
+(`Viewer`, `Writer`, or `Admin`). Prefer capability bundles.
 """
 enum Capability {
 	"""
@@ -1010,9 +1012,10 @@ type DataPlane {
 	"""
 	reactorAddress: String!
 	"""
-	The current user's capability to this data plane's name prefix.
+	The highest legacy tier whose capability bits the current user holds
+	at this data plane's name.
 	"""
-	userCapability: Capability!
+	userCapability: Capability! @deprecated(reason: "Use `PrefixRef.capabilityBundles` instead.")
 	"""
 	Cloud provider where this data-plane is hosted.
 	"""
@@ -1583,7 +1586,7 @@ type InviteLink {
 	"""
 	catalogPrefix: Prefix!
 	"""
-	The capability level granted by this invite link.
+	The legacy tier granted by this invite link.
 	"""
 	capability: Capability!
 	"""
@@ -1794,10 +1797,11 @@ type LiveSpecRef {
 	"""
 	catalogName: Name!
 	"""
-	The current user's legacy capability to the referent, retained for compatibility.
-	Authorization is evaluated independently using the CatalogRead capability bit.
+	The highest legacy tier whose capability bits the user holds at the
+	referent, or null if none. Whether the referent is shown depends only
+	on the `CatalogRead` capability bit.
 	"""
-	userCapability: Capability @deprecated(reason: "Legacy capability reporting does not reflect effective permissions.")
+	userCapability: Capability @deprecated(reason: "Use `PrefixRef.capabilityBundles` instead.")
 	"""
 	Returns the live spec that the reference points to, if the user has access to it.
 	"""
@@ -2073,15 +2077,15 @@ type MutationRoot {
 	Create an invite link that grants access to a catalog prefix.
 	
 	The caller must hold the `ManageInviteLinks` capability bit on the
-	catalog prefix.
+	catalog prefix. `capability` is the legacy tier the link grants.
 	The prefix's tenant must be paid. A self-serve tenant is paid once it
 	has a payment method.
 	Share the returned token with the intended recipient out-of-band.
 	"""
 	createInviteLink(catalogPrefix: Prefix!, capability: Capability!, singleUse: Boolean! = true, detail: String): InviteLink!
 	"""
-	Redeem an invite link token, granting the caller access to the associated
-	catalog prefix with the specified capability.
+	Redeem an invite link token, granting the caller the link's legacy tier
+	on its catalog prefix.
 	
 	The invite link's tenant must be paid.
 	"""
@@ -2184,7 +2188,7 @@ type MutationRoot {
 	per-prefix check prevents a caller from extending an account's access
 	beyond what they could grant anyone. (Human-user grant creation still
 	lives in PostgREST; when it migrates to GraphQL it should gate on this
-	same bit.)
+	same bit.) `capability` is the legacy tier of the grant.
 	
 	The account's tenant must be paid.
 	"""
@@ -2445,17 +2449,15 @@ type PrefixRef {
 	"""
 	prefix: Prefix!
 	"""
-	The literal legacy `capability` column value of the grant(s) that
-	emitted this prefix (max'd if multiple grants land at the same
-	prefix). Reports `none` for prefixes whose authorization comes
-	entirely from the `bundles` column rather than the legacy column.
+	The highest legacy tier whose capability bits the user holds at this
+	prefix.
 	
 	Exists solely so the dashboard's read/write/admin prefix-bucket
 	store keeps working until it migrates to `capabilityBundles`.
 	Once that migration lands, this field and its derivation can be
 	deleted.
 	"""
-	userCapability: Capability!
+	userCapability: Capability! @deprecated(reason: "Use `PrefixRef.capabilityBundles` instead.")
 	"""
 	Capability bits the user holds at this prefix.
 	"""
@@ -2497,7 +2499,8 @@ type PrefixRefEdge {
 
 input PrefixesBy {
 	"""
-	Filter returned prefixes by user capability.
+	Returns only prefixes where the user holds the capability bits of this
+	legacy tier.
 	"""
 	minCapability: Capability! = none
 }
@@ -2765,12 +2768,6 @@ type QueryRoot {
 	"""
 	Returns a paginated list of live specs under the given prefix and
 	matching the given type.
-	
-	Note that the `user_capability` that's returned as part of the reference
-	represents the user's capability to the whole prefix, and it is possible
-	that there are more specific grants for a broader capability. In other
-	words, this capability represents the _minimum_ capability that the user
-	has for the given spec.
 	"""
 	liveSpecs(by: LiveSpecsBy!, after: String, before: String, first: Int, last: Int): LiveSpecRefConnection!
 	"""
@@ -2925,7 +2922,7 @@ type RedeemInviteLinkResult {
 	"""
 	catalogPrefix: Prefix!
 	"""
-	The capability level that was granted.
+	The legacy tier that was granted.
 	"""
 	capability: Capability!
 }
@@ -3506,9 +3503,10 @@ type StorageMapping {
 	"""
 	spec: JSON! @deprecated(reason: "Deprecated in favor of `dataPlanes` and `fragmentStores` fields.")
 	"""
-	The current user's capability to this storage mapping's prefix.
+	The highest legacy tier whose capability bits the current user holds
+	at this storage mapping's prefix.
 	"""
-	userCapability: Capability!
+	userCapability: Capability! @deprecated(reason: "Use `PrefixRef.capabilityBundles` instead.")
 	"""
 	Data planes which may be used by tasks or collections under this mapping.
 	"""
@@ -3661,7 +3659,7 @@ type UsBankAccountPaymentMethodDetails {
 
 """
 A user_grant held by a service account: the prefix it may act on and the
-capability it holds there. An account's access is the union of its grants,
+legacy tier it holds there. An account's access is the union of its grants,
 which may span multiple prefixes independent of its catalog_name anchor.
 """
 type UserGrant {

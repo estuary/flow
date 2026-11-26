@@ -8,7 +8,7 @@ pub struct UserTaskAuth {
     /// Task to be authorized.
     pub task: models::Name,
     /// Requested capability level of the authorization.
-    pub capability: models::Capability,
+    pub capability: models::authz::LegacyTier,
 }
 
 /// Build a Gazette journal Client using UserTaskAuthorization tokens.

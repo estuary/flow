@@ -12,7 +12,7 @@ async fn test_publication_spec_updates() {
     let caterpillar = harness.setup_tenant("caterpillars").await;
     let moth = harness.setup_tenant("moths").await;
     harness
-        .add_role_grant("moths/", "caterpillars/", models::Capability::Read)
+        .add_role_grant("moths/", "caterpillars/", models::authz::LegacyTier::Read)
         .await;
 
     let draft = draft_catalog(serde_json::json!({

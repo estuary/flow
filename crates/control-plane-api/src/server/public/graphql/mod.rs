@@ -65,7 +65,7 @@ pub(crate) use scalars::{Sensitive, UInt64};
 /// negative result, because momentarily hiding a field against a slightly-stale
 /// Snapshot is the correct, low-cost behavior.
 ///
-/// `required` accepts a legacy `models::Capability`, an orthogonal
+/// `required` accepts a `models::authz::CapabilityBundle`, an orthogonal
 /// `models::authz::CapabilityBit` bit, or a `models::authz::CapabilityBits`.
 fn may_access(
     ctx: &async_graphql::Context<'_>,
@@ -73,8 +73,9 @@ fn may_access(
     required: impl Into<models::authz::CapabilityBits>,
 ) -> async_graphql::Result<bool> {
     let env = ctx.data::<crate::Envelope>()?;
-    let snapshot = env.snapshot();
-    Ok(snapshot.is_user_authorized(env.subject()?, name, required))
+    Ok(env
+        .snapshot()
+        .is_user_authorized(env.subject()?, name, required))
 }
 
 /// A JSON object, the shape of which is opaque to the graphql schema

@@ -3,7 +3,7 @@ use sqlx::types::Uuid;
 pub async fn upsert_user_grant(
     user: Uuid,
     prefix: &str,
-    capability: models::Capability,
+    legacy_tier: models::authz::LegacyTier,
     detail: Option<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
@@ -18,7 +18,7 @@ pub async fn upsert_user_grant(
         "#,
         user,
         prefix as &str,
-        capability as models::Capability,
+        legacy_tier as models::authz::LegacyTier,
         detail as Option<String>,
     )
     .execute(&mut **txn)
@@ -27,13 +27,13 @@ pub async fn upsert_user_grant(
     Ok(())
 }
 
-/// Upsert a user grant, unconditionally replacing the capability and detail of
+/// Upsert a user grant, unconditionally replacing the legacy tier and detail of
 /// any existing grant. Unlike [`upsert_user_grant`], this does not guard against
-/// downgrades: the supplied `capability` always wins.
+/// downgrades: the supplied `legacy_tier` always wins.
 pub async fn overwrite_user_grant(
     user: Uuid,
     prefix: &str,
-    capability: models::Capability,
+    legacy_tier: models::authz::LegacyTier,
     detail: Option<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
@@ -47,7 +47,7 @@ pub async fn overwrite_user_grant(
         "#,
         user,
         prefix as &str,
-        capability as models::Capability,
+        legacy_tier as models::authz::LegacyTier,
         detail as Option<String>,
     )
     .execute(&mut **txn)

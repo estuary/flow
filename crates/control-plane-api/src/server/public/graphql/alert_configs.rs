@@ -126,7 +126,7 @@ impl AlertConfigsQuery {
             super::authorized_prefixes::filtered_authorized_prefixes(
                 snapshot,
                 env.subject()?,
-                models::Capability::Read,
+                models::authz::CapabilityBundle::Viewer,
                 filter.and_then(|f| f.catalog_prefix_or_name),
                 "filter.catalogPrefixOrName",
             )?;
@@ -262,7 +262,8 @@ impl AlertConfigsMutation {
         validate_prefix_or_name(&catalog_prefix_or_name)?;
 
         let gov = governing_prefix(&catalog_prefix_or_name)?;
-        super::verify_authorization(env, [gov.as_str()], models::Capability::Admin).await?;
+        super::verify_authorization(env, [gov.as_str()], models::authz::CapabilityBundle::Admin)
+            .await?;
 
         if !catalog_prefix_or_name.ends_with('/') {
             let exists: bool = sqlx::query_scalar(

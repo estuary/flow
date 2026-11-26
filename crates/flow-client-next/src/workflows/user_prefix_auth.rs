@@ -11,7 +11,7 @@ pub struct UserPrefixAuth {
     /// Name of the data-plane to be authorized.
     pub data_plane: models::Name,
     /// Requested capability level of the authorization.
-    pub capability: models::Capability,
+    pub capability: models::authz::LegacyTier,
 }
 
 /// Build a Gazette journal Client using UserPrefixAuthorization tokens.

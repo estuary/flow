@@ -121,7 +121,11 @@ pub async fn create(
             .to_owned()
     };
     snapshot
-        .is_user_authorized(subject, &data_plane_name, models::Capability::Read)
+        .is_user_authorized(
+            subject,
+            &data_plane_name,
+            models::authz::CapabilityBundle::Viewer,
+        )
         .then(|| snapshot.data_plane_by_catalog_name(&data_plane_name))
         .flatten()
         .filter(|data_plane| data_plane.connector_route().is_ok())
@@ -483,7 +487,7 @@ impl DiscoverHandler {
                 !snapshot.is_role_authorized(
                     capture_name.as_str(),
                     target.as_str(),
-                    models::Capability::Write,
+                    models::authz::CapabilityBundle::Writer,
                 )
             })
             .map(|target| target.as_str())

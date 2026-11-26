@@ -1,4 +1,4 @@
-use models::{Capability, CatalogType, Id};
+use models::{CatalogType, Id};
 use uuid::Uuid;
 
 use crate::{
@@ -478,7 +478,11 @@ async fn test_injected_ops_collections_are_not_locked() {
     // the read collection, and only that one: the other ops collection is merely
     // injected and remains skipped.
     harness
-        .add_role_grant("owls/", "ops.us-central1.v1/", Capability::Read)
+        .add_role_grant(
+            "owls/",
+            "ops.us-central1.v1/",
+            models::authz::LegacyTier::Read,
+        )
         .await;
     // Re-pin the Snapshot: the build's spec-to-spec authorization must see
     // the just-added role grant.

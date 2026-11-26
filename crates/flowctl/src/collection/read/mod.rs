@@ -82,7 +82,7 @@ pub async fn read_collection(
 
     let factory = flow_client_next::workflows::user_collection_auth::new_journal_client_factory(
         ctx.rest.clone(),
-        models::Capability::Read,
+        models::authz::LegacyTier::Read,
         ctx.router.clone(),
         ctx.user_tokens.clone(),
     );

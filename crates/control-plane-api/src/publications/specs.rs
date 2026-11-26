@@ -2,7 +2,6 @@ use super::{LockFailure, UncommittedBuild};
 use crate::draft;
 use crate::publications::db::{self, LiveRevision, LiveSpecUpdate};
 use anyhow::Context;
-use models::Capability;
 use models::{Id, ModelDef, split_image_tag};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
@@ -684,19 +683,35 @@ pub async fn resolve_live_specs(
             // Denial messages render the grants the spec holds by virtue of
             // its own name: those whose `subject_role` prefixes it. This is
             // only the directly-held grants, not the transitive reach of the
-            // walk, and exists solely to make the error actionable.
+            // walk, and exists solely to make the error actionable. Each grant
+            // names its `maximal_bundles`.
+            #[derive(serde::Serialize)]
+            struct SpecGrant<'a> {
+                subject_role: &'a models::Prefix,
+                object_role: &'a models::Prefix,
+                capability_bundles: Vec<models::authz::CapabilityBundle>,
+            }
             let spec_grants = || {
                 serde_json::to_string_pretty(
                     &snapshot
                         .role_grants
                         .iter()
                         .filter(|grant| catalog_name.starts_with(grant.subject_role.as_str()))
+                        .map(|grant| SpecGrant {
+                            subject_role: &grant.subject_role,
+                            object_role: &grant.object_role,
+                            capability_bundles: maximal_bundles(grant.capability_bits),
+                        })
                         .collect::<Vec<_>>(),
                 )
                 .unwrap()
             };
             for source in reads_from {
-                if !snapshot.is_role_authorized(catalog_name, source.as_str(), Capability::Read) {
+                if !snapshot.is_role_authorized(
+                    catalog_name,
+                    source.as_str(),
+                    models::authz::CapabilityBundle::Viewer,
+                ) {
                     snapshot.request_refresh();
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
@@ -708,7 +723,11 @@ pub async fn resolve_live_specs(
                 }
             }
             for target in writes_to {
-                if !snapshot.is_role_authorized(catalog_name, target.as_str(), Capability::Write) {
+                if !snapshot.is_role_authorized(
+                    catalog_name,
+                    target.as_str(),
+                    models::authz::CapabilityBundle::Writer,
+                ) {
                     snapshot.request_refresh();
                     live.errors.push(tables::Error {
                         scope: scope.clone(),
@@ -790,6 +809,25 @@ pub async fn resolve_live_specs(
         live,
         mapping_planes,
     })
+}
+
+/// Returns the bundles covered by `bits` which no other covered bundle
+/// strictly contains. A grant of one bundle renders as just that bundle,
+/// and a grant of unrelated bundles renders each of them.
+fn maximal_bundles(bits: models::authz::CapabilityBits) -> Vec<models::authz::CapabilityBundle> {
+    let covering: Vec<_> = models::authz::bundles_covering(bits).collect();
+
+    covering
+        .iter()
+        .copied()
+        .filter(|bundle| {
+            let own = bundle.bits();
+            !covering.iter().any(|other| {
+                let theirs = other.bits();
+                theirs.is_superset(own) && theirs != own
+            })
+        })
+        .collect()
 }
 
 /// Build `tables::StorageMappings` from fetched `storage_mappings` rows, where
@@ -980,6 +1018,53 @@ pub async fn add_built_specs_to_draft_specs(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_maximal_bundles() {
+        use models::authz::CapabilityBundle as B;
+
+        let cases = [
+            ("read", B::Viewer.bits()),
+            ("write", B::Writer.bits()),
+            ("admin", B::Admin.bits()),
+            ("unrelated", B::Editor.bits() | B::TeamAdmin.bits()),
+            ("empty", models::authz::CapabilityBits::empty()),
+        ];
+        let results = cases.map(|(name, bits)| (name, maximal_bundles(bits)));
+        insta::assert_json_snapshot!(results, @r#"
+        [
+          [
+            "read",
+            [
+              "viewer"
+            ]
+          ],
+          [
+            "write",
+            [
+              "writer"
+            ]
+          ],
+          [
+            "admin",
+            [
+              "admin"
+            ]
+          ],
+          [
+            "unrelated",
+            [
+              "editor",
+              "team_admin"
+            ]
+          ],
+          [
+            "empty",
+            []
+          ]
+        ]
+        "#);
+    }
 
     #[test]
     fn test_null_bytes_in_json() {

@@ -378,7 +378,11 @@ impl Publisher {
         // Resolve a data-plane name to its user-authorized Id.
         let resolve = |data_plane_name: &str| {
             if let Some(data_plane) = snapshot
-                .is_user_authorized(subject, data_plane_name, models::Capability::Read)
+                .is_user_authorized(
+                    subject,
+                    data_plane_name,
+                    models::authz::CapabilityBundle::Viewer,
+                )
                 .then(|| snapshot.data_plane_by_catalog_name(data_plane_name))
                 .flatten()
             {

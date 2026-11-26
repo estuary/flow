@@ -113,8 +113,8 @@ pub(crate) async fn wake_tenant_controller(
 /// Return a policy_result shape which fits Envelope::authorization_outcome.
 ///
 /// `required` accepts any value that converts into a `CapabilityBits`:
-/// legacy `models::Capability` (mapped via `bits_for_legacy`), a single
-/// `models::authz::CapabilityBit` bit, or an explicit `CapabilityBits`.
+/// a `models::authz::CapabilityBundle`, a single `models::authz::CapabilityBit`
+/// bit, or an explicit `CapabilityBits`.
 pub fn evaluate_names_authorization<S>(
     snapshot: &Snapshot,
     subject: &models::authz::Subject,
@@ -366,20 +366,20 @@ fn ops_suffix(task: &snapshot::SnapshotTask) -> String {
     )
 }
 
-const fn map_capability_to_gazette(capability: models::Capability) -> u32 {
+const fn map_capability_to_gazette(capability: models::authz::LegacyTier) -> u32 {
     match capability {
-        models::Capability::None => {
+        models::authz::LegacyTier::None => {
             panic!("gazette capability mapping requires Read, Write, or Admin")
         }
-        models::Capability::Read => {
+        models::authz::LegacyTier::Read => {
             proto_gazette::capability::LIST | proto_gazette::capability::READ
         }
-        models::Capability::Write => {
+        models::authz::LegacyTier::Write => {
             proto_gazette::capability::LIST
                 | proto_gazette::capability::READ
                 | proto_gazette::capability::APPEND
         }
-        models::Capability::Admin => {
+        models::authz::LegacyTier::Admin => {
             proto_gazette::capability::LIST
                 | proto_gazette::capability::READ
                 | proto_gazette::capability::APPEND
@@ -397,7 +397,7 @@ mod tests {
     /// evaluate_names_authorization over the Snapshot's grant walk.
     #[test]
     fn test_evaluate_ops_admin_gate() {
-        use models::Capability::{Admin, Read};
+        use models::authz::CapabilityBundle::{Admin, Viewer};
         let user = uuid::Uuid::from_bytes([0x11; 16]);
         let subject = models::authz::Subject::unrestricted(user);
         let email = Some("user@example.test");
@@ -429,8 +429,8 @@ mod tests {
         .unwrap_err();
         assert_eq!(bit_denial.message(), status.message());
 
-        // A read grant to `ops/` is not admin.
-        let snapshot = snapshot_of_grants(&[(user, "ops/", Read)], &[]);
+        // A Viewer grant to `ops/` is not admin.
+        let snapshot = snapshot_of_grants(&[(user, "ops/", Viewer)], &[]);
         assert!(evaluate(&snapshot).is_err());
     }
 }

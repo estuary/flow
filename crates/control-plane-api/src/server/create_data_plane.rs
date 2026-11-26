@@ -70,7 +70,7 @@ pub async fn create_data_plane(
         env.snapshot(),
         env.subject()?,
         claims.email.as_deref(),
-        models::Capability::Admin,
+        models::authz::CapabilityBundle::Admin,
         ["ops/"],
     );
     let (_expiry, ()) = env.authorization_outcome(policy_result).await?;

@@ -62,46 +62,6 @@ pub enum CatalogType {
     Test,
 }
 
-/// Capability within the Estuary role-based access control (RBAC) authorization system.
-#[derive(
-    Serialize, Deserialize, Clone, Copy, Debug, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
-#[serde(rename_all = "lowercase")]
-#[cfg_attr(
-    feature = "sqlx-support",
-    derive(sqlx::Type),
-    sqlx(type_name = "grant_capability", rename_all = "lowercase")
-)]
-#[cfg_attr(
-    feature = "async-graphql",
-    derive(async_graphql::Enum),
-    graphql(rename_items = "lowercase")
-)]
-pub enum Capability {
-    /// Note that the discriminants here align with those in the database type.
-    None = 0,
-    Read = 10,
-    Write = 20,
-    Admin = 30,
-}
-
-impl AsRef<str> for Capability {
-    fn as_ref(&self) -> &str {
-        match self {
-            Capability::None => "none",
-            Capability::Read => "read",
-            Capability::Write => "write",
-            Capability::Admin => "admin",
-        }
-    }
-}
-
-impl std::fmt::Display for Capability {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_ref())
-    }
-}
-
 impl Catalog {
     /// Build a root JSON schema for the Catalog model.
     pub fn root_json_schema() -> schemars::Schema {

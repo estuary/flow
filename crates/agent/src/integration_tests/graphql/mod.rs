@@ -169,7 +169,7 @@ pub async fn common_setup() -> (TestHarness, Uuid, Uuid) {
 
     // Grant bobCo/ read access to aliceCo/shared/
     harness
-        .add_role_grant("bobCo/", "aliceCo/shared/", models::Capability::Read)
+        .add_role_grant("bobCo/", "aliceCo/shared/", models::authz::LegacyTier::Read)
         .await;
 
     // Create Bob's materialization, publishing it multiple times so that we can

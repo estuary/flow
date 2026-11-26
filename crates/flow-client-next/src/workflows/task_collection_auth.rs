@@ -26,10 +26,10 @@ pub struct TaskCollectionAuth {
 /// or minimally the Shard ID template drawn from the task specification
 /// (the latter is relevant for Dekaf, which has no actual Shards).
 ///
-/// `capability` is the requested capability level of the authorization.
-/// This is NOT a models::Capability. Rather, it's a bit-mask in the u32
-/// Gazette capability namespace and is restricted to
-/// proto_gazette::capability::{APPEND, APPLY, LIST, READ}.
+/// `capability` is the requested Gazette capability of the authorization:
+/// a bit-mask in the u32 Gazette capability namespace, restricted to
+/// proto_gazette::capability::{APPEND, APPLY, LIST, READ}. It is not a
+/// capability bit or bundle of `models::authz`.
 ///
 /// `data_plane_fqdn` is the FQDN of the data-plane hosting the task.
 ///

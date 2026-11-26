@@ -24,8 +24,8 @@ pub struct ControlClaims {
     pub email: Option<String>,
     // Capability bundles limiting which granted capabilities the token may use.
     // Omitted or null means no mask; an empty list means identity only.
-    // Bundles are unioned. Only capability bits are masked; a grant's legacy
-    // `capability` value is not attenuated.
+    // Bundles are unioned, and the token may exercise only the capability bits
+    // of that union.
     //
     // A verifier rejects a token naming a bundle it doesn't know. Bundle names
     // are stable, and a new bundle is accepted by every replica before any
@@ -118,7 +118,7 @@ pub struct UserCollectionAuthorizationRequest {
     pub collection: crate::Collection,
     /// # Requested capability level of the authorization.
     #[serde(default = "capability_read")]
-    pub capability: crate::Capability,
+    pub capability: authz::LegacyTier,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// If this is non-zero, it lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -167,7 +167,7 @@ pub struct UserPrefixAuthorizationRequest {
     pub data_plane: crate::Name,
     /// # Requested capability level of the authorization.
     #[serde(default = "capability_read")]
-    pub capability: crate::Capability,
+    pub capability: authz::LegacyTier,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// This timestamp lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -211,7 +211,7 @@ pub struct UserTaskAuthorizationRequest {
     pub task: crate::Name,
     /// # Requested capability level of the authorization.
     #[serde(default = "capability_read")]
-    pub capability: crate::Capability,
+    pub capability: authz::LegacyTier,
     /// # Unix timestamp, in seconds, at which the operation started.
     /// If this is non-zero, it lower-bounds the time of an authorization
     /// snapshot required to definitively reject an authorization.
@@ -430,8 +430,8 @@ pub struct TaskUpdateConfig {
     pub retry_millis: u64,
 }
 
-const fn capability_read() -> crate::Capability {
-    crate::Capability::Read
+const fn capability_read() -> authz::LegacyTier {
+    authz::LegacyTier::Read
 }
 
 #[cfg(test)]

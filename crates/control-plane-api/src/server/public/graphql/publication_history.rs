@@ -544,13 +544,13 @@ mod test {
               },
               "publicationId": "0000000000000002"
             },
-            "userCapability": null
+            "userCapability": "read"
           },
           "delegate_without_catalog_read": {
             "catalogName": "aliceCo/data/foo",
             "liveSpec": null,
             "publicationForId": null,
-            "userCapability": "read"
+            "userCapability": null
           }
         }
         "#);

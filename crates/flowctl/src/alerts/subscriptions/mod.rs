@@ -120,7 +120,7 @@ async fn do_list(list: &List, ctx: &mut crate::CliContext) -> anyhow::Result<()>
         pre
     } else {
         let prefixes =
-            crate::get_default_prefix_arguments(ctx, models::Capability::Read, 1).await?;
+            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 1).await?;
         prefixes
             .into_iter()
             .next()
@@ -198,7 +198,7 @@ async fn do_subscribe(create: &SubscribeArgs, ctx: &mut crate::CliContext) -> an
         pre
     } else {
         let prefix_vec =
-            crate::get_default_prefix_arguments(ctx, models::Capability::Read, 1).await?;
+            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 1).await?;
         prefix_vec
             .into_iter()
             .next()
@@ -314,7 +314,7 @@ async fn do_unsubscribe(args: &UnsubscribeArgs, ctx: &mut crate::CliContext) -> 
         pre
     } else {
         let prefix_vec =
-            crate::get_default_prefix_arguments(ctx, models::Capability::Read, 1).await?;
+            crate::get_default_prefix_arguments(ctx, models::authz::LegacyTier::Read, 1).await?;
         prefix_vec
             .into_iter()
             .next()

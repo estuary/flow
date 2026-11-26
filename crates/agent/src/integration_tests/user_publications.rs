@@ -4,7 +4,7 @@ use super::harness::{
 use crate::{
     ControlPlane, controllers::ControllerState, integration_tests::harness::InjectBuildError,
 };
-use models::{Capability, CatalogType, Id, status::AlertType};
+use models::{CatalogType, Id, status::AlertType};
 
 #[tokio::test]
 async fn test_user_publications() {
@@ -147,7 +147,7 @@ async fn test_user_publications() {
         ),
         (
             "flow://materialization/dogs/materialize",
-            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability_bundles\": [\n      \"writer\"\n    ]\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability_bundles\": [\n      \"viewer\"\n    ]\n  }\n]",
         ),
     ]
     "#);
@@ -183,7 +183,7 @@ async fn test_user_publications() {
     [
         (
             "flow://materialization/dogs/materialize",
-            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+            "Specification 'dogs/materialize' is not read-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability_bundles\": [\n      \"writer\"\n    ]\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability_bundles\": [\n      \"viewer\"\n    ]\n  }\n]",
         ),
     ]
     "#);
@@ -199,7 +199,7 @@ async fn test_user_publications() {
 
     // Add the role grant, and now dogs can materialize cats/noms
     harness
-        .add_role_grant("dogs/", "cats/", Capability::Read)
+        .add_role_grant("dogs/", "cats/", models::authz::LegacyTier::Read)
         .await;
     let dog_result = harness
         .user_publication(
@@ -257,7 +257,7 @@ async fn test_user_publications() {
     // `write` on dogs/ conveys no `SpecEdit`, so expansion must still exclude
     // dogs/materialize.
     harness
-        .add_user_grant(cats_user, "dogs/", Capability::Write)
+        .add_user_grant(cats_user, "dogs/", models::authz::LegacyTier::Write)
         .await;
     let result = harness
         .user_publication(
@@ -1032,7 +1032,7 @@ async fn test_publication_drafted_name_requires_spec_edit() {
     // `write` on cats/ is enough to read and write data, but drafting a spec
     // under cats/ requires `SpecEdit`.
     harness
-        .add_user_grant(dogs_user, "cats/", Capability::Write)
+        .add_user_grant(dogs_user, "cats/", models::authz::LegacyTier::Write)
         .await;
 
     let result = harness
@@ -1200,7 +1200,7 @@ async fn test_publication_spec_to_spec_write_authorization() {
     // The user may read cats/noms, so the only obstacle left is the
     // spec-to-spec write authorization of dogs/capture into cats/.
     harness
-        .add_user_grant(dogs_user, "cats/", Capability::Read)
+        .add_user_grant(dogs_user, "cats/", models::authz::LegacyTier::Read)
         .await;
 
     let result = harness
@@ -1215,7 +1215,7 @@ async fn test_publication_spec_to_spec_write_authorization() {
     [
         (
             "flow://capture/dogs/capture",
-            "Specification is not write-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability\": \"write\",\n    \"bundles\": []\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability\": \"read\",\n    \"bundles\": []\n  }\n]",
+            "Specification is not write-authorized to 'cats/noms'.\nAvailable grants are: [\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"dogs/\",\n    \"capability_bundles\": [\n      \"writer\"\n    ]\n  },\n  {\n    \"subject_role\": \"dogs/\",\n    \"object_role\": \"ops/dp/public/\",\n    \"capability_bundles\": [\n      \"viewer\"\n    ]\n  }\n]",
         ),
     ]
     "#);
@@ -1232,10 +1232,10 @@ async fn test_publication_spec_to_spec_write_authorization() {
     // A grant chain reaching cats/ through an intermediary role: dogs/ holds
     // admin of middle/, and middle/ holds write to cats/.
     harness
-        .add_role_grant("dogs/", "middle/", Capability::Admin)
+        .add_role_grant("dogs/", "middle/", models::authz::LegacyTier::Admin)
         .await;
     harness
-        .add_role_grant("middle/", "cats/", Capability::Write)
+        .add_role_grant("middle/", "cats/", models::authz::LegacyTier::Write)
         .await;
 
     // The chain authorizes the capture: spec-to-spec authorization walks the

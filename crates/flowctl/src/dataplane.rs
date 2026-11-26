@@ -17,7 +17,7 @@ pub async fn user_collection_journal(
     user_tokens: &tokens::PendingWatch<UserToken>,
     router: &gazette::Router,
     collection: &str,
-    capability: models::Capability,
+    capability: models::authz::LegacyTier,
 ) -> anyhow::Result<(String, gazette::journal::Client)> {
     let watch = tokens::watch(workflows::UserCollectionAuth {
         client: rest.clone(),
@@ -97,7 +97,7 @@ pub fn user_task_auth_watch(
         client: rest.clone(),
         user_tokens: user_tokens.clone(),
         task: models::Name::new(task),
-        capability: models::Capability::Read,
+        capability: models::authz::LegacyTier::Read,
     })
 }
 
@@ -132,7 +132,7 @@ pub async fn user_task_admin(
         user_tokens: user_tokens.clone(),
         prefix: models::Prefix::new(format!("{task}/")),
         data_plane,
-        capability: models::Capability::Admin,
+        capability: models::authz::LegacyTier::Admin,
     });
     let journal_client = workflows::user_prefix_auth::new_journal_client(
         gazette::journal::Client::new_fragment_client(),
@@ -156,7 +156,7 @@ pub async fn user_prefix_authorization(
     user_tokens: &tokens::PendingWatch<UserToken>,
     prefix: models::Prefix,
     data_plane: models::Name,
-    capability: models::Capability,
+    capability: models::authz::LegacyTier,
 ) -> anyhow::Result<models::authorizations::UserPrefixAuthorization> {
     let watch = tokens::watch(workflows::UserPrefixAuth {
         client: rest.clone(),

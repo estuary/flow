@@ -486,7 +486,7 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
 /// to any prefixes. Note that any `ops/dp/` role grants are ignored.
 async fn get_default_prefix_arguments(
     ctx: &mut CliContext,
-    min_capability: models::Capability,
+    min_capability: models::authz::LegacyTier,
     max_count: usize,
 ) -> anyhow::Result<Vec<String>> {
     // We fetch at least twice the number of roles as requested, so that we can
@@ -581,10 +581,11 @@ mod test {
 
     #[test]
     fn test_filter_default_prefixes() {
+        #[allow(deprecated)] // The query still selects the legacy capability.
         fn pre(prefix: &str) -> AuthorizedPrefix {
             AuthorizedPrefix {
                 prefix: models::Prefix::new(prefix),
-                user_capability: models::Capability::Admin, // irrelevant
+                user_capability: models::authz::LegacyTier::Admin, // irrelevant
             }
         }
         let roles = vec![

@@ -740,16 +740,16 @@ async fn test_discover_capture_requires_spec_edit() {
 
     // Only grants conveying SpecEdit may discover: legacy `read` (Viewer) and
     // `write` (Writer) hold CatalogRead but not SpecEdit, while `admin` does.
-    for (capability, expect_authorized) in [
-        (models::Capability::Read, false),
-        (models::Capability::Write, false),
-        (models::Capability::Admin, true),
+    for (legacy_tier, expect_authorized) in [
+        (models::authz::LegacyTier::Read, false),
+        (models::authz::LegacyTier::Write, false),
+        (models::authz::LegacyTier::Admin, true),
     ] {
         harness
-            .add_user_grant(limited_user, "squirrels/", capability)
+            .add_user_grant(limited_user, "squirrels/", legacy_tier)
             .await;
         let draft_id = harness
-            .create_draft(limited_user, format!("{capability:?}"), Default::default())
+            .create_draft(limited_user, format!("{legacy_tier:?}"), Default::default())
             .await;
         let discover_id = harness
             .queue_user_discover(
@@ -772,7 +772,7 @@ async fn test_discover_capture_requires_spec_edit() {
         if expect_authorized {
             assert!(
                 result.job_status.is_success(),
-                "{capability:?}: expected success, got: {:?}",
+                "{legacy_tier:?}: expected success, got: {:?}",
                 result.job_status
             );
         } else {
@@ -781,7 +781,7 @@ async fn test_discover_capture_requires_spec_edit() {
                     result.job_status,
                     crate::discovers::JobStatus::NotAuthorized
                 ),
-                "{capability:?}: expected NotAuthorized, got: {:?}",
+                "{legacy_tier:?}: expected NotAuthorized, got: {:?}",
                 result.job_status
             );
         }
@@ -962,7 +962,7 @@ async fn test_discover_merge_filters_unauthorized_collection() {
     // collection is drafted fresh rather than merged with any live spec the
     // user can't read.
     harness
-        .add_role_grant("squirrels/", "chipmunks/", models::Capability::Write)
+        .add_role_grant("squirrels/", "chipmunks/", models::authz::LegacyTier::Write)
         .await;
     harness.refresh_snapshot().await;
 

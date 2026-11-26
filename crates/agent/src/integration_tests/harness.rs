@@ -28,7 +28,7 @@ use gazette::consumer::ReplicaStatus;
 use models::status::activation::ShardFailure;
 use models::status::connector::ConfigUpdate;
 use models::status::{AlertState, AlertType, ShardRef};
-use models::{Capability, CatalogType, Id};
+use models::{CatalogType, Id};
 use proto_flow::AnyBuiltSpec;
 use proto_gazette::consumer::replica_status;
 use serde::Deserialize;
@@ -562,7 +562,12 @@ impl TestHarness {
         control_plane_api::tenants::provision_test_tenant(&self.pool, tenant, &email, meta).await
     }
 
-    pub async fn add_role_grant(&mut self, subject: &str, object: &str, capability: Capability) {
+    pub async fn add_role_grant(
+        &mut self,
+        subject: &str,
+        object: &str,
+        legacy_tier: models::authz::LegacyTier,
+    ) {
         sqlx::query!(
             r#"
                 insert into role_grants (subject_role, object_role, capability)
@@ -570,19 +575,24 @@ impl TestHarness {
             "#,
             subject as &str,
             object as &str,
-            capability as Capability,
+            legacy_tier as models::authz::LegacyTier,
         )
         .execute(&self.pool)
         .await
         .unwrap();
     }
 
-    pub async fn add_user_grant(&mut self, user_id: Uuid, role: &str, capability: Capability) {
+    pub async fn add_user_grant(
+        &mut self,
+        user_id: Uuid,
+        role: &str,
+        legacy_tier: models::authz::LegacyTier,
+    ) {
         let mut txn = self.pool.begin().await.unwrap();
         control_plane_api::grants::upsert_user_grant(
             user_id,
             role,
-            capability,
+            legacy_tier,
             Some("test grant".to_string()),
             &mut txn,
         )

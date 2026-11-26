@@ -45,9 +45,9 @@
 //! all the correct scalar types defined.
 
 #[allow(unused)]
-pub use models::{
-    Capability, Capture, CatalogType, Collection, Id, Materialization, Name, Prefix, Test,
-};
+pub use models::authz::LegacyTier as Capability;
+#[allow(unused)]
+pub use models::{Capture, CatalogType, Collection, Id, Materialization, Name, Prefix, Test};
 
 /// Used for all timestamps throughout the schema
 pub type DateTime = chrono::DateTime<chrono::Utc>;

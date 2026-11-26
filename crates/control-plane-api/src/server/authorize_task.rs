@@ -44,11 +44,13 @@ pub async fn authorize_task(
     let required_role = match cap {
         // Legacy go shuffle module obtains LIST and READ separately.
         // The `shuffle` crate and `dekaf` obtain LIST | READ jointly.
-        cap if (cap == LIST) || (cap == READ) || (cap == (LIST | READ)) => models::Capability::Read,
+        cap if (cap == LIST) || (cap == READ) || (cap == (LIST | READ)) => {
+            models::authz::CapabilityBundle::Viewer
+        }
         // Legacy publisher separately obtains APPLY vs APPEND tokens.
         // The `publisher` crates obtains APPEND | APPLY | LIST jointly.
         cap if (cap == APPLY) || (cap == APPEND) || (cap == (APPEND | APPLY | LIST)) => {
-            models::Capability::Write
+            models::authz::CapabilityBundle::Writer
         }
         cap => {
             return Err(tonic::Status::invalid_argument(format!(
@@ -127,7 +129,7 @@ fn evaluate_authorization<'s>(
     shard_data_plane_fqdn: &str,
     token: &str,
     journal_name_or_prefix: &str,
-    required_role: models::Capability,
+    required_role: models::authz::CapabilityBundle,
 ) -> crate::AuthZResult<(&'s crate::snapshot::DataPlane, bool)> {
     // Map `claims.iss`, a data-plane FQDN, into its token-verified data-plane.
     let Some(task_data_plane) = snapshot.verify_data_plane_token(shard_data_plane_fqdn, token)?
@@ -161,7 +163,7 @@ fn evaluate_authorization<'s>(
 
         // As a special case outside of the RBAC system, allow a task to write
         // to its designated partition within its ops collections.
-        let is_ops = required_role == models::Capability::Write
+        let is_ops = required_role == models::authz::CapabilityBundle::Writer
             && (collection.collection_name == task_data_plane.ops_logs_name
                 || collection.collection_name == task_data_plane.ops_stats_name)
             && journal_name_or_prefix.ends_with(&super::ops_suffix(task));
@@ -230,7 +232,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/1122334455667788/pivot=00",
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             0, // iat offset - before snapshot
         );
 
@@ -251,7 +253,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "ops/tasks/public/plane-one/logs/1122334455667788/kind=capture/name=acmeCo%2Fsource-pineapple/pivot=00",
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             0, // iat offset - before snapshot
         );
 
@@ -272,18 +274,18 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "bobCo/bananas/1122334455667788/pivot=00",
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             0,
         );
 
-        insta::assert_json_snapshot!(outcome, @r###"
+        insta::assert_json_snapshot!(outcome, @r#"
         {
           "Err": {
             "status": 403,
-            "error": "task shard capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000 is not authorized to bobCo/bananas/1122334455667788/pivot=00 for Write"
+            "error": "task shard capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000 is not authorized to bobCo/bananas/1122334455667788/pivot=00 for Writer"
           }
         }
-        "###);
+        "#);
     }
 
     #[test]
@@ -292,7 +294,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/bananas/1122334455667788/pivot=00",
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             0,
         );
 
@@ -313,7 +315,7 @@ mod tests {
             "capture/acmeCo/source-banana/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/1122334455667788/pivot=00",
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             0,
         );
 
@@ -335,7 +337,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/88667755330099/pivot=00", // Not found - wrong generation ID.
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             2, // iat offset = 2 seconds after taken, which is > snapshot.taken (taken + 1)
         );
 
@@ -356,7 +358,7 @@ mod tests {
             "capture/acmeCo/source-pineapple/0011223344556677/00000000-00000000",
             "fqdn1",
             "acmeCo/pineapples/88667755330099/pivot=00", // Not found - wrong generation ID.
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
             0, // iat offset = before snapshot
         );
 
@@ -393,7 +395,7 @@ mod tests {
         shard_id: &str,
         shard_data_plane_fqdn: &str,
         journal_name_or_prefix: &str,
-        required_role: models::Capability,
+        required_role: models::authz::CapabilityBundle,
         iat_offset_seconds: i64,
     ) -> Outcome {
         let taken = tokens::now();
@@ -534,7 +536,7 @@ mod tests {
             @r#"
         Status {
             code: PermissionDenied,
-            message: "task shard capture/aliceCo/in/capture-foo/gen5678/00000000-00000000 is not authorized to some/other/collection/gen9999/pivot=00 for Write",
+            message: "task shard capture/aliceCo/in/capture-foo/gen5678/00000000-00000000 is not authorized to some/other/collection/gen9999/pivot=00 for Writer",
             source: None,
         }
         "#,

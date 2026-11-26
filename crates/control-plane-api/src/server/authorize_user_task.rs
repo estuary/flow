@@ -73,7 +73,7 @@ fn evaluate_authorization<'s>(
     subject: &models::authz::Subject,
     user_email: Option<&str>,
     task_name: &models::Name,
-    capability: models::Capability,
+    capability: models::authz::LegacyTier,
 ) -> tonic::Result<(
     Option<chrono::DateTime<chrono::Utc>>,
     (
@@ -88,16 +88,19 @@ fn evaluate_authorization<'s>(
     let user_id = subject.user_id;
     let user_email = user_email.unwrap_or("user");
 
-    if !snapshot.is_user_authorized(subject, task_name, capability) {
+    if !snapshot.is_user_authorized(subject, task_name, capability.bits()) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {task_name} for {capability:?}",
         )));
     }
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
-    if capability == models::Capability::Admin {
-        let has_support_access =
-            snapshot.is_user_authorized(subject, "estuary_support/", models::Capability::Admin);
+    if capability == models::authz::LegacyTier::Admin {
+        let has_support_access = snapshot.is_user_authorized(
+            subject,
+            "estuary_support/",
+            models::authz::CapabilityBundle::Admin,
+        );
 
         if !has_support_access {
             return Err(tonic::Status::permission_denied(format!(
@@ -184,7 +187,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -245,7 +248,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("acmeCo/other/thing"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -264,7 +267,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/anvils/materialize-orange"),
-            models::Capability::Admin,
+            models::authz::LegacyTier::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -283,7 +286,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/not/found"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -302,7 +305,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/widgets/materialize-mango"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -365,7 +368,7 @@ mod tests {
             uuid::Uuid::from_bytes([32; 16]),
             Some("bob@bob".to_string()),
             models::Name::new("bobCo/tires/materialize-wheels"),
-            models::Capability::Admin,
+            models::authz::LegacyTier::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -385,7 +388,7 @@ mod tests {
             uuid::Uuid::from_bytes([64; 16]),
             Some("alice@alice".to_string()),
             models::Name::new("aliceCo/wonderland/materialize-tea"),
-            models::Capability::Admin,
+            models::authz::LegacyTier::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -465,7 +468,7 @@ mod tests {
         user_id: uuid::Uuid,
         email: Option<String>,
         task: models::Name,
-        capability: models::Capability,
+        capability: models::authz::LegacyTier,
     ) -> Outcome {
         let snapshot = crate::Snapshot::build_fixture(None);
         let subject = models::authz::Subject::unrestricted(user_id);
@@ -534,7 +537,7 @@ mod tests {
             client: server.rest_client(),
             user_tokens: user_tokens.clone(),
             task: models::Name::new("aliceCo/in/capture-foo"),
-            capability: models::Capability::Write,
+            capability: models::authz::LegacyTier::Write,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
@@ -578,7 +581,7 @@ mod tests {
             client: server.rest_client(),
             user_tokens: user_tokens.clone(),
             task: models::Name::new("Some/Other/Task"),
-            capability: models::Capability::Write,
+            capability: models::authz::LegacyTier::Write,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 

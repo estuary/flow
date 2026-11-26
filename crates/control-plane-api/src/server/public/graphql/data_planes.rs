@@ -157,8 +157,13 @@ pub struct DataPlane {
     pub fqdn: String,
     /// Address of reactors within the data-plane.
     pub reactor_address: String,
-    /// The current user's capability to this data plane's name prefix.
-    pub user_capability: models::Capability,
+    /// The highest legacy tier whose capability bits the current user holds
+    /// at this data plane's name.
+    #[graphql(
+        name = "userCapability",
+        deprecation = "Use `PrefixRef.capabilityBundles` instead."
+    )]
+    pub user_legacy_tier: models::authz::LegacyTier,
     /// Cloud provider where this data-plane is hosted.
     pub cloud_provider: DataPlaneCloudProvider,
     /// Cloud region where this data-plane is hosted.
@@ -192,11 +197,12 @@ pub struct DataPlane {
 }
 
 impl DataPlane {
-    /// Builds a DataPlane from its snapshot row and optional database details.
+    /// Builds a DataPlane from its snapshot row, the bits the user holds at
+    /// its name, and optional database details.
     /// Returns None if the data plane's name cannot be parsed.
     pub(crate) fn build(
         dp: &crate::snapshot::DataPlane,
-        user_capability: models::Capability,
+        user_bits: models::authz::CapabilityBits,
         details: Option<&DataPlaneDetails>,
     ) -> Option<Self> {
         let (cloud_provider, region, tag, is_public) = parse_data_plane_name(&dp.data_plane_name)?;
@@ -207,7 +213,7 @@ impl DataPlane {
             name: dp.data_plane_name.clone(),
             fqdn: dp.data_plane_fqdn.clone(),
             reactor_address: dp.reactor_address.clone(),
-            user_capability,
+            user_legacy_tier: models::authz::LegacyTier::tier_of(user_bits),
             cloud_provider,
             region,
             tag,
@@ -612,7 +618,7 @@ impl DataPlanesQuery {
                 snapshot.is_user_authorized(
                     subject,
                     &dp.data_plane_name,
-                    models::Capability::Read,
+                    models::authz::CapabilityBundle::Viewer,
                 )
             })
             .collect();
@@ -653,12 +659,9 @@ impl DataPlanesQuery {
         let edges = rows
             .into_iter()
             .map(|dp| {
-                let user_capability = snapshot
-                    .user_capability(subject, &dp.data_plane_name)
-                    .expect("capability guaranteed by pre-filter");
-                let node =
-                    DataPlane::build(dp, user_capability, details_map.get(&dp.data_plane_name))
-                        .expect("name validated by pre-filter");
+                let user_bits = snapshot.user_capability_bits_at(subject, &dp.data_plane_name);
+                let node = DataPlane::build(dp, user_bits, details_map.get(&dp.data_plane_name))
+                    .expect("name validated by pre-filter");
                 connection::Edge::new(dp.data_plane_name.clone(), node)
             })
             .collect();

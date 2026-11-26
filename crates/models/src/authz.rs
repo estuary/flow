@@ -84,6 +84,23 @@ impl std::fmt::Display for CapabilityBit {
     }
 }
 
+// A bundle is a stable promise: once public, its intent is fixed. It may gain
+// bits as features ship, or as one of its bits is split into finer bits, so
+// that it keeps meaning the same thing. Its meaning changes only by
+// introducing a new bundle under a new name.
+//
+// A bundle may hold a single bit precisely so that bit can later split.
+// Every sub-bit then stays in the original bundle, and new bundles name
+// subsets of them.
+//
+// TODO: classify bundles as public or private. Both are accepted everywhere
+// a bundle is parsed, and only public ones are advertised. A new bundle ships
+// private first, so every replica and client can parse it before anything
+// names it, and becomes public in a later release. That rule is what lets
+// token verification reject unknown bundle names outright.
+//
+// These notes are `//` comments because doc comments here are published as
+// the GraphQL schema's description of `CapabilityBundle`.
 /// A stable, named bundle of capability bits. Grants and token capability
 /// masks name bundles rather than bits, so bits may be added, split, or
 /// merged without changing stored grants or minted tokens.
@@ -230,13 +247,19 @@ impl CapabilityBundle {
     }
 }
 
+/// Returns the bundles which may be advertised: listed in messages and
+/// schemas, or reported as held.
+// TODO: return only public bundles (see `CapabilityBundle`).
+pub fn public_bundles() -> impl Iterator<Item = CapabilityBundle> {
+    <CapabilityBundle as strum::VariantArray>::VARIANTS
+        .iter()
+        .copied()
+}
+
 /// Parses the snake_case name of any `CapabilityBundle`.
 pub fn parse_capability_bundle(name: &str) -> Result<CapabilityBundle, String> {
     name.parse().map_err(|_| {
-        let known: Vec<&str> = <CapabilityBundle as strum::VariantArray>::VARIANTS
-            .iter()
-            .map(<&str>::from)
-            .collect();
+        let known: Vec<&str> = public_bundles().map(<&str>::from).collect();
         format!(
             "Unknown capability bundle {name:?}: use any of {}.",
             known.join(", ")
@@ -274,47 +297,125 @@ pub fn parse_prefix_mask(prefixes: &[String]) -> Result<Vec<String>, String> {
     Ok(prefixes)
 }
 
-/// Returns bundles whose bits are all contained in `bits`.
+/// Returns public bundles whose bits are all contained in `bits`.
 pub fn bundles_covering(bits: CapabilityBits) -> impl Iterator<Item = CapabilityBundle> {
-    <CapabilityBundle as strum::VariantArray>::VARIANTS
-        .iter()
-        .copied()
-        .filter(move |bundle| bits.is_superset(bundle.bits()))
+    public_bundles().filter(move |bundle| bits.is_superset(bundle.bits()))
 }
 
-/// Returns bundles which contain all of `bits`, fewest bits first.
+/// Returns public bundles which contain all of `bits`, fewest bits first.
 pub fn bundles_containing(bits: CapabilityBits) -> impl Iterator<Item = CapabilityBundle> {
-    let mut bundles: Vec<_> = <CapabilityBundle as strum::VariantArray>::VARIANTS
-        .iter()
-        .copied()
+    let mut bundles: Vec<_> = public_bundles()
         .filter(|bundle| bundle.bits().is_superset(bits))
         .collect();
-    bundles.sort_by_cached_key(|bundle| {
-        (
-            bundle.bits().len(),
-            serde_json::to_string(bundle).expect("bundle serializes"),
-        )
-    });
+    bundles.sort_by_key(|bundle| (bundle.bits().len(), <&str>::from(bundle)));
     bundles.into_iter()
 }
 
-pub fn bits_for_legacy(capability: super::Capability) -> CapabilityBits {
-    match capability {
-        super::Capability::None => CapabilityBits::empty(),
-        super::Capability::Read => CapabilityBundle::Viewer.bits(),
-        super::Capability::Write => CapabilityBundle::Writer.bits(),
-        super::Capability::Admin => CapabilityBundle::Admin.bits(),
+impl From<CapabilityBundle> for CapabilityBits {
+    fn from(bundle: CapabilityBundle) -> Self {
+        bundle.bits()
     }
 }
 
-impl From<super::Capability> for CapabilityBits {
-    fn from(capability: super::Capability) -> Self {
-        bits_for_legacy(capability)
+// The coarse tiers of the original authorization model. They remain the
+// `grant_capability` column of grant and invite-link tables, and the GraphQL
+// `Capability` enum. Authorization works only in `CapabilityBits`: convert
+// with `bits` where a tier is read, and with `tier_of` where one is reported.
+// Doc comments here are published in the GraphQL and JSON schemas.
+/// A legacy tier of the original authorization model: none, read, write, or
+/// admin. A tier conveys the capability bits of its equivalent bundle
+/// (`Viewer`, `Writer`, or `Admin`). Prefer capability bundles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[schemars(rename = "Capability")]
+#[cfg_attr(
+    feature = "sqlx-support",
+    derive(sqlx::Type),
+    sqlx(type_name = "grant_capability", rename_all = "lowercase")
+)]
+#[cfg_attr(
+    feature = "async-graphql",
+    derive(async_graphql::Enum),
+    graphql(name = "Capability", rename_items = "lowercase")
+)]
+pub enum LegacyTier {
+    /// Note that the discriminants here align with those in the database type.
+    None = 0,
+    Read = 10,
+    Write = 20,
+    Admin = 30,
+}
+
+impl LegacyTier {
+    /// Returns the capability bits this tier conveys: exactly those of its
+    /// equivalent bundle, or none.
+    pub fn bits(self) -> CapabilityBits {
+        match self {
+            Self::None => CapabilityBits::empty(),
+            Self::Read => CapabilityBundle::Viewer.bits(),
+            Self::Write => CapabilityBundle::Writer.bits(),
+            Self::Admin => CapabilityBundle::Admin.bits(),
+        }
+    }
+
+    /// Returns the highest tier whose bits are all contained in `bits`.
+    pub fn tier_of(bits: CapabilityBits) -> Self {
+        [Self::Admin, Self::Write, Self::Read]
+            .into_iter()
+            .find(|tier| bits.is_superset(tier.bits()))
+            .unwrap_or(Self::None)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_tier_of() {
+        use super::{CapabilityBundle as B, LegacyTier as L};
+
+        for tier in [L::None, L::Read, L::Write, L::Admin] {
+            assert_eq!(L::tier_of(tier.bits()), tier);
+        }
+        let cases = [
+            ("editor", B::Editor.bits()),
+            ("writer_and_billing", B::Writer.bits() | B::Billing.bits()),
+            (
+                "admin_less_one_bit",
+                B::Admin.bits() - super::CapabilityBit::ManageLegal,
+            ),
+            (
+                "viewer_less_one_bit",
+                B::Viewer.bits() - super::CapabilityBit::JournalRead,
+            ),
+            ("catalog_read", B::CatalogRead.bits()),
+        ];
+        let results = cases.map(|(name, bits)| (name, L::tier_of(bits)));
+        insta::assert_json_snapshot!(results, @r#"
+        [
+          [
+            "editor",
+            "none"
+          ],
+          [
+            "writer_and_billing",
+            "write"
+          ],
+          [
+            "admin_less_one_bit",
+            "write"
+          ],
+          [
+            "viewer_less_one_bit",
+            "none"
+          ],
+          [
+            "catalog_read",
+            "none"
+          ]
+        ]
+        "#);
+    }
+
     #[test]
     fn bundles_covering() {
         let cases = [

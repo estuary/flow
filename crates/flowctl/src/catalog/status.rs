@@ -141,9 +141,8 @@ struct StatusRow {
     catalog_type: Option<models::CatalogType>,
     live_spec_updated_at: Option<DateTime>,
     status: Option<connected_status_query::SelectStatus>,
-    // Retained for output compatibility; legacy capabilities do not reflect
-    // effective permission bits or token restrictions.
-    user_capability: Option<models::Capability>,
+    // Retained for output compatibility.
+    user_capability: Option<models::authz::LegacyTier>,
 }
 
 impl output::CliOutput for StatusRow {

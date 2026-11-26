@@ -8,8 +8,9 @@ pub struct InviteLink {
     pub token: uuid::Uuid,
     /// The catalog prefix this invite link grants access to.
     pub catalog_prefix: models::Prefix,
-    /// The capability level granted by this invite link.
-    pub capability: models::Capability,
+    /// The legacy tier granted by this invite link.
+    #[graphql(name = "capability")]
+    pub legacy_tier: models::authz::LegacyTier,
     /// Whether this invite link can only be used once.
     pub single_use: bool,
     /// Optional description of this invite link.
@@ -27,8 +28,9 @@ pub struct InviteLink {
 pub struct RedeemInviteLinkResult {
     /// The catalog prefix that was granted.
     pub catalog_prefix: models::Prefix,
-    /// The capability level that was granted.
-    pub capability: models::Capability,
+    /// The legacy tier that was granted.
+    #[graphql(name = "capability")]
+    pub legacy_tier: models::authz::LegacyTier,
 }
 
 pub type PaginatedInviteLinks = connection::Connection<
@@ -109,7 +111,7 @@ impl InviteLinksQuery {
                 SELECT
                     il.token,
                     il.catalog_prefix AS "catalog_prefix!: String",
-                    il.capability AS "capability!: models::Capability",
+                    il.capability AS "legacy_tier!: models::authz::LegacyTier",
                     il.single_use AS "single_use!: bool",
                     il.detail,
                     il.created_at AS "created_at!: chrono::DateTime<chrono::Utc>",
@@ -145,7 +147,7 @@ impl InviteLinksQuery {
                             InviteLink {
                                 token: r.token,
                                 catalog_prefix: models::Prefix::new(&r.catalog_prefix),
-                                capability: r.capability,
+                                legacy_tier: r.legacy_tier,
                                 single_use: r.single_use,
                                 detail: r.detail,
                                 created_at: r.created_at,
@@ -172,7 +174,7 @@ impl InviteLinksMutation {
     /// Create an invite link that grants access to a catalog prefix.
     ///
     /// The caller must hold the `ManageInviteLinks` capability bit on the
-    /// catalog prefix.
+    /// catalog prefix. `capability` is the legacy tier the link grants.
     /// The prefix's tenant must be paid. A self-serve tenant is paid once it
     /// has a payment method.
     /// Share the returned token with the intended recipient out-of-band.
@@ -180,14 +182,14 @@ impl InviteLinksMutation {
         &self,
         ctx: &Context<'_>,
         catalog_prefix: models::Prefix,
-        capability: models::Capability,
+        #[graphql(name = "capability")] legacy_tier: models::authz::LegacyTier,
         #[graphql(default = true)] single_use: bool,
         detail: Option<String>,
     ) -> async_graphql::Result<InviteLink> {
         let env = ctx.data::<crate::Envelope>()?;
         let claims = env.claims()?;
 
-        if capability == models::Capability::None {
+        if legacy_tier == models::authz::LegacyTier::None {
             return Err(async_graphql::Error::new(
                 "capability must be one of: read, write, admin",
             ));
@@ -214,7 +216,7 @@ impl InviteLinksMutation {
             RETURNING token, created_at AS "created_at!: chrono::DateTime<chrono::Utc>"
             "#,
             catalog_prefix.as_str(),
-            capability as models::Capability,
+            legacy_tier as models::authz::LegacyTier,
             single_use,
             detail.as_deref(),
         )
@@ -239,7 +241,7 @@ impl InviteLinksMutation {
 
         tracing::info!(
             %catalog_prefix,
-            ?capability,
+            ?legacy_tier,
             %claims.sub,
             "created invite link"
         );
@@ -247,7 +249,7 @@ impl InviteLinksMutation {
         Ok(InviteLink {
             token: row.token,
             catalog_prefix,
-            capability,
+            legacy_tier,
             single_use,
             detail,
             created_at: row.created_at,
@@ -255,8 +257,8 @@ impl InviteLinksMutation {
         })
     }
 
-    /// Redeem an invite link token, granting the caller access to the associated
-    /// catalog prefix with the specified capability.
+    /// Redeem an invite link token, granting the caller the link's legacy tier
+    /// on its catalog prefix.
     ///
     /// The invite link's tenant must be paid.
     pub async fn redeem_invite_link(
@@ -291,7 +293,7 @@ impl InviteLinksMutation {
             r#"
             SELECT
                 catalog_prefix AS "catalog_prefix!: String",
-                capability AS "capability!: models::Capability",
+                capability AS "legacy_tier!: models::authz::LegacyTier",
                 single_use AS "single_use!: bool"
             FROM internal.invite_links
             WHERE token = $1
@@ -354,7 +356,7 @@ impl InviteLinksMutation {
         crate::grants::upsert_user_grant(
             claims.sub,
             &invite.catalog_prefix,
-            invite.capability,
+            invite.legacy_tier,
             Some("granted via invite link".to_string()),
             &mut txn,
         )
@@ -365,13 +367,13 @@ impl InviteLinksMutation {
         tracing::info!(
             %claims.sub,
             %invite.catalog_prefix,
-            ?invite.capability,
+            ?invite.legacy_tier,
             "redeemed invite link"
         );
 
         Ok(RedeemInviteLinkResult {
             catalog_prefix: models::Prefix::new(&invite.catalog_prefix),
-            capability: invite.capability,
+            legacy_tier: invite.legacy_tier,
         })
     }
 
@@ -589,7 +591,7 @@ mod test {
             )
             .await;
 
-        let bob_capability: String = sqlx::query_scalar(
+        let bob_legacy_tier: String = sqlx::query_scalar(
             "SELECT capability::text FROM user_grants WHERE user_id = $1 AND object_role = $2",
         )
         .bind(uuid::Uuid::from_bytes([0x22; 16]))
@@ -598,7 +600,7 @@ mod test {
         .await
         .unwrap();
         assert_eq!(
-            bob_capability, "write",
+            bob_legacy_tier, "write",
             "redeeming a read invite must not downgrade an existing write grant"
         );
 
@@ -640,7 +642,7 @@ mod test {
             )
             .await;
 
-        let bob_capability: String = sqlx::query_scalar(
+        let bob_legacy_tier: String = sqlx::query_scalar(
             "SELECT capability::text FROM user_grants WHERE user_id = $1 AND object_role = $2",
         )
         .bind(uuid::Uuid::from_bytes([0x22; 16]))
@@ -649,7 +651,7 @@ mod test {
         .await
         .unwrap();
         assert_eq!(
-            bob_capability, "admin",
+            bob_legacy_tier, "admin",
             "redeeming an admin invite must upgrade an existing write grant"
         );
     }

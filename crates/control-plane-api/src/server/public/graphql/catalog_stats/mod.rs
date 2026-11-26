@@ -80,7 +80,7 @@ impl CatalogStatsQuery {
         super::verify_authorization(
             env,
             names.iter().map(String::as_str),
-            models::Capability::Read,
+            models::authz::CapabilityBundle::Viewer,
         )
         .await?;
 

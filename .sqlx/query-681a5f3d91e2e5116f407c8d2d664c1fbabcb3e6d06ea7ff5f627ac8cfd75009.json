@@ -1,16 +1,16 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            g.user_id AS \"user_id: uuid::Uuid\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"capability: models::Capability\",\n            g.bundles AS \"bundles: Vec<models::authz::CapabilityBundle>\"\n        FROM user_grants g\n        ",
+  "query": "\n        SELECT\n            g.subject_role AS \"subject_role: models::Prefix\",\n            g.object_role AS \"object_role: models::Prefix\",\n            g.capability AS \"legacy_tier: models::authz::LegacyTier\",\n            g.bundles AS \"bundles: Vec<models::authz::CapabilityBundle>\"\n        FROM role_grants g\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "user_id: uuid::Uuid",
-        "type_info": "Uuid",
+        "name": "subject_role: models::Prefix",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "user_grants",
-            "name": "user_id"
+            "table": "role_grants",
+            "name": "subject_role"
           }
         }
       },
@@ -20,14 +20,14 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "user_grants",
+            "table": "role_grants",
             "name": "object_role"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "capability: models::Capability",
+        "name": "legacy_tier: models::authz::LegacyTier",
         "type_info": {
           "Custom": {
             "name": "grant_capability",
@@ -70,7 +70,7 @@
         },
         "origin": {
           "Table": {
-            "table": "user_grants",
+            "table": "role_grants",
             "name": "capability"
           }
         }
@@ -113,7 +113,7 @@
         },
         "origin": {
           "Table": {
-            "table": "user_grants",
+            "table": "role_grants",
             "name": "bundles"
           }
         }
@@ -129,5 +129,5 @@
       false
     ]
   },
-  "hash": "f474f352d1208f95578f08162a2553189fa01dad7bd53a190ccddfabb851357c"
+  "hash": "681a5f3d91e2e5116f407c8d2d664c1fbabcb3e6d06ea7ff5f627ac8cfd75009"
 }

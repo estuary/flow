@@ -14,7 +14,7 @@ pub type AuthorizedPrefix = list_authorized_prefixes::SelectAuthorizedPrefix;
 
 pub async fn list_authorized_prefixes(
     ctx: &mut crate::CliContext,
-    min_capability: models::Capability,
+    min_capability: models::authz::LegacyTier,
     limit: usize,
 ) -> anyhow::Result<Vec<AuthorizedPrefix>> {
     let vars = list_authorized_prefixes::Variables {

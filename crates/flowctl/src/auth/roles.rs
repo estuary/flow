@@ -21,8 +21,8 @@ pub enum Command {
     List,
     /// Grant an object role to a subject user or role.
     ///
-    /// A grant bestows a capability to the --subject-user-id or --subject-role
-    /// to act upon the object role in accordance with the granted capability.
+    /// A grant bestows a legacy tier (--capability) on the --subject-user-id or
+    /// --subject-role, to act upon the object role in accordance with that tier.
     /// If a grant already exists, it is updated.
     ///
     /// One of either --subject-user-id or --subject-role must be provided.
@@ -35,7 +35,7 @@ pub enum Command {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "camelCase")]
-enum Capability {
+enum LegacyTier {
     Read,
     Write,
     Admin,
@@ -57,9 +57,9 @@ pub struct Grant {
     /// Object role to which the subject role is granted.
     #[clap(long)]
     object_role: String,
-    /// Granted capability of the subject to the object role.
+    /// Legacy tier granted to the subject on the object role.
     #[clap(long, value_enum)]
-    capability: Capability,
+    capability: LegacyTier,
     /// Free-form details of the grant, such as a reason or audit log message.
     #[clap(long)]
     detail: Option<String>,

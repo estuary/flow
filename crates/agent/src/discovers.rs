@@ -182,7 +182,11 @@ impl DiscoverExecutor {
         // the plane consults what exists in the Snapshot, so an unauthorized
         // plane and a missing one are deliberately indistinguishable.
         let Some(data_plane) = snapshot
-            .is_user_authorized(&subject, &row.data_plane_name, models::Capability::Read)
+            .is_user_authorized(
+                &subject,
+                &row.data_plane_name,
+                models::authz::CapabilityBundle::Viewer,
+            )
             .then(|| snapshot.data_plane_by_catalog_name(&row.data_plane_name))
             .flatten()
             .filter(|data_plane| data_plane.can_sign())

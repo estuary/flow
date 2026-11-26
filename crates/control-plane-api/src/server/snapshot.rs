@@ -11,13 +11,46 @@ pub struct SnapshotData {
     pub data_planes: Vec<DataPlane>,
     // Data-plane migrations that are underway.
     pub migrations: Vec<SnapshotMigration>,
-    // Platform role grants.
-    pub role_grants: Vec<tables::RoleGrant>,
-    // Platform user grants.
-    pub user_grants: Vec<tables::UserGrant>,
+    // Platform role grants, as stored.
+    pub role_grants: Vec<RoleGrantRow>,
+    // Platform user grants, as stored.
+    pub user_grants: Vec<UserGrantRow>,
     pub storage_mapping_data_planes: BTreeMap<models::Prefix, Result<Vec<String>, String>>,
     // Platform tasks.
     pub tasks: Vec<SnapshotTask>,
+}
+
+/// A `role_grants` row, as stored.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct RoleGrantRow {
+    pub subject_role: models::Prefix,
+    pub object_role: models::Prefix,
+    #[serde(rename = "capability")]
+    pub legacy_tier: models::authz::LegacyTier,
+    #[serde(default)]
+    pub bundles: Vec<models::authz::CapabilityBundle>,
+}
+
+/// A `user_grants` row, as stored.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct UserGrantRow {
+    pub user_id: uuid::Uuid,
+    pub object_role: models::Prefix,
+    #[serde(rename = "capability")]
+    pub legacy_tier: models::authz::LegacyTier,
+    #[serde(default)]
+    pub bundles: Vec<models::authz::CapabilityBundle>,
+}
+
+/// Returns the capability bits conveyed by a grant row: those of its legacy
+/// tier, and of each of its `bundles`.
+fn grant_capability_bits(
+    legacy_tier: models::authz::LegacyTier,
+    bundles: &[models::authz::CapabilityBundle],
+) -> models::authz::CapabilityBits {
+    bundles
+        .iter()
+        .fold(legacy_tier.bits(), |bits, bundle| bits | bundle.bits())
 }
 
 // Snapshot is a point-in-time view of control-plane state
@@ -160,22 +193,6 @@ impl DataPlane {
 }
 
 impl Snapshot {
-    /// Returns the maximum capability available to `subject` for
-    /// `object_role_or_name`,
-    /// evaluated against this Snapshot's grants.
-    pub fn user_capability(
-        &self,
-        subject: &models::authz::Subject,
-        object_role_or_name: &str,
-    ) -> Option<models::Capability> {
-        tables::UserGrant::get_user_capability(
-            &self.role_grants,
-            &self.user_grants,
-            subject,
-            object_role_or_name,
-        )
-    }
-
     /// Returns whether `subject` holds the `required` capability bits on
     /// `object_role_or_name`, evaluated against this Snapshot's grants.
     pub fn is_user_authorized(
@@ -193,14 +210,27 @@ impl Snapshot {
         )
     }
 
+    /// Returns the union of capability bits `subject` holds at prefixes
+    /// covering `object_role_or_name`, evaluated against this Snapshot's grants.
+    pub fn user_capability_bits_at(
+        &self,
+        subject: &models::authz::Subject,
+        object_role_or_name: &str,
+    ) -> models::authz::CapabilityBits {
+        tables::UserGrant::capability_bits_at(
+            &self.role_grants,
+            &self.user_grants,
+            subject,
+            object_role_or_name,
+        )
+    }
+
     /// Returns each prefix reachable for `subject`, mapped to the union of
-    /// capability bits it holds there and the maximal legacy `capability`,
-    /// evaluated against this Snapshot's grants.
+    /// capability bits it holds there, evaluated against this Snapshot's grants.
     pub fn user_reachable_prefixes<'s>(
         &'s self,
         subject: &'s models::authz::Subject,
-    ) -> std::collections::BTreeMap<&'s str, (models::authz::CapabilityBits, models::Capability)>
-    {
+    ) -> std::collections::BTreeMap<&'s str, models::authz::CapabilityBits> {
         tables::UserGrant::reachable_prefixes(&self.role_grants, &self.user_grants, subject)
     }
 
@@ -261,8 +291,18 @@ impl Snapshot {
             mut tasks,
         } = data;
 
-        let role_grants = tables::RoleGrants::from_iter(role_grants);
-        let user_grants = tables::UserGrants::from_iter(user_grants);
+        let role_grants =
+            tables::RoleGrants::from_iter(role_grants.into_iter().map(|row| tables::RoleGrant {
+                subject_role: row.subject_role,
+                object_role: row.object_role,
+                capability_bits: grant_capability_bits(row.legacy_tier, &row.bundles),
+            }));
+        let user_grants =
+            tables::UserGrants::from_iter(user_grants.into_iter().map(|row| tables::UserGrant {
+                user_id: row.user_id,
+                object_role: row.object_role,
+                capability_bits: grant_capability_bits(row.legacy_tier, &row.bundles),
+            }));
 
         migrations.sort_by(|l, r| l.catalog_name_or_prefix.cmp(&r.catalog_name_or_prefix));
 
@@ -667,12 +707,12 @@ pub async fn try_fetch(
     .context("failed to fetch migrations")?;
 
     let role_grants = sqlx::query_as!(
-        tables::RoleGrant,
+        RoleGrantRow,
         r#"
         SELECT
             g.subject_role AS "subject_role: models::Prefix",
             g.object_role AS "object_role: models::Prefix",
-            g.capability AS "capability: models::Capability",
+            g.capability AS "legacy_tier: models::authz::LegacyTier",
             g.bundles AS "bundles: Vec<models::authz::CapabilityBundle>"
         FROM role_grants g
         "#,
@@ -682,12 +722,12 @@ pub async fn try_fetch(
     .context("failed to fetch role_grants")?;
 
     let user_grants = sqlx::query_as!(
-        tables::UserGrant,
+        UserGrantRow,
         r#"
         SELECT
             g.user_id AS "user_id: uuid::Uuid",
             g.object_role AS "object_role: models::Prefix",
-            g.capability AS "capability: models::Capability",
+            g.capability AS "legacy_tier: models::authz::LegacyTier",
             g.bundles AS "bundles: Vec<models::authz::CapabilityBundle>"
         FROM user_grants g
         "#,
@@ -1397,9 +1437,9 @@ mod tests {
     }
 
     /// `is_role_authorized` is the walk behind spec-to-spec publication
-    /// checks. Legacy capabilities compare through their bundle bits: a
-    /// `write` grant satisfies a `Read` requirement, and a covering prefix
-    /// grant authorizes every name beneath it.
+    /// checks. Requirements compare through bundle bits: a `write` grant
+    /// satisfies a `Viewer` requirement, and a covering prefix grant
+    /// authorizes every name beneath it.
     #[test]
     fn test_is_role_authorized() {
         let snapshot = Snapshot::build_fixture(None);
@@ -1408,25 +1448,56 @@ mod tests {
         assert!(snapshot.is_role_authorized(
             "bobCo/tires/capture",
             "acmeCo/shared/collection",
-            models::Capability::Read,
+            models::authz::CapabilityBundle::Viewer,
         ));
-        // A read grant does not satisfy a write requirement.
+        // A read grant does not satisfy a Writer requirement.
         assert!(!snapshot.is_role_authorized(
             "bobCo/tires/capture",
             "acmeCo/shared/collection",
-            models::Capability::Write,
+            models::authz::CapabilityBundle::Writer,
         ));
-        // A write grant satisfies a read requirement: bobCo/ writes bobCo/.
+        // A write grant satisfies a Viewer requirement: bobCo/ writes bobCo/.
         assert!(snapshot.is_role_authorized(
             "bobCo/widgets/capture",
             "bobCo/tires/collection",
-            models::Capability::Read,
+            models::authz::CapabilityBundle::Viewer,
         ));
         // The sibling prefix holds no grant reaching acmeCo/.
         assert!(!snapshot.is_role_authorized(
             "bobCo/widgets/capture",
             "acmeCo/shared/collection",
-            models::Capability::Read,
+            models::authz::CapabilityBundle::Viewer,
         ));
+    }
+
+    /// Each legacy `capability` value conveys its equivalent bundle's bits,
+    /// unioned with the bits of the row's `bundles`.
+    #[test]
+    fn test_grant_capability_bits() {
+        use models::authz::{CapabilityBundle as B, LegacyTier as L};
+
+        let mut cases = Vec::new();
+        for legacy in [L::None, L::Read, L::Write, L::Admin] {
+            for bundles in [vec![], vec![B::ViewBilling], vec![B::Editor, B::TeamAdmin]] {
+                let bits = super::grant_capability_bits(legacy, &bundles);
+                cases.push(format!("{legacy:?} + {bundles:?} => {bits:?}"));
+            }
+        }
+        insta::assert_json_snapshot!(cases, @r#"
+        [
+          "None + [] => EnumSet()",
+          "None + [ViewBilling] => EnumSet(ViewBilling)",
+          "None + [Editor, TeamAdmin] => EnumSet(CatalogRead | JournalRead | SpecEdit | CreateGrant | DeleteGrant | ManageInviteLinks | QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey | ViewSecret | EditSecret | DecryptSecret | Delegate | ManageAlerts)",
+          "Read + [] => EnumSet(CatalogRead | JournalRead | ViewDataPlanePrivateNetworking)",
+          "Read + [ViewBilling] => EnumSet(CatalogRead | JournalRead | ViewDataPlanePrivateNetworking | ViewBilling)",
+          "Read + [Editor, TeamAdmin] => EnumSet(CatalogRead | JournalRead | SpecEdit | CreateGrant | DeleteGrant | ManageInviteLinks | ViewDataPlanePrivateNetworking | QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey | ViewSecret | EditSecret | DecryptSecret | Delegate | ManageAlerts)",
+          "Write + [] => EnumSet(CatalogRead | JournalRead | JournalAppend | ViewDataPlanePrivateNetworking)",
+          "Write + [ViewBilling] => EnumSet(CatalogRead | JournalRead | JournalAppend | ViewDataPlanePrivateNetworking | ViewBilling)",
+          "Write + [Editor, TeamAdmin] => EnumSet(CatalogRead | JournalRead | JournalAppend | SpecEdit | CreateGrant | DeleteGrant | ManageInviteLinks | ViewDataPlanePrivateNetworking | QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey | ViewSecret | EditSecret | DecryptSecret | Delegate | ManageAlerts)",
+          "Admin + [] => EnumSet(CatalogRead | JournalRead | JournalAppend | SpecEdit | CreateGrant | DeleteGrant | ManageInviteLinks | ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking | ViewBilling | EditBilling | QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey | ViewSecret | EditSecret | DecryptSecret | Delegate | CreateSandbox | ManageAlerts | ManageLegal)",
+          "Admin + [ViewBilling] => EnumSet(CatalogRead | JournalRead | JournalAppend | SpecEdit | CreateGrant | DeleteGrant | ManageInviteLinks | ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking | ViewBilling | EditBilling | QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey | ViewSecret | EditSecret | DecryptSecret | Delegate | CreateSandbox | ManageAlerts | ManageLegal)",
+          "Admin + [Editor, TeamAdmin] => EnumSet(CatalogRead | JournalRead | JournalAppend | SpecEdit | CreateGrant | DeleteGrant | ManageInviteLinks | ViewDataPlanePrivateNetworking | ModifyDataPlanePrivateNetworking | ViewBilling | EditBilling | QueryServiceAccounts | CreateServiceAccount | CreateApiKey | RevokeApiKey | ViewSecret | EditSecret | DecryptSecret | Delegate | CreateSandbox | ManageAlerts | ManageLegal)"
+        ]
+        "#);
     }
 }

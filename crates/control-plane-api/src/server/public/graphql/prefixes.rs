@@ -7,22 +7,27 @@ use async_graphql::{Context, types::connection};
 pub struct PrefixRef {
     /// The prefix to which the user is authorized.
     pub prefix: models::Prefix,
-    /// The literal legacy `capability` column value of the grant(s) that
-    /// emitted this prefix (max'd if multiple grants land at the same
-    /// prefix). Reports `none` for prefixes whose authorization comes
-    /// entirely from the `bundles` column rather than the legacy column.
-    ///
-    /// Exists solely so the dashboard's read/write/admin prefix-bucket
-    /// store keeps working until it migrates to `capabilityBundles`.
-    /// Once that migration lands, this field and its derivation can be
-    /// deleted.
-    pub user_capability: models::Capability,
     #[graphql(skip)]
     pub bits: models::authz::CapabilityBits,
 }
 
 #[async_graphql::ComplexObject]
 impl PrefixRef {
+    /// The highest legacy tier whose capability bits the user holds at this
+    /// prefix.
+    ///
+    /// Exists solely so the dashboard's read/write/admin prefix-bucket
+    /// store keeps working until it migrates to `capabilityBundles`.
+    /// Once that migration lands, this field and its derivation can be
+    /// deleted.
+    #[graphql(
+        name = "userCapability",
+        deprecation = "Use `PrefixRef.capabilityBundles` instead."
+    )]
+    async fn user_legacy_tier(&self) -> models::authz::LegacyTier {
+        models::authz::LegacyTier::tier_of(self.bits)
+    }
+
     /// Capability bits the user holds at this prefix.
     #[graphql(deprecation = "Use `PrefixRef.capabilityBundles` instead.")]
     async fn capability_bits(&self) -> Vec<models::authz::CapabilityBit> {
@@ -46,9 +51,13 @@ impl PrefixRef {
 
 #[derive(Debug, Clone, async_graphql::InputObject)]
 pub struct PrefixesBy {
-    /// Filter returned prefixes by user capability.
-    #[graphql(default_with = "models::Capability::None")]
-    pub min_capability: models::Capability,
+    /// Returns only prefixes where the user holds the capability bits of this
+    /// legacy tier.
+    #[graphql(
+        name = "minCapability",
+        default_with = "models::authz::LegacyTier::None"
+    )]
+    pub min_legacy_tier: models::authz::LegacyTier,
 }
 
 /// Optional filter for the `prefixes` query. A filter only narrows the
@@ -93,8 +102,7 @@ impl PrefixesQuery {
             let snapshot = env.snapshot();
             let subject = env.subject()?;
 
-            let min_bits: models::authz::CapabilityBits =
-                by.map(|by| by.min_capability.into()).unwrap_or_default();
+            let min_bits = by.map(|by| by.min_legacy_tier.bits()).unwrap_or_default();
             let under = starts_with.as_deref().unwrap_or_default();
 
             let reachable = snapshot.user_reachable_prefixes(subject);
@@ -114,10 +122,9 @@ impl PrefixesQuery {
                     r#in.as_ref()
                         .is_none_or(|exact| exact.iter().any(|e| e == *prefix))
                 })
-                .filter(|(_, (bits, _))| bits.is_superset(min_bits))
-                .map(|(prefix, (bits, legacy))| PrefixRef {
+                .filter(|(_, bits)| bits.is_superset(min_bits))
+                .map(|(prefix, bits)| PrefixRef {
                     prefix: models::Prefix::new(*prefix),
-                    user_capability: *legacy,
                     bits: *bits,
                 })
                 .collect();
@@ -153,7 +160,6 @@ mod tests {
         let schema = async_graphql::Schema::build(
             super::PrefixRef {
                 prefix: models::Prefix::new("acmeCo/"),
-                user_capability: models::Capability::None,
                 bits,
             },
             async_graphql::EmptyMutation,

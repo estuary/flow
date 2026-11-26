@@ -73,24 +73,22 @@ tables!(
         val md5: String,
     }
 
-    table RoleGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] RoleGrant, sql "role_grants") {
-        // Subject of the grant, to which a capability is bestowed.
+    table RoleGrants (row #[derive(Clone)] RoleGrant, sql "role_grants") {
+        // Subject role of the grant.
         key subject_role: models::Prefix,
         // Object role of the grant.
         key object_role: models::Prefix,
-        // Capability of the subject with respect to the object.
-        val capability: models::Capability,
-        val bundles: Vec<models::authz::CapabilityBundle>,
+        // Capability bits of the subject with respect to the object.
+        val capability_bits: models::authz::CapabilityBits,
     }
 
-    table UserGrants (row #[derive(Clone, serde::Deserialize, serde::Serialize)] UserGrant, sql "user_grants") {
-        // User ID to which a capability is bestowed.
+    table UserGrants (row #[derive(Clone)] UserGrant, sql "user_grants") {
+        // User ID of the grant.
         key user_id: uuid::Uuid,
         // Object role of the grant.
         key object_role: models::Prefix,
-        // Capability of the subject with respect to the object.
-        val capability: models::Capability,
-        val bundles: Vec<models::authz::CapabilityBundle>,
+        // Capability bits of the subject with respect to the object.
+        val capability_bits: models::authz::CapabilityBits,
     }
 
     table DraftCaptures (row #[derive(Clone)] DraftCapture, sql "draft_captures") {
@@ -399,9 +397,6 @@ impl Error {
 pub struct NodeRef<'a> {
     pub object_role: &'a str,
     pub capability_bits: models::authz::CapabilityBits,
-    /// The legacy `capability` column of the grant that emitted this node.
-    /// Pass-through (no attenuation); reflects storage, not effective bits.
-    pub legacy: models::Capability,
 }
 
 /// Attempts to parse a catalog type and name from a URL in the form of:
@@ -472,9 +467,8 @@ json_sql_types!(
     Vec<String>,
     Vec<models::Id>,
     Vec<models::Store>,
-    Vec<models::authz::CapabilityBundle>,
     Vec<models::status::AutoDisabledBinding>,
-    models::Capability,
+    models::authz::CapabilityBits,
     models::CaptureDef,
     models::CatalogType,
     models::CollectionDef,

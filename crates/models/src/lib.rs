@@ -43,7 +43,7 @@ pub use crate::alert_config::{
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use capture_python::CapturePython;
 pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
-pub use catalogs::{Capability, Catalog, CatalogType};
+pub use catalogs::{Catalog, CatalogType};
 pub use collections::{CollectionDef, Projection};
 pub use connector::{
     CONNECTOR_INIT_PORT, ConnectorConfig, DEKAF_IMAGE_NAME_PREFIX, DEKAF_IMAGE_TAG, DekafConfig,

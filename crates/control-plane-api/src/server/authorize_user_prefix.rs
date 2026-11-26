@@ -64,7 +64,7 @@ fn evaluate_authorization<'s>(
     user_email: Option<&str>,
     prefix: &models::Prefix,
     data_plane_name: &models::Name,
-    capability: models::Capability,
+    capability: models::authz::LegacyTier,
 ) -> tonic::Result<(
     Option<chrono::DateTime<chrono::Utc>>,
     (
@@ -76,16 +76,19 @@ fn evaluate_authorization<'s>(
     let user_id = subject.user_id;
     let user_email = user_email.unwrap_or("user");
 
-    if !snapshot.is_user_authorized(subject, prefix, capability) {
+    if !snapshot.is_user_authorized(subject, prefix, capability.bits()) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {prefix} for {capability:?}",
         )));
     }
 
     // For admin capability, require that the user has a transitive role grant to estuary_support/
-    if capability == models::Capability::Admin {
-        let has_support_access =
-            snapshot.is_user_authorized(subject, "estuary_support/", models::Capability::Admin);
+    if capability == models::authz::LegacyTier::Admin {
+        let has_support_access = snapshot.is_user_authorized(
+            subject,
+            "estuary_support/",
+            models::authz::CapabilityBundle::Admin,
+        );
 
         if !has_support_access {
             return Err(tonic::Status::permission_denied(format!(
@@ -94,7 +97,11 @@ fn evaluate_authorization<'s>(
         }
     }
 
-    if !snapshot.is_user_authorized(subject, data_plane_name, models::Capability::Read) {
+    if !snapshot.is_user_authorized(
+        subject,
+        data_plane_name,
+        models::authz::CapabilityBundle::Viewer,
+    ) {
         return Err(tonic::Status::permission_denied(format!(
             "{user_email} is not authorized to {data_plane_name}",
         )));
@@ -155,7 +162,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -236,7 +243,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -317,7 +324,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/whoosh/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Write,
+            models::authz::LegacyTier::Write,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -337,7 +344,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/private/something"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -357,7 +364,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-missing"),
-            models::Capability::Read,
+            models::authz::LegacyTier::Read,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -377,7 +384,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("acmeCo/shared/stuff/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Write,
+            models::authz::LegacyTier::Write,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -398,7 +405,7 @@ mod tests {
             Some("bob@bob".to_string()),
             models::Prefix::new("bobCo/tires/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Admin,
+            models::authz::LegacyTier::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -419,7 +426,7 @@ mod tests {
             Some("alice@alice".to_string()),
             models::Prefix::new("aliceCo/"),
             models::Name::new("ops/dp/public/plane-two"),
-            models::Capability::Admin,
+            models::authz::LegacyTier::Admin,
         );
 
         insta::assert_json_snapshot!(outcome, @r###"
@@ -504,7 +511,7 @@ mod tests {
         email: Option<String>,
         prefix: models::Prefix,
         data_plane: models::Name,
-        capability: models::Capability,
+        capability: models::authz::LegacyTier,
     ) -> Outcome {
         let snapshot = crate::Snapshot::build_fixture(None);
         let subject = models::authz::Subject::unrestricted(user_id);
@@ -562,7 +569,7 @@ mod tests {
             user_tokens: user_tokens.clone(),
             prefix: models::Prefix::new("aliceCo/"),
             data_plane: models::Name::new("ops/dp/public/aws-us-west-2-c1"),
-            capability: models::Capability::Write,
+            capability: models::authz::LegacyTier::Write,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
@@ -604,7 +611,7 @@ mod tests {
             user_tokens: user_tokens.clone(),
             prefix: models::Prefix::new("Some/Other/Prefix/"),
             data_plane: models::Name::new("ops/dp/public/aws-us-west-2-c1"),
-            capability: models::Capability::Write,
+            capability: models::authz::LegacyTier::Write,
         };
         let refresh = tokens::watch(source).ready_owned().await;
 
