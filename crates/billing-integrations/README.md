@@ -16,6 +16,7 @@ approving collection.
   performs read-only classification against Stripe. Manual bills always use
   `send_invoice`, and usage invoices use the tenant's `collection_method`. `--recreate-existing` (alias `--recreate-finalized`) replaces
   eligible usage invoices; it does not reissue manual bills.
+  Usage is billed in arrears and manual bills are billed in advance. A run for a month selects that month's usage bills, and the manual bills that overlap that month or start in the next one.
   A bill's invoice and a tenant's customer are retrieved by the IDs recorded in `stripe_invoice_id` (of `internal.billing_historicals` and `internal.manual_bills`) and `tenants.stripe_customer_id`. Without a recorded ID, execution creates the customer or invoice and records its ID. A manual bill keeps one invoice across the months it spans and across edits to its dates; each publish refreshes its draft.
 - `send.rs` checks current Stripe state before approval and again before
   finalization. Usage drafts without a payment method can switch to Net 30 with
